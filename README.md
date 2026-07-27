@@ -18,8 +18,10 @@ An intelligent AI agent that understands your WordPress site and works alongside
 
 ## Stack
 
-- **JavaScript** (not TypeScript) for plugin UI and frontend code
+- **JavaScript** (not TypeScript) for plugin UI — the React sidebar is the main workspace (admin + front-end for capable users)
 - **React** via `@wordpress/element` (JSX in `.js` files, same approach as Cimo)
+- **[WordPress PHP AI Client](https://github.com/WordPress/php-ai-client)** as the provider-agnostic server-side LLM driver
+- Sidebar chrome persists in `localStorage`; conversation contents will persist in the database (not yet)
 
 ## Structure
 

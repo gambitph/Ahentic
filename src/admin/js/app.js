@@ -1,12 +1,11 @@
 /**
- * Root React application for Ahentic admin UI.
- *
- * Sidebar / workspace UI will be built here in later steps.
+ * Root React application for Ahentic.
  */
+
+import Sidebar from './sidebar/sidebar'
+
 const App = () => {
-	return (
-		<div className="ahentic" />
-	)
+	return <Sidebar />
 }
 
 export default App

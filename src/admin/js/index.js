@@ -2,9 +2,9 @@ import { createRoot } from '@wordpress/element'
 import App from './app'
 
 /**
- * Ahentic admin entry point.
+ * Ahentic entry point.
  *
- * Mounts the React app into #ahentic-root (injected on admin screens).
+ * Mounts the React sidebar into #ahentic-root (admin + front-end for capable users).
  */
 const container = document.getElementById( 'ahentic-root' )
 if ( container ) {

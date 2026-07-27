@@ -1,6 +1,6 @@
 <?php
 /**
- * Enqueue scripts for the admin area.
+ * Enqueue the main Ahentic sidebar script.
  */
 
 // Exit if accessed directly.
@@ -10,28 +10,54 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 	/**
-	 * Loads Ahentic admin assets.
+	 * Loads Ahentic sidebar assets for authorized users.
 	 */
 	class Ahentic_Script_Loader {
+		/**
+		 * Capability required to use the Ahentic workspace.
+		 *
+		 * @var string
+		 */
+		const CAPABILITY = 'manage_options';
+
 		/**
 		 * Constructor.
 		 */
 		public function __construct() {
-			add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_admin_assets' ) );
+			add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_sidebar_assets' ) );
+			add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_sidebar_assets' ) );
 			add_action( 'admin_footer', array( __CLASS__, 'render_root' ) );
+			add_action( 'wp_footer', array( __CLASS__, 'render_root' ) );
 		}
 
 		/**
-		 * Print the React mount point on admin screens.
+		 * Whether the current user may load the Ahentic sidebar.
+		 *
+		 * @return bool
+		 */
+		public static function current_user_can_use_ahentic() {
+			return is_user_logged_in() && current_user_can( self::CAPABILITY );
+		}
+
+		/**
+		 * Print the React mount point.
 		 */
 		public static function render_root() {
+			if ( ! self::current_user_can_use_ahentic() ) {
+				return;
+			}
+
 			echo '<div id="ahentic-root"></div>';
 		}
 
 		/**
-		 * Enqueue admin JavaScript and CSS.
+		 * Enqueue the main sidebar JavaScript and CSS.
 		 */
-		public static function enqueue_admin_assets() {
+		public static function enqueue_sidebar_assets() {
+			if ( ! self::current_user_can_use_ahentic() ) {
+				return;
+			}
+
 			if ( wp_script_is( 'ahentic-script', 'enqueued' ) ) {
 				return;
 			}
@@ -53,12 +79,20 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 				true
 			);
 
+			$settings_url = admin_url( 'options-general.php?page=ahentic' );
+
 			wp_localize_script(
 				'ahentic-script',
 				'ahentic',
 				array(
-					'version' => AHENTIC_VERSION,
-					'build'   => AHENTIC_BUILD,
+					'version'     => AHENTIC_VERSION,
+					'build'       => AHENTIC_BUILD,
+					'settingsUrl' => $settings_url,
+					'isAdmin'     => is_admin(),
+					'context'     => array(
+						'wpVersion'  => get_bloginfo( 'version' ),
+						'phpVersion' => PHP_VERSION,
+					),
 				)
 			);
 

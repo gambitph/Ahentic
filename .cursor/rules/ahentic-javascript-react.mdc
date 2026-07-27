@@ -1,5 +1,5 @@
 ---
-description: Ahentic uses plain JavaScript and React (no TypeScript)
+description: Ahentic uses plain JavaScript and React; sidebar is the main workspace
 alwaysApply: true
 ---
 
@@ -7,25 +7,34 @@ alwaysApply: true
 
 Ahentic uses **regular JavaScript** (`.js`), not TypeScript. Do not add `.ts` / `.tsx` source files for plugin UI or runtime code.
 
+## Sidebar is the main workspace
+
+- The **React sidebar** is the primary product surface (Cursor-like workspace), available on **wp-admin and the front-end** for users with `manage_options`.
+- Expect a **JS-heavy** codebase under `src/admin/js/sidebar/`.
+- Prefer putting interactive workspace logic in JS. PHP should expose REST/data/tools and bootstrap assets — not own the workspace UX.
+- Keep React focused on rendering state; heavier agent/tool orchestration stays on the server (via php-ai-client and WordPress APIs) unless there is a clear client-side reason.
+
 ## React
 
 - Build UI with **React** via `@wordpress/element` (WordPress’s React wrapper), same pattern as Cimo.
 - Use JSX inside `.js` files (wp-scripts handles transpilation).
 - Prefer WordPress packages (`@wordpress/element`, `@wordpress/components`, `@wordpress/i18n`, etc.) over adding a separate `react` / `react-dom` dependency.
-- Mount UI with `createRoot` from `@wordpress/element`.
+- Icons: `lucide-react`.
+- Mount UI with `createRoot` from `@wordpress/element` into `#ahentic-root`.
 
-## Example
+## Styling & theme
 
-```js
-import { createRoot, useState } from '@wordpress/element'
+- All sidebar chrome styles are scoped under `.ahentic` so they do not fight WP admin / theme CSS.
+- Visual tokens live on `[data-ahentic-theme="dark"]` (and future themes). Prefer tokens (`--ah-bg`, `--ah-fg`, …) over hard-coded colors in components.
+- Default theme is dark. Do not assume a light theme exists yet.
+- When open on desktop, the sidebar **pushes** page content via `--ahentic-sidebar-inset` (does not overlay content).
 
-const App = () => {
-	const [ open, setOpen ] = useState( false )
-	return <button onClick={ () => setOpen( ! open ) }>Toggle</button>
-}
+## Persistence
 
-const container = document.getElementById( 'ahentic-root' )
-if ( container ) {
-	createRoot( container ).render( <App /> )
-}
-```
+- **Browser `localStorage`** (`ahentic.sidebar.v1`): open/closed, width, theme, mode, open tabs, active tab id.
+- **Not in the browser:** conversation message bodies — those will be saved in the database later. Keep messages in React memory for mocks only.
+- Do not invent ad-hoc storage keys; extend the shared helpers in `src/admin/js/sidebar/storage.js`.
+
+## Keyboard
+
+- Toggle sidebar with `Cmd+L` (macOS) / `Ctrl+L` (Windows/Linux) on any page where the script is loaded.

@@ -1,0 +1,28 @@
+---
+description: Prefer WordPress AI Building Blocks — php-ai-client as the LLM driver
+alwaysApply: true
+---
+
+# WordPress AI Client
+
+Ahentic uses WordPress’s official AI libraries wherever possible, so we stay aligned with the **AI Building Blocks for WordPress** direction.
+
+## Primary LLM driver
+
+- Use **[WordPress/php-ai-client](https://github.com/WordPress/php-ai-client)** (`wordpress/php-ai-client`) as the main provider-agnostic PHP SDK for talking to generative AI models.
+- Prefer its uniform API (`WordPress\AiClient\AiClient`, prompt/embedding builders, providers) over custom HTTP clients or vendor-specific SDKs.
+- Do not introduce alternate PHP AI client libraries unless there is a clear gap that php-ai-client cannot cover — and document why.
+
+## Installation
+
+```bash
+composer require wordpress/php-ai-client
+```
+
+Bundle via Composer in the plugin (it is an SDK, not a WordPress plugin).
+
+## Usage direction
+
+- Server-side generation, embeddings, and provider selection go through php-ai-client.
+- Keep provider details behind this SDK so OpenAI, Anthropic, Google, etc. remain swappable.
+- When WordPress adds related AI building blocks (abilities, MCP, etc.), prefer those official packages over one-off implementations.

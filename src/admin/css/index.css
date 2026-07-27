@@ -1,8 +1,605 @@
+/* stylelint-disable selector-class-pattern */
+
 /**
- * Ahentic admin styles.
- *
- * Sidebar and workspace styles will be added in later steps.
+ * Ahentic sidebar styles — fully scoped under `.ahentic` (except page-inset helpers).
+ * Theme tokens live on `[data-ahentic-theme]` for future light/dark switching.
  */
+
+/* -------------------------------------------------------------------------
+ * Page inset — pushes WP admin / front-end content when the sidebar is open.
+ * These rules intentionally target the host document, not WP chrome styles.
+ * ------------------------------------------------------------------------- */
+html {
+	--ahentic-sidebar-inset: 0;
+}
+
+html.ahentic-sidebar-is-open body {
+	padding-right: var(--ahentic-sidebar-inset) !important;
+	box-sizing: border-box;
+}
+
+html.ahentic-sidebar-is-open #wpadminbar {
+	right: var(--ahentic-sidebar-inset);
+	width: auto;
+}
+
+html.ahentic-sidebar-is-open #wpcontent,
+html.ahentic-sidebar-is-open #wpfooter {
+	margin-right: 0;
+}
+
+body.ahentic-is-resizing {
+	cursor: col-resize !important;
+	user-select: none !important;
+}
+
+body.ahentic-is-resizing iframe {
+	pointer-events: none !important;
+}
+
+/* -------------------------------------------------------------------------
+ * Theme tokens
+ * ------------------------------------------------------------------------- */
+.ahentic[data-ahentic-theme="dark"] {
+	--ah-bg: #141416;
+	--ah-bg-2: #1c1c1f;
+	--ah-fg: #ececef;
+	--ah-muted: #9b9ba3;
+	--ah-border: #2a2a2e;
+	--ah-border-strong: #3d3d44;
+	--ah-hover: #252529;
+	--ah-hover-2: #303036;
+	--ah-accent: #6ea8fe;
+	--ah-danger: #f07178;
+	--ah-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), -8px 0 32px rgba(0, 0, 0, 0.35);
+	--ah-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; /* stylelint-disable-line value-keyword-case */
+	--ah-radius: 8px;
+	--ah-radius-sm: 6px;
+}
+
+/* Future: .ahentic[data-ahentic-theme="light"] { ... } */
+
+/* -------------------------------------------------------------------------
+ * Isolation reset — keep WP / theme styles from leaking in.
+ * ------------------------------------------------------------------------- */
+.ahentic,
+.ahentic *,
+.ahentic *::before,
+.ahentic *::after {
+	box-sizing: border-box;
+}
+
 .ahentic {
-	display: contents;
+	font-family: var(--ah-font);
+	font-size: 13px;
+	line-height: 1.45;
+	color: var(--ah-fg);
+	-webkit-font-smoothing: antialiased;
+}
+
+.ahentic button,
+.ahentic input,
+.ahentic textarea,
+.ahentic select {
+	font: inherit;
+	color: inherit;
+}
+
+.ahentic a {
+	color: inherit;
+	text-decoration: none;
+}
+
+.ahentic button {
+	appearance: none;
+	background: transparent;
+	border: 0;
+	padding: 0;
+	margin: 0;
+	cursor: pointer;
+}
+
+.ahentic button:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+/* -------------------------------------------------------------------------
+ * Launcher (when collapsed)
+ * ------------------------------------------------------------------------- */
+.ahentic-launcher {
+	position: fixed;
+	top: 50%;
+	right: 0;
+	z-index: 100000;
+	transform: translateY(-50%);
+	width: 28px;
+	height: 56px;
+	border-radius: 8px 0 0 8px;
+	background: var(--ah-bg);
+	color: var(--ah-muted);
+	border: 1px solid var(--ah-border);
+	border-right: 0;
+	box-shadow: var(--ah-shadow);
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+}
+
+.ahentic-launcher:hover {
+	color: var(--ah-fg);
+	background: var(--ah-hover);
+}
+
+/* -------------------------------------------------------------------------
+ * Backdrop (mobile)
+ * ------------------------------------------------------------------------- */
+.ahentic-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 100000;
+	background: rgba(0, 0, 0, 0.45);
+	border: 0;
+	cursor: pointer;
+}
+
+/* -------------------------------------------------------------------------
+ * Sidebar shell
+ * ------------------------------------------------------------------------- */
+.ahentic-sidebar {
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 100001;
+	display: none;
+	flex-direction: column;
+	width: 360px;
+	max-width: 100vw;
+	background: var(--ah-bg);
+	color: var(--ah-fg);
+	border-left: 1px solid var(--ah-border);
+	box-shadow: var(--ah-shadow);
+}
+
+.ahentic-sidebar.is-open {
+	display: flex;
+}
+
+.ahentic-sidebar.is-mobile {
+	width: 100% !important;
+	max-width: 100%;
+}
+
+.ahentic-resize {
+	position: absolute;
+	top: 0;
+	left: -3px;
+	bottom: 0;
+	width: 6px;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	cursor: col-resize;
+	z-index: 2;
+	background: transparent;
+}
+
+.ahentic-resize:hover,
+body.ahentic-is-resizing .ahentic-resize {
+	background: color-mix(in srgb, var(--ah-accent) 35%, transparent);
+}
+
+/* -------------------------------------------------------------------------
+ * Toolbar
+ * ------------------------------------------------------------------------- */
+.ahentic-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	min-height: 40px;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--ah-border);
+	flex-shrink: 0;
+}
+
+.ahentic-toolbar__left,
+.ahentic-toolbar__right {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.ahentic-toolbar__brand {
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.12em;
+	color: var(--ah-muted);
+	user-select: none;
+}
+
+.ahentic-toolbar__shortcut {
+	font-size: 11px;
+	color: var(--ah-muted);
+	opacity: 0.75;
+}
+
+/* -------------------------------------------------------------------------
+ * Icon buttons
+ * ------------------------------------------------------------------------- */
+.ahentic-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: var(--ah-radius-sm);
+	color: var(--ah-muted);
+}
+
+.ahentic-icon-btn:hover:not(:disabled) {
+	background: var(--ah-hover);
+	color: var(--ah-fg);
+}
+
+a.ahentic-icon-btn {
+	display: inline-flex;
+}
+
+/* -------------------------------------------------------------------------
+ * Tab bar
+ * ------------------------------------------------------------------------- */
+.ahentic-tabbar {
+	display: flex;
+	align-items: stretch;
+	min-height: 36px;
+	border-bottom: 1px solid var(--ah-border);
+	background: var(--ah-bg-2);
+	flex-shrink: 0;
+}
+
+.ahentic-tabbar__scroll {
+	display: flex;
+	align-items: stretch;
+	flex: 1;
+	min-width: 0;
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+
+.ahentic-tabbar__actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 0 6px;
+	border-left: 1px solid var(--ah-border);
+	flex-shrink: 0;
+	background: var(--ah-bg-2);
+}
+
+.ahentic-tab {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 180px;
+	padding: 0 10px;
+	border-right: 1px solid var(--ah-border);
+	color: var(--ah-muted);
+	background: transparent;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+.ahentic-tab:hover {
+	background: var(--ah-hover);
+	color: var(--ah-fg);
+}
+
+.ahentic-tab.is-active {
+	background: var(--ah-bg);
+	color: var(--ah-fg);
+}
+
+.ahentic-tab__icon {
+	flex-shrink: 0;
+	opacity: 0.85;
+}
+
+.ahentic-tab__title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+}
+
+.ahentic-tab__close {
+	display: none;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	margin-left: 2px;
+	border-radius: 4px;
+	color: var(--ah-muted);
+	flex-shrink: 0;
+}
+
+.ahentic-tab__close:hover {
+	background: var(--ah-hover-2);
+	color: var(--ah-fg);
+}
+
+.ahentic-tab:hover .ahentic-tab__close,
+.ahentic-tab.is-active .ahentic-tab__close {
+	display: inline-flex;
+}
+
+/* -------------------------------------------------------------------------
+ * Menus
+ * ------------------------------------------------------------------------- */
+.ahentic-menu {
+	position: relative;
+}
+
+.ahentic-menu__panel,
+.ahentic-mode__menu {
+	position: absolute;
+	z-index: 5;
+	min-width: 180px;
+	padding: 4px;
+	border: 1px solid var(--ah-border-strong);
+	border-radius: var(--ah-radius);
+	background: var(--ah-bg-2);
+	box-shadow: var(--ah-shadow);
+}
+
+.ahentic-menu__panel {
+	right: 0;
+	top: calc(100% + 4px);
+}
+
+.ahentic-menu__item,
+.ahentic-mode__option {
+	display: block;
+	width: 100%;
+	padding: 8px 10px;
+	border-radius: var(--ah-radius-sm);
+	text-align: left;
+	font-size: 12px;
+	color: var(--ah-fg);
+}
+
+.ahentic-menu__item:hover,
+.ahentic-mode__option:hover {
+	background: var(--ah-hover);
+}
+
+.ahentic-menu__item--danger {
+	color: var(--ah-danger);
+}
+
+/* -------------------------------------------------------------------------
+ * Content / messages
+ * ------------------------------------------------------------------------- */
+.ahentic-content {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 14px 12px;
+}
+
+.ahentic-content--empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.ahentic-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 14px;
+	max-width: 280px;
+	text-align: center;
+}
+
+.ahentic-empty__avatar {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 52px;
+	height: 52px;
+	border-radius: 14px;
+	background: var(--ah-bg-2);
+	border: 1px solid var(--ah-border);
+	color: var(--ah-muted);
+}
+
+.ahentic-empty__pitch {
+	margin: 0;
+	color: var(--ah-muted);
+	font-size: 12.5px;
+	line-height: 1.5;
+}
+
+.ahentic-empty__prompts {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	width: 100%;
+}
+
+.ahentic-empty__prompt {
+	width: 100%;
+	padding: 9px 11px;
+	border-radius: var(--ah-radius);
+	border: 1px solid var(--ah-border);
+	background: var(--ah-bg-2);
+	color: var(--ah-fg);
+	font-size: 12px;
+	text-align: left;
+}
+
+.ahentic-empty__prompt:hover {
+	border-color: var(--ah-border-strong);
+	background: var(--ah-hover);
+}
+
+.ahentic-messages {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.ahentic-message__label {
+	margin-bottom: 4px;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--ah-muted);
+}
+
+.ahentic-message__body {
+	padding: 10px 12px;
+	border-radius: var(--ah-radius);
+	font-size: 13px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.ahentic-message--user .ahentic-message__body {
+	background: var(--ah-bg-2);
+}
+
+.ahentic-message--assistant .ahentic-message__body {
+	background: transparent;
+	border: 1px solid var(--ah-border);
+}
+
+/* -------------------------------------------------------------------------
+ * Composer
+ * ------------------------------------------------------------------------- */
+.ahentic-composer {
+	padding: 10px 12px 12px;
+	border-top: 1px solid var(--ah-border);
+	flex-shrink: 0;
+}
+
+.ahentic-composer__box {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 10px;
+	border: 1px solid var(--ah-border);
+	border-radius: 12px;
+	background: var(--ah-bg-2);
+}
+
+.ahentic-composer__box:focus-within {
+	border-color: var(--ah-border-strong);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--ah-accent) 35%, transparent);
+}
+
+.ahentic-composer__input {
+	width: 100%;
+	min-height: 60px;
+	max-height: 160px;
+	resize: none;
+	border: 0;
+	outline: none;
+	background: transparent;
+	color: var(--ah-fg);
+	line-height: 1.45;
+}
+
+.ahentic-composer__input::placeholder {
+	color: var(--ah-muted);
+	opacity: 0.85;
+}
+
+.ahentic-composer__footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.ahentic-composer__footer-left,
+.ahentic-composer__footer-right {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.ahentic-mode {
+	position: relative;
+}
+
+.ahentic-mode__trigger {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 8px;
+	border-radius: 999px;
+	background: var(--ah-bg);
+	border: 1px solid var(--ah-border);
+	color: var(--ah-fg);
+	font-size: 11px;
+	font-weight: 500;
+}
+
+.ahentic-mode__trigger:hover {
+	border-color: var(--ah-border-strong);
+	background: var(--ah-hover);
+}
+
+.ahentic-mode__menu {
+	left: 0;
+	bottom: calc(100% + 6px);
+	min-width: 120px;
+}
+
+.ahentic-context-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: 140px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11px;
+	color: var(--ah-muted);
+}
+
+.ahentic-context-chip__sep {
+	opacity: 0.6;
+}
+
+.ahentic-composer__hint {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+	margin-top: 8px;
+	padding: 0 2px;
+	font-size: 11px;
+	color: var(--ah-muted);
+	opacity: 0.8;
+}
+
+/* -------------------------------------------------------------------------
+ * Toast
+ * ------------------------------------------------------------------------- */
+.ahentic-toast {
+	margin: 8px 12px 0;
+	padding: 8px 10px;
+	border-radius: var(--ah-radius-sm);
+	border: 1px solid var(--ah-border);
+	background: var(--ah-bg-2);
+	color: var(--ah-muted);
+	font-size: 12px;
+	flex-shrink: 0;
 }

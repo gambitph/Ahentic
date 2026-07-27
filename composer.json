@@ -3,7 +3,9 @@
 	"description": "An intelligent AI agent that understands your WordPress site and works alongside you to build, edit, troubleshoot, and manage it.",
 	"type": "wordpress-plugin",
 	"license": "GPL-2.0-or-later",
-	"require": {},
+	"require": {
+		"wordpress/php-ai-client": "^1.4"
+	},
 	"require-dev": {
 		"dealerdirect/phpcodesniffer-composer-installer": "^1.0",
 		"wp-coding-standards/wpcs": "^3.0",
@@ -16,7 +18,8 @@
 	},
 	"config": {
 		"allow-plugins": {
-			"dealerdirect/phpcodesniffer-composer-installer": true
+			"dealerdirect/phpcodesniffer-composer-installer": true,
+			"php-http/discovery": true
 		}
 	}
 }
