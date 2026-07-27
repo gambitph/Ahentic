@@ -24,10 +24,12 @@ Ahentic uses **regular JavaScript** (`.js`), not TypeScript. Do not add `.ts` / 
 
 ## Styling & theme
 
-- All sidebar chrome styles are scoped under `.ahentic` so they do not fight WP admin / theme CSS.
-- Visual tokens live on `[data-ahentic-theme="dark"]` (and future themes). Prefer tokens (`--ah-bg`, `--ah-fg`, …) over hard-coded colors in components.
+- All sidebar chrome styles are scoped under `.ahentic` so they do not fight WP admin / theme CSS (admin bar + page-inset helpers are intentional exceptions).
+- **Primary brand color:** `#5750F8` → CSS token `--ah-primary` (hover `--ah-primary-hover`). Use this for Ahentic CTAs / toggles.
+- Visual tokens live on `[data-ahentic-theme="dark"]` (and future themes). Prefer tokens (`--ah-bg`, `--ah-fg`, `--ah-primary`, …) over hard-coded colors in components.
 - Default theme is dark. Do not assume a light theme exists yet.
 - When open on desktop, the sidebar **pushes** page content via `--ahentic-sidebar-inset` (does not overlay content).
+- Monochrome logo SVG: `src/admin/images/ahentic-icon.svg` (filename `ahentic-icon.svg`). Recolor with CSS mask + `currentColor` / white on primary buttons — do not bake brand purple into the SVG.
 
 ## Persistence
 
@@ -37,4 +39,4 @@ Ahentic uses **regular JavaScript** (`.js`), not TypeScript. Do not add `.ts` / 
 
 ## Keyboard
 
-- Toggle sidebar with `Cmd+L` (macOS) / `Ctrl+L` (Windows/Linux) on any page where the script is loaded.
+- Toggle sidebar with `Cmd+I` (macOS) / `Ctrl+I` (Windows/Linux) on any page where the script is loaded.

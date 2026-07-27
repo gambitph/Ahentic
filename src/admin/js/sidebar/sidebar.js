@@ -26,6 +26,7 @@ import {
 	clampWidth,
 } from './storage'
 import { syncPageInset, clearPageInset } from './page-inset'
+import AhenticLogo from './ahentic-logo'
 
 /**
  * Detect Cmd vs Ctrl for shortcut labels.
@@ -35,7 +36,7 @@ import { syncPageInset, clearPageInset } from './page-inset'
 function getShortcutLabel() {
 	const isMac = typeof navigator !== 'undefined' &&
 		/Mac|iPhone|iPad|iPod/.test( navigator.platform || navigator.userAgent || '' )
-	return isMac ? '⌘L' : 'Ctrl+L'
+	return isMac ? '⌘I' : 'Ctrl+I'
 }
 
 /**
@@ -67,10 +68,14 @@ export default function Sidebar() {
 		() => typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
 	)
 	const [ historyNotice, setHistoryNotice ] = useState( false )
+	const [ hasAdminBar, setHasAdminBar ] = useState(
+		() => typeof document !== 'undefined' && Boolean( document.getElementById( 'wpadminbar' ) )
+	)
 
 	const resizingRef = useRef( false )
 	const shortcutLabel = useMemo( () => getShortcutLabel(), [] )
 	const context = window.ahentic?.context || {}
+	const adminBarId = window.ahentic?.adminBarId || 'ahentic-toggle'
 
 	// Persist chrome state (not message bodies).
 	useEffect( () => {
@@ -101,17 +106,66 @@ export default function Sidebar() {
 		return () => window.removeEventListener( 'resize', onResize )
 	}, [] )
 
-	// Global Cmd/Ctrl+L toggle.
+	// Global Cmd/Ctrl+I toggle (capture phase so we beat browser/editor defaults when allowed).
 	useEffect( () => {
 		const onKeyDown = event => {
-			const key = event.key?.toLowerCase()
-			if ( key === 'l' && ( event.metaKey || event.ctrlKey ) && ! event.altKey ) {
-				event.preventDefault()
-				setOpen( value => ! value )
+			const isI = event.code === 'KeyI' || event.key?.toLowerCase() === 'i'
+			const withModifier = event.metaKey || event.ctrlKey
+			if ( ! isI || ! withModifier || event.altKey || event.shiftKey ) {
+				return
 			}
+
+			event.preventDefault()
+			event.stopPropagation()
+			setOpen( value => ! value )
 		}
-		window.addEventListener( 'keydown', onKeyDown )
-		return () => window.removeEventListener( 'keydown', onKeyDown )
+
+		const boundDocs = new WeakSet()
+		const watchedFrames = new WeakSet()
+		const cleanups = []
+
+		const bindDocument = doc => {
+			if ( ! doc || boundDocs.has( doc ) ) {
+				return
+			}
+			boundDocs.add( doc )
+			doc.addEventListener( 'keydown', onKeyDown, true )
+			cleanups.push( () => doc.removeEventListener( 'keydown', onKeyDown, true ) )
+		}
+
+		const bindIframes = () => {
+			document.querySelectorAll( 'iframe' ).forEach( iframe => {
+				const tryBind = () => {
+					try {
+						bindDocument( iframe.contentDocument )
+					} catch ( error ) {
+						// Cross-origin frames are ignored.
+					}
+				}
+
+				tryBind()
+
+				if ( ! watchedFrames.has( iframe ) ) {
+					watchedFrames.add( iframe )
+					iframe.addEventListener( 'load', tryBind )
+					cleanups.push( () => iframe.removeEventListener( 'load', tryBind ) )
+				}
+			} )
+		}
+
+		bindDocument( document )
+		bindIframes()
+
+		const observer = new MutationObserver( bindIframes )
+		observer.observe( document.documentElement, {
+			childList: true,
+			subtree: true,
+		} )
+
+		return () => {
+			observer.disconnect()
+			cleanups.forEach( cleanup => cleanup() )
+		}
 	}, [] )
 
 	// Focus composer when opening or switching tabs.
@@ -120,6 +174,38 @@ export default function Sidebar() {
 			setFocusSignal( value => value + 1 )
 		}
 	}, [ open, activeTabId ] )
+
+	// Detect admin bar (toolbar can appear after mount on some front-end setups).
+	useEffect( () => {
+		setHasAdminBar( Boolean( document.getElementById( 'wpadminbar' ) ) )
+	}, [] )
+
+	// Wire admin bar toggle when present.
+	useEffect( () => {
+		const link = document.querySelector( `#wp-admin-bar-${ adminBarId } > .ab-item` )
+		if ( ! link ) {
+			return undefined
+		}
+
+		const onClick = event => {
+			event.preventDefault()
+			setOpen( value => ! value )
+		}
+
+		link.addEventListener( 'click', onClick )
+		return () => link.removeEventListener( 'click', onClick )
+	}, [ adminBarId ] )
+
+	// Reflect open state on the admin bar control.
+	useEffect( () => {
+		const node = document.getElementById( `wp-admin-bar-${ adminBarId }` )
+		const link = node?.querySelector( ':scope > .ab-item' )
+		if ( ! link ) {
+			return
+		}
+		link.setAttribute( 'aria-expanded', open ? 'true' : 'false' )
+		node.classList.toggle( 'is-ahentic-open', open )
+	}, [ open, adminBarId ] )
 
 	const activeMessages = messagesByTab[ activeTabId ] || []
 
@@ -274,7 +360,7 @@ export default function Sidebar() {
 			className="ahentic"
 			data-ahentic-theme={ theme }
 		>
-			{ ! open && (
+			{ ! open && ! hasAdminBar && (
 				<button
 					type="button"
 					className="ahentic-launcher"
@@ -282,7 +368,7 @@ export default function Sidebar() {
 					aria-label="Open Ahentic sidebar"
 					title={ `Open Ahentic (${ shortcutLabel })` }
 				>
-					A
+					<AhenticLogo size={ 18 } />
 				</button>
 			) }
 

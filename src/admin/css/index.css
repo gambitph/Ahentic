@@ -11,6 +11,8 @@
  * ------------------------------------------------------------------------- */
 html {
 	--ahentic-sidebar-inset: 0;
+	--ah-primary: #5750f8;
+	--ah-primary-hover: #4a44d4;
 }
 
 html.ahentic-sidebar-is-open body {
@@ -38,6 +40,51 @@ body.ahentic-is-resizing iframe {
 }
 
 /* -------------------------------------------------------------------------
+ * Admin bar toggle (outside .ahentic — host document chrome)
+ * ------------------------------------------------------------------------- */
+#wpadminbar .ahentic-admin-bar-node > .ab-item {
+	background: var(--ah-primary) !important;
+	color: #fff !important;
+}
+
+#wpadminbar .ahentic-admin-bar-node:hover > .ab-item,
+#wpadminbar .ahentic-admin-bar-node:focus > .ab-item,
+#wpadminbar .ahentic-admin-bar-node.hover > .ab-item {
+	background: var(--ah-primary-hover) !important;
+	color: #fff !important;
+}
+
+#wpadminbar .ahentic-admin-bar-node > .ab-item .ab-icon {
+	float: left;
+	width: 20px;
+	height: 32px;
+	margin-right: 6px;
+	padding: 6px 0;
+	background: transparent !important;
+}
+
+#wpadminbar .ahentic-admin-bar-node > .ab-item .ab-icon::before {
+	display: none !important;
+	content: none !important;
+}
+
+#wpadminbar .ahentic-admin-bar-node > .ab-item .ahentic-admin-bar__icon {
+	display: block;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+
+	/* SVG mark is white (#fff) so it stays visible on the primary purple button. */
+}
+
+#wpadminbar .ahentic-admin-bar-node > .ab-item .ab-label {
+	color: #fff !important;
+}
+
+/* -------------------------------------------------------------------------
  * Theme tokens
  * ------------------------------------------------------------------------- */
 .ahentic[data-ahentic-theme="dark"] {
@@ -49,7 +96,9 @@ body.ahentic-is-resizing iframe {
 	--ah-border-strong: #3d3d44;
 	--ah-hover: #252529;
 	--ah-hover-2: #303036;
-	--ah-accent: #6ea8fe;
+	--ah-accent: var(--ah-primary);
+	--ah-primary: #5750f8;
+	--ah-primary-hover: #4a44d4;
 	--ah-danger: #f07178;
 	--ah-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), -8px 0 32px rgba(0, 0, 0, 0.35);
 	--ah-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; /* stylelint-disable-line value-keyword-case */
@@ -105,30 +154,44 @@ body.ahentic-is-resizing iframe {
 }
 
 /* -------------------------------------------------------------------------
- * Launcher (when collapsed)
+ * Brand mark (inline SVG inherits currentcolor)
  * ------------------------------------------------------------------------- */
-.ahentic-launcher {
+.ahentic-logo {
+	display: block;
+	flex-shrink: 0;
+	color: inherit;
+	fill: currentcolor;
+}
+
+/* -------------------------------------------------------------------------
+ * Launcher (when collapsed and admin bar is unavailable)
+ * ------------------------------------------------------------------------- */
+.ahentic button.ahentic-launcher {
 	position: fixed;
 	top: 50%;
 	right: 0;
 	z-index: 100000;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	transform: translateY(-50%);
-	width: 28px;
-	height: 56px;
-	border-radius: 8px 0 0 8px;
-	background: var(--ah-bg);
-	color: var(--ah-muted);
-	border: 1px solid var(--ah-border);
-	border-right: 0;
-	box-shadow: var(--ah-shadow);
-	font-size: 12px;
-	font-weight: 600;
-	letter-spacing: 0.04em;
+	width: 40px;
+	height: 40px;
+	padding: 0;
+	border: 0;
+	border-radius: 10px 0 0 10px;
+	background: var(--ah-primary);
+	color: #fff;
+	box-shadow: -4px 0 16px rgba(87, 80, 248, 0.35);
 }
 
-.ahentic-launcher:hover {
-	color: var(--ah-fg);
-	background: var(--ah-hover);
+.ahentic button.ahentic-launcher:hover {
+	background: var(--ah-primary-hover);
+	color: #fff;
+}
+
+.ahentic button.ahentic-launcher .ahentic-logo {
+	color: #fff;
 }
 
 /* -------------------------------------------------------------------------
@@ -212,11 +275,18 @@ body.ahentic-is-resizing .ahentic-resize {
 }
 
 .ahentic-toolbar__brand {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
 	font-size: 11px;
 	font-weight: 600;
 	letter-spacing: 0.12em;
 	color: var(--ah-muted);
 	user-select: none;
+}
+
+.ahentic-toolbar__brand-icon {
+	color: inherit;
 }
 
 .ahentic-toolbar__shortcut {
@@ -265,7 +335,26 @@ a.ahentic-icon-btn {
 	flex: 1;
 	min-width: 0;
 	overflow-x: auto;
+	overflow-y: hidden;
 	scrollbar-width: thin;
+	scrollbar-color: var(--ah-border-strong) transparent;
+}
+
+.ahentic-tabbar__scroll::-webkit-scrollbar {
+	height: 3px;
+}
+
+.ahentic-tabbar__scroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.ahentic-tabbar__scroll::-webkit-scrollbar-thumb {
+	background: var(--ah-border-strong);
+	border-radius: 999px;
+}
+
+.ahentic-tabbar__scroll::-webkit-scrollbar-thumb:hover {
+	background: var(--ah-muted);
 }
 
 .ahentic-tabbar__actions {
@@ -429,22 +518,35 @@ a.ahentic-icon-btn {
 	flex-direction: column;
 	gap: 6px;
 	width: 100%;
+	margin-top: 28px;
 }
 
-.ahentic-empty__prompt {
+.ahentic-empty__prompts-label {
+	margin-bottom: 2px;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--ah-muted);
+	text-align: left;
+}
+
+.ahentic button.ahentic-empty__prompt {
 	width: 100%;
-	padding: 9px 11px;
+	padding: 10px 12px;
 	border-radius: var(--ah-radius);
 	border: 1px solid var(--ah-border);
 	background: var(--ah-bg-2);
 	color: var(--ah-fg);
 	font-size: 12px;
+	line-height: 1.4;
 	text-align: left;
 }
 
-.ahentic-empty__prompt:hover {
+.ahentic button.ahentic-empty__prompt:hover {
 	border-color: var(--ah-border-strong);
 	background: var(--ah-hover);
+	padding: 10px 12px;
 }
 
 .ahentic-messages {

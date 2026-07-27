@@ -29,6 +29,7 @@ const INCLUDED_FILES = [
 	'composer.json',
 	'index.php',
 	'readme.txt',
+	'languages',
 	...( IS_PREMIUM_BUILD ? [ 'pro__premium_only' ] : [] ),
 ]
 

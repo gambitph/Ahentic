@@ -3,6 +3,7 @@
  */
 
 import { Settings, PanelRightClose } from 'lucide-react'
+import AhenticLogo from './ahentic-logo'
 
 /**
  * @param {Object}   props
@@ -37,7 +38,10 @@ export default function Toolbar( {
 						<Settings size={ 14 } strokeWidth={ 1.75 } />
 					</button>
 				) }
-				<span className="ahentic-toolbar__brand">AHENTIC</span>
+				<span className="ahentic-toolbar__brand">
+					{/* <AhenticLogo size={ 12 } className="ahentic-toolbar__brand-icon" /> */}
+					AHENTIC
+				</span>
 			</div>
 			<div className="ahentic-toolbar__right">
 				<span className="ahentic-toolbar__shortcut" aria-hidden="true">

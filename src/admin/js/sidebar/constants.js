@@ -16,13 +16,6 @@ export const MODES = {
 	ASK: 'ask',
 }
 
-export const SUGGESTED_PROMPTS = [
-	'Audit Core Web Vitals and suggest quick wins',
-	'Review SEO metas on the latest posts',
-	'Convert classic content to blocks safely',
-	'Find unused plugins slowing the site down',
-]
-
 /**
  * Create a new empty agent tab shell (messages live in memory only).
  *

@@ -19,6 +19,18 @@ defined( 'AHENTIC_FILE' ) || define( 'AHENTIC_FILE', __FILE__ );
 defined( 'AHENTIC_VERSION' ) || define( 'AHENTIC_VERSION', '0.1.0' );
 defined( 'AHENTIC_BUILD' ) || define( 'AHENTIC_BUILD', 'free' );
 
+/**
+ * Load plugin translations.
+ */
+function ahentic_load_textdomain() {
+	load_plugin_textdomain(
+		'ahentic',
+		false,
+		dirname( plugin_basename( AHENTIC_FILE ) ) . '/languages'
+	);
+}
+add_action( 'init', 'ahentic_load_textdomain' );
+
 require_once __DIR__ . '/src/admin/class-script-loader.php';
 require_once __DIR__ . '/src/admin/class-admin.php';
 

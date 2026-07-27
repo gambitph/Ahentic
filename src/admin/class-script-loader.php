@@ -21,6 +21,13 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 		const CAPABILITY = 'manage_options';
 
 		/**
+		 * Admin bar node id.
+		 *
+		 * @var string
+		 */
+		const ADMIN_BAR_ID = 'ahentic-toggle';
+
+		/**
 		 * Constructor.
 		 */
 		public function __construct() {
@@ -28,6 +35,7 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 			add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_sidebar_assets' ) );
 			add_action( 'admin_footer', array( __CLASS__, 'render_root' ) );
 			add_action( 'wp_footer', array( __CLASS__, 'render_root' ) );
+			add_action( 'admin_bar_menu', array( __CLASS__, 'register_admin_bar_node' ), 80 );
 		}
 
 		/**
@@ -37,6 +45,43 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 		 */
 		public static function current_user_can_use_ahentic() {
 			return is_user_logged_in() && current_user_can( self::CAPABILITY );
+		}
+
+		/**
+		 * URL to the monochrome Ahentic icon SVG.
+		 *
+		 * @return string
+		 */
+		public static function icon_url() {
+			return plugins_url( 'src/admin/images/ahentic-icon.svg', AHENTIC_FILE );
+		}
+
+		/**
+		 * Add Ahentic toggle to the admin bar (left of "Howdy").
+		 *
+		 * @param \WP_Admin_Bar $wp_admin_bar Admin bar instance.
+		 */
+		public static function register_admin_bar_node( $wp_admin_bar ) {
+			if ( ! self::current_user_can_use_ahentic() ) {
+				return;
+			}
+
+			$wp_admin_bar->add_node(
+				array(
+					'id'     => self::ADMIN_BAR_ID,
+					'parent' => 'top-secondary',
+					'title'  => sprintf(
+						'<span class="ab-icon" aria-hidden="true"><img class="ahentic-admin-bar__icon" src="%1$s" alt="" width="20" height="20" /></span><span class="ab-label">%2$s</span>',
+						esc_url( self::icon_url() ),
+						esc_html__( 'Ahentic', 'ahentic' )
+					),
+					'href'   => '#ahentic',
+					'meta'   => array(
+						'title' => __( 'Toggle Ahentic sidebar (Ctrl/Cmd+I)', 'ahentic' ),
+						'class' => 'ahentic-admin-bar-node',
+					),
+				)
+			);
 		}
 
 		/**
@@ -79,6 +124,12 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 				true
 			);
 
+			wp_set_script_translations(
+				'ahentic-script',
+				'ahentic',
+				plugin_dir_path( AHENTIC_FILE ) . 'languages'
+			);
+
 			$settings_url = admin_url( 'options-general.php?page=ahentic' );
 
 			wp_localize_script(
@@ -89,6 +140,8 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 					'build'       => AHENTIC_BUILD,
 					'settingsUrl' => $settings_url,
 					'isAdmin'     => is_admin(),
+					'iconUrl'     => self::icon_url(),
+					'adminBarId'  => self::ADMIN_BAR_ID,
 					'context'     => array(
 						'wpVersion'  => get_bloginfo( 'version' ),
 						'phpVersion' => PHP_VERSION,
