@@ -1,0 +1,29 @@
+---
+description: Ahentic project GitHub repos and free/premium structure
+alwaysApply: true
+---
+
+# Ahentic Project & Repositories
+
+## Repositories
+
+This project has two GitHub repositories, used depending on whether we're building the **free** or **premium** version of Ahentic.
+
+### Free version
+
+- Main plugin repo: https://github.com/gambitph/Ahentic
+- Contains **only** free plugin code and must remain free of premium logic (WordPress.org guidelines).
+
+### Premium version
+
+- Uses the free version as the main plugin repo, and additionally uses:
+- Premium-only repo: https://github.com/bfintal/Ahentic-Premium
+- The premium repo contains **only** the premium plugin code.
+- It is placed in the `pro__premium_only` directory inside the free plugin's root folder.
+
+## Free / Premium boundaries
+
+- Do not put premium feature logic in the free repo.
+- Premium code lives exclusively under `pro__premium_only/`.
+- The free plugin may gate-load premium via `AHENTIC_BUILD === 'premium'` and `pro__premium_only/index.php` (same pattern as Cimo).
+- When packaging the free build, `pro__premium_only` must not be included.

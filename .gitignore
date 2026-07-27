@@ -1,0 +1,33 @@
+# Build artifacts
+build/
+dist/
+*.zip
+
+# Dependencies
+node_modules/
+vendor/
+
+# WordPress build files
+src/**/*.map
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+pro__premium_only/

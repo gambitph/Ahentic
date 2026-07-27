@@ -1,0 +1,22 @@
+{
+	"name": "gambitph/ahentic",
+	"description": "An intelligent AI agent that understands your WordPress site and works alongside you to build, edit, troubleshoot, and manage it.",
+	"type": "wordpress-plugin",
+	"license": "GPL-2.0-or-later",
+	"require": {},
+	"require-dev": {
+		"dealerdirect/phpcodesniffer-composer-installer": "^1.0",
+		"wp-coding-standards/wpcs": "^3.0",
+		"phpcompatibility/phpcompatibility-wp": "^2.1"
+	},
+	"scripts": {
+		"lint:php": [
+			"phpcs --standard=phpcs.xml.dist -s"
+		]
+	},
+	"config": {
+		"allow-plugins": {
+			"dealerdirect/phpcodesniffer-composer-installer": true
+		}
+	}
+}

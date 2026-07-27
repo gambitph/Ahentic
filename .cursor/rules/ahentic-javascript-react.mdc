@@ -1,0 +1,31 @@
+---
+description: Ahentic uses plain JavaScript and React (no TypeScript)
+alwaysApply: true
+---
+
+# JavaScript & React
+
+Ahentic uses **regular JavaScript** (`.js`), not TypeScript. Do not add `.ts` / `.tsx` source files for plugin UI or runtime code.
+
+## React
+
+- Build UI with **React** via `@wordpress/element` (WordPress’s React wrapper), same pattern as Cimo.
+- Use JSX inside `.js` files (wp-scripts handles transpilation).
+- Prefer WordPress packages (`@wordpress/element`, `@wordpress/components`, `@wordpress/i18n`, etc.) over adding a separate `react` / `react-dom` dependency.
+- Mount UI with `createRoot` from `@wordpress/element`.
+
+## Example
+
+```js
+import { createRoot, useState } from '@wordpress/element'
+
+const App = () => {
+	const [ open, setOpen ] = useState( false )
+	return <button onClick={ () => setOpen( ! open ) }>Toggle</button>
+}
+
+const container = document.getElementById( 'ahentic-root' )
+if ( container ) {
+	createRoot( container ).render( <App /> )
+}
+```

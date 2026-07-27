@@ -1,0 +1,49 @@
+name: Plugin Build
+
+on:
+  push:
+    branches: [ master, main, develop ]
+  pull_request:
+    branches: [ master, main, develop ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out
+      uses: actions/checkout@v4
+
+    - name: Set the version suffix for the output
+      run: echo VERSION_SUFFIX=${GITHUB_REF_NAME//\//-} >> $GITHUB_ENV
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: '.nvmrc'
+        cache: npm
+
+    - name: Install dependencies and build
+      run: |
+        npm ci --legacy-peer-deps
+        npm run build --suffix=${{ env.VERSION_SUFFIX }}
+
+    - name: Rename build zip for PR
+      run: |
+        ZIP_FILE=$(find dist -name "ahentic-*.zip" -type f | head -1)
+        if [ -n "$ZIP_FILE" ]; then
+          mv "$ZIP_FILE" ahentic-${{ env.VERSION_SUFFIX }}.zip
+          echo "Renamed $ZIP_FILE to ahentic-${{ env.VERSION_SUFFIX }}.zip"
+        else
+          echo "Build zip file not found in dist directory"
+          echo "Contents of dist directory:"
+          ls -la dist/
+          exit 1
+        fi
+
+    - name: Upload PR build zip artifact
+      if: ${{ github.event_name == 'pull_request' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ahentic-${{ env.VERSION_SUFFIX }}
+        path: ahentic-${{ env.VERSION_SUFFIX }}.zip
