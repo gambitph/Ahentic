@@ -131,6 +131,12 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 			);
 
 			$settings_url = admin_url( 'options-general.php?page=ahentic' );
+			$docs_url     = 'https://ahentic.com/docs';
+			$ai_status    = class_exists( 'Ahentic_REST' )
+				? Ahentic_REST::build_status_payload()
+				: array(
+					'isReady' => false,
+				);
 
 			wp_localize_script(
 				'ahentic-script',
@@ -139,9 +145,13 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 					'version'     => AHENTIC_VERSION,
 					'build'       => AHENTIC_BUILD,
 					'settingsUrl' => $settings_url,
+					'docsUrl'     => $docs_url,
 					'isAdmin'     => is_admin(),
 					'iconUrl'     => self::icon_url(),
 					'adminBarId'  => self::ADMIN_BAR_ID,
+					'restUrl'     => esc_url_raw( rest_url( 'ahentic/v1' ) ),
+					'restNonce'   => wp_create_nonce( 'wp_rest' ),
+					'aiPlugin'    => $ai_status,
 					'context'     => array(
 						'wpVersion'  => get_bloginfo( 'version' ),
 						'phpVersion' => PHP_VERSION,

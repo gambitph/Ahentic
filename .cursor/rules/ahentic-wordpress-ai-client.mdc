@@ -1,28 +1,62 @@
 ---
-description: Prefer WordPress AI Building Blocks — php-ai-client as the LLM driver
+description: Prefer WordPress AI Building Blocks — AI Client and php-ai-client
 alwaysApply: true
 ---
 
 # WordPress AI Client
 
-Ahentic uses WordPress’s official AI libraries wherever possible, so we stay aligned with the **AI Building Blocks for WordPress** direction.
+Ahentic uses WordPress’s official **AI Building Blocks** for model access. Prefer Core / official packages over custom HTTP clients or vendor SDKs.
 
-## Primary LLM driver
+## Reference docs
 
-- Use **[WordPress/php-ai-client](https://github.com/WordPress/php-ai-client)** (`wordpress/php-ai-client`) as the main provider-agnostic PHP SDK for talking to generative AI models.
-- Prefer its uniform API (`WordPress\AiClient\AiClient`, prompt/embedding builders, providers) over custom HTTP clients or vendor-specific SDKs.
-- Do not introduce alternate PHP AI client libraries unless there is a clear gap that php-ai-client cannot cover — and document why.
+- [Introducing the AI Client in WordPress 7.0](https://make.wordpress.org/core/2026/03/24/introducing-the-ai-client-in-wordpress-7-0/)
+- [WordPress/php-ai-client](https://github.com/WordPress/php-ai-client) (underlying provider-agnostic PHP SDK)
+- [Using Abilities To Build AI in WordPress](https://j.cv/using-abilities-to-build-ai-in-wordpress/) (patterns: single-shot, agent loops, workflows)
 
-## Installation
+## Prefer Core when available
+
+On WordPress **7.0+**, prefer the built-in AI Client entry point:
+
+```php
+$text = wp_ai_client_prompt( 'Summarize the benefits of caching in WordPress.' )
+	->using_temperature( 0.7 )
+	->generate_text();
+
+if ( is_wp_error( $text ) ) {
+	// Handle missing provider / generation failure.
+	return;
+}
+```
+
+Key ideas from Core:
+
+- Describe *what* you need; WordPress routes to a site-configured provider/model.
+- Use `using_model_preference( ... )` for soft preferences — never hard-require a vendor.
+- Prefer `generate_*_result()` when you need token usage / provider / model metadata.
+- Feature-detect: sites may have no AI provider configured (**Settings → Connectors**).
+- Always handle `WP_Error` from generation methods.
+
+## Fallback / Composer SDK
+
+When Core helpers are unavailable (or for lower-level control), use **`wordpress/php-ai-client`**:
 
 ```bash
 composer require wordpress/php-ai-client
 ```
 
-Bundle via Composer in the plugin (it is an SDK, not a WordPress plugin).
+```php
+use WordPress\AiClient\AiClient;
 
-## Usage direction
+$text = AiClient::prompt( 'Write a short summary.' )->generateText();
+```
 
-- Server-side generation, embeddings, and provider selection go through php-ai-client.
-- Keep provider details behind this SDK so OpenAI, Anthropic, Google, etc. remain swappable.
-- When WordPress adds related AI building blocks (abilities, MCP, etc.), prefer those official packages over one-off implementations.
+- Bundle via Composer (SDK, not a plugin).
+- Prefer this over OpenAI/Anthropic/Google SDKs directly.
+- Do not add alternate PHP AI client libraries unless php-ai-client / Core cannot cover the need — document why.
+
+## Usage in Ahentic
+
+- Server-side generation, embeddings, and provider selection go through Core AI Client and/or php-ai-client.
+- Keep provider details behind these APIs so models stay swappable per site.
+- Pair AI generation with the **Abilities API** for tool/action execution (see abilities rule) — do not invent parallel ad-hoc tool registries when Abilities fit.
+- UI (React sidebar) should not call vendors directly; talk to WordPress (REST / abilities / our PHP layer).

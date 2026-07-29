@@ -31,6 +31,7 @@ function ahentic_load_textdomain() {
 }
 add_action( 'init', 'ahentic_load_textdomain' );
 
+require_once __DIR__ . '/src/admin/class-rest.php';
 require_once __DIR__ . '/src/admin/class-script-loader.php';
 require_once __DIR__ . '/src/admin/class-admin.php';
 

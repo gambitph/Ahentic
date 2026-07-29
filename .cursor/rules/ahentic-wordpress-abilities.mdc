@@ -1,0 +1,117 @@
+---
+description: Prefer WordPress Abilities API for discoverable AI tools/actions
+alwaysApply: true
+---
+
+# WordPress Abilities API
+
+Ahentic should expose and consume WordPress capabilities through the **Abilities API** — the machine-readable registry of actions for AI agents, automation, REST, and UI triggers.
+
+## Reference docs
+
+- [Abilities API in WordPress 6.9](https://make.wordpress.org/core/2025/11/10/abilities-api-in-wordpress-6-9/)
+- [Client-Side Abilities API in WordPress 7.0](https://make.wordpress.org/core/2026/03/24/client-side-abilities-api-in-wordpress-7-0/)
+- [Using Abilities To Build AI in WordPress](https://j.cv/using-abilities-to-build-ai-in-wordpress/)
+
+## Why Abilities
+
+An **ability** is a named unit of functionality with:
+
+- label / description
+- category
+- input + output JSON Schema
+- permission callback
+- execute callback
+
+Register once → discover via PHP/REST/JS → reuse for sparkle actions, agent tool loops, MCP, workflows.
+
+Prefer Abilities over buried AJAX handlers, one-off REST routes, or private tool registries when the action should be agent- or automation-facing.
+
+## Server-side (PHP) — WordPress 6.9+
+
+Register categories on `wp_abilities_api_categories_init` and abilities on `wp_abilities_api_init`.
+
+```php
+add_action( 'wp_abilities_api_init', 'ahentic_register_abilities' );
+
+function ahentic_register_abilities() {
+	wp_register_ability(
+		'ahentic/example-action',
+		array(
+			'label'               => __( 'Example action', 'ahentic' ),
+			'description'         => __( 'Does something useful on the site.', 'ahentic' ),
+			'category'            => 'ahentic',
+			'input_schema'        => array( /* draft-04 schema */ ),
+			'output_schema'       => array( /* draft-04 schema */ ),
+			'execute_callback'    => 'ahentic_run_example_action',
+			'permission_callback' => static function () {
+				return current_user_can( 'manage_options' );
+			},
+			'meta'                => array(
+				'show_in_rest' => true,
+			),
+		)
+	);
+}
+```
+
+Useful PHP APIs:
+
+- `wp_register_ability()` / `wp_unregister_ability()` / `wp_has_ability()` / `wp_get_ability()` / `wp_get_abilities()`
+- Category helpers: `wp_register_ability_category()`, etc.
+- Hooks: `wp_before_execute_ability`, `wp_after_execute_ability`
+- REST (when exposed): namespace `wp-abilities/v1` — list/get abilities & categories; `…/abilities/{name}/run`
+
+Ability names: namespaced (`ahentic/...`), lowercase with dashes.
+
+## Client-side (JS) — WordPress 7.0+
+
+Two packages ([dev note](https://make.wordpress.org/core/2026/03/24/client-side-abilities-api-in-wordpress-7-0/)):
+
+| Package | Role |
+| --- | --- |
+| `@wordpress/abilities` | Pure store: register, query, execute (no server fetch) |
+| `@wordpress/core-abilities` | Loads server abilities from REST into the store |
+
+Enqueue when Ahentic needs server abilities:
+
+```php
+wp_enqueue_script_module( '@wordpress/core-abilities' );
+```
+
+Core already enqueues `@wordpress/core-abilities` on admin pages in WP 7.0 — still enqueue explicitly if we depend on it on the front-end or must guarantee load order.
+
+```js
+import {
+	registerAbility,
+	registerAbilityCategory,
+	getAbilities,
+	executeAbility,
+} from '@wordpress/abilities'
+
+// Or dynamic: await import( '@wordpress/abilities' )
+```
+
+- Register client-only abilities (navigate, insert blocks, UI side-effects) with `registerAbility` + `callback`.
+- Run any ability (client or server) via `executeAbility( name, input )`.
+- Handle errors: `ability_permission_denied`, `ability_invalid_input`, `ability_invalid_output`.
+- Use `@wordpress/data` + `store as abilitiesStore` (`core/abilities`) for reactive lists in React.
+
+Annotations (meta): `readonly`, `destructive`, `idempotent` — affect REST method selection for server abilities.
+
+## AI integration patterns (for Ahentic)
+
+From [j.cv](https://j.cv/using-abilities-to-build-ai-in-wordpress/):
+
+1. **Single-shot** — one UI trigger → one `executeAbility` (or PHP `WP_Ability::execute`).
+2. **Agentic loops** — LLM (AI Client) chooses which abilities to call; abilities are the tool surface.
+3. **Deterministic workflows** — fixed graph; AI may live inside some nodes; abilities remain the callable units.
+
+Ahentic agent/runtime tooling should map to Abilities where practical, so the same actions work for the sidebar agent, REST, and future MCP/WebMCP adapters.
+
+## Do / Don’t
+
+- **Do** register Ahentic site actions as abilities with schemas + permission checks.
+- **Do** keep React focused on UX; execute abilities through the official client/PHP APIs.
+- **Don’t** call WordPress mutate APIs ad-hoc from the LLM layer without going through an ability (or an intentional internal layer that will become one).
+- **Don’t** invent a parallel public tool registry that duplicates Abilities.

@@ -71,11 +71,15 @@ export default function Sidebar() {
 	const [ hasAdminBar, setHasAdminBar ] = useState(
 		() => typeof document !== 'undefined' && Boolean( document.getElementById( 'wpadminbar' ) )
 	)
+	const [ aiReady, setAiReady ] = useState(
+		() => Boolean( window.ahentic?.aiPlugin?.isReady )
+	)
 
 	const resizingRef = useRef( false )
 	const shortcutLabel = useMemo( () => getShortcutLabel(), [] )
 	const context = window.ahentic?.context || {}
 	const adminBarId = window.ahentic?.adminBarId || 'ahentic-toggle'
+	const aiPlugin = window.ahentic?.aiPlugin || {}
 
 	// Persist chrome state (not message bodies).
 	useEffect( () => {
@@ -428,6 +432,9 @@ export default function Sidebar() {
 				) }
 
 				<TabContent
+					aiReady={ aiReady }
+					aiPlugin={ aiPlugin }
+					onAiReady={ setAiReady }
 					messages={ activeMessages }
 					onSuggestedPrompt={ onSuggestedPrompt }
 				/>

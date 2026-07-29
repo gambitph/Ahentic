@@ -1,9 +1,11 @@
 /**
- * Top toolbar: settings, brand, shortcut hint, collapse.
+ * Top toolbar: settings, help, brand, shortcut hint, collapse.
  */
 
-import { Settings, PanelRightClose } from 'lucide-react'
-import AhenticLogo from './ahentic-logo'
+import {
+	CircleHelp, PanelRightClose, Settings,
+} from 'lucide-react'
+import { __ } from '@wordpress/i18n'
 
 /**
  * @param {Object}   props
@@ -14,6 +16,7 @@ export default function Toolbar( {
 	onClose, shortcutLabel,
 } ) {
 	const settingsUrl = window.ahentic?.settingsUrl || ''
+	const docsUrl = window.ahentic?.docsUrl || 'https://ahentic.com/docs'
 
 	return (
 		<div className="ahentic-toolbar">
@@ -22,8 +25,8 @@ export default function Toolbar( {
 					<a
 						className="ahentic-icon-btn"
 						href={ settingsUrl }
-						aria-label="Ahentic settings"
-						title="Settings"
+						aria-label={ __( 'Ahentic settings', 'ahentic' ) }
+						title={ __( 'Settings', 'ahentic' ) }
 					>
 						<Settings size={ 14 } strokeWidth={ 1.75 } />
 					</a>
@@ -31,15 +34,24 @@ export default function Toolbar( {
 					<button
 						type="button"
 						className="ahentic-icon-btn"
-						aria-label="Ahentic settings"
-						title="Settings"
+						aria-label={ __( 'Ahentic settings', 'ahentic' ) }
+						title={ __( 'Settings', 'ahentic' ) }
 						disabled
 					>
 						<Settings size={ 14 } strokeWidth={ 1.75 } />
 					</button>
 				) }
+				<a
+					className="ahentic-icon-btn"
+					href={ docsUrl }
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label={ __( 'Ahentic help and documentation', 'ahentic' ) }
+					title={ __( 'Help', 'ahentic' ) }
+				>
+					<CircleHelp size={ 14 } strokeWidth={ 1.75 } />
+				</a>
 				<span className="ahentic-toolbar__brand">
-					{/* <AhenticLogo size={ 12 } className="ahentic-toolbar__brand-icon" /> */}
 					AHENTIC
 				</span>
 			</div>
@@ -51,8 +63,8 @@ export default function Toolbar( {
 					type="button"
 					className="ahentic-icon-btn"
 					onClick={ onClose }
-					aria-label="Collapse Ahentic sidebar"
-					title={ `Collapse (${ shortcutLabel })` }
+					aria-label={ __( 'Collapse Ahentic sidebar', 'ahentic' ) }
+					title={ `${ __( 'Collapse', 'ahentic' ) } (${ shortcutLabel })` }
 				>
 					<PanelRightClose size={ 14 } strokeWidth={ 1.75 } />
 				</button>
