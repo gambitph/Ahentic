@@ -27,3 +27,7 @@ This project has two GitHub repositories, used depending on whether we're buildi
 - Premium code lives exclusively under `pro__premium_only/`.
 - The free plugin may gate-load premium via `AHENTIC_BUILD === 'premium'` and `pro__premium_only/index.php` (same pattern as Cimo).
 - When packaging the free build, `pro__premium_only` must not be included.
+
+## Private design docs
+
+Team architecture / product design docs live in **`pro__premium_only/docs/`** (private Ahentic-Premium repo) so they are not published with public checkouts. That location is for **privacy**, not a claim that every documented feature is premium-only.
