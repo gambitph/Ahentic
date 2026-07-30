@@ -15,7 +15,6 @@ import TabBar from './tab-bar'
 import TabContent from './tab-content'
 import Composer from './composer'
 import {
-	createTab,
 	MOBILE_BREAKPOINT,
 	MIN_WIDTH,
 	MAX_WIDTH,
@@ -27,6 +26,19 @@ import {
 } from './storage'
 import { syncPageInset, clearPageInset } from './page-inset'
 import AhenticLogo from './ahentic-logo'
+import DebuggerPanel from './debugger-panel'
+import {
+	createSession,
+	getSession,
+	patchSession,
+	postMessage,
+	continueSession,
+	mapEntriesToMessages,
+	isSessionId,
+} from './api'
+
+const POLL_MS = 650
+const STALL_MS = 2500
 
 /**
  * Detect Cmd vs Ctrl for shortcut labels.
@@ -54,6 +66,70 @@ function truncateTitle( text, max = 32 ) {
 	return `${ clean.slice( 0, max - 1 ) }…`
 }
 
+/**
+ * Apply a session payload into local tab + message / trace / progress state.
+ *
+ * @param {Object}   session
+ * @param {Function} setTabs
+ * @param {Function} setMessagesByTab
+ * @param {Function} [setStatusByTab]
+ * @param {Function} [setTraceByTab]
+ * @param {Function} [setProgressByTab]
+ */
+function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab ) {
+	if ( ! session?.id ) {
+		return
+	}
+	const id = String( session.id )
+	setTabs( current => current.map( tab => (
+		tab.id === id
+			? {
+				...tab,
+				title: session.title || tab.title,
+				status: session.status,
+			}
+			: tab
+	) ) )
+	if ( Array.isArray( session.messages ) ) {
+		setMessagesByTab( messages => ( {
+			...messages,
+			[ id ]: mapEntriesToMessages( session.messages ),
+		} ) )
+	}
+	if ( setStatusByTab ) {
+		setStatusByTab( statuses => ( {
+			...statuses,
+			[ id ]: session.status || 'idle',
+		} ) )
+	}
+	if ( setTraceByTab && Array.isArray( session.trace ) ) {
+		setTraceByTab( traces => ( {
+			...traces,
+			[ id ]: session.trace,
+		} ) )
+	}
+	if ( setProgressByTab ) {
+		const label = session.progress?.label || ''
+		setProgressByTab( progress => {
+			if ( ! label ) {
+				if ( ! progress[ id ] ) {
+					return progress
+				}
+				const copy = { ...progress }
+				delete copy[ id ]
+				return copy
+			}
+			return {
+				...progress,
+				[ id ]: {
+					label,
+					updatedAt: session.progress?.updatedAt || '',
+				},
+			}
+		} )
+	}
+}
+
 export default function Sidebar() {
 	const initial = useMemo( () => loadPersistedState(), [] )
 	const [ open, setOpen ] = useState( initial.open )
@@ -63,6 +139,11 @@ export default function Sidebar() {
 	const [ tabs, setTabs ] = useState( initial.tabs )
 	const [ activeTabId, setActiveTabId ] = useState( initial.activeTabId )
 	const [ messagesByTab, setMessagesByTab ] = useState( {} )
+	const [ statusByTab, setStatusByTab ] = useState( {} )
+	const [ progressByTab, setProgressByTab ] = useState( {} )
+	const [ traceByTab, setTraceByTab ] = useState( {} )
+	const [ debugOpen, setDebugOpen ] = useState( false )
+	const [ sending, setSending ] = useState( false )
 	const [ focusSignal, setFocusSignal ] = useState( 0 )
 	const [ isMobile, setIsMobile ] = useState(
 		() => typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
@@ -74,8 +155,10 @@ export default function Sidebar() {
 	const [ aiReady, setAiReady ] = useState(
 		() => Boolean( window.ahentic?.aiPlugin?.isReady )
 	)
+	const [ bootstrapped, setBootstrapped ] = useState( false )
 
 	const resizingRef = useRef( false )
+	const hydratedRef = useRef( new Set() )
 	const shortcutLabel = useMemo( () => getShortcutLabel(), [] )
 	const context = window.ahentic?.context || {}
 	const adminBarId = window.ahentic?.adminBarId || 'ahentic-toggle'
@@ -110,7 +193,160 @@ export default function Sidebar() {
 		return () => window.removeEventListener( 'resize', onResize )
 	}, [] )
 
-	// Global Cmd/Ctrl+I toggle (capture phase so we beat browser/editor defaults when allowed).
+	// Bootstrap: ensure every open tab is a real ahentic-session post.
+	useEffect( () => {
+		let cancelled = false
+
+		const bootstrap = async () => {
+			const nextTabs = []
+			const nextMessages = {}
+			const nextStatuses = {}
+			const nextTraces = {}
+			const nextProgress = {}
+
+			for ( const tab of tabs ) {
+				if ( cancelled ) {
+					return
+				}
+
+				if ( isSessionId( tab.id ) ) {
+					try {
+						const session = await getSession( tab.id )
+						if ( cancelled ) {
+							return
+						}
+						const sid = String( session.id )
+						nextTabs.push( {
+							id: sid,
+							title: session.title || tab.title || 'New Agent',
+							createdAt: tab.createdAt || Date.now(),
+							status: session.status,
+						} )
+						nextMessages[ sid ] = mapEntriesToMessages( session.messages )
+						nextStatuses[ sid ] = session.status || 'idle'
+						nextTraces[ sid ] = Array.isArray( session.trace ) ? session.trace : []
+						if ( session.progress?.label ) {
+							nextProgress[ sid ] = {
+								label: session.progress.label,
+								updatedAt: session.progress.updatedAt || '',
+							}
+						}
+						hydratedRef.current.add( sid )
+						continue
+					} catch ( error ) {
+						// Fall through and create a fresh session.
+					}
+				}
+
+				try {
+					const session = await createSession( { mode, title: tab.title || 'New Agent' } )
+					if ( cancelled ) {
+						return
+					}
+					const id = String( session.id )
+					nextTabs.push( {
+						id,
+						title: session.title || 'New Agent',
+						createdAt: Date.now(),
+						status: session.status || 'idle',
+					} )
+					nextMessages[ id ] = mapEntriesToMessages( session.messages )
+					nextStatuses[ id ] = session.status || 'idle'
+					nextTraces[ id ] = Array.isArray( session.trace ) ? session.trace : []
+					hydratedRef.current.add( id )
+				} catch ( error ) {
+					// Keep a local placeholder if REST fails (AI not ready, etc.).
+					nextTabs.push( tab )
+				}
+			}
+
+			if ( cancelled ) {
+				return
+			}
+
+			if ( ! nextTabs.length ) {
+				try {
+					const session = await createSession( { mode } )
+					const id = String( session.id )
+					nextTabs.push( {
+						id,
+						title: session.title || 'New Agent',
+						createdAt: Date.now(),
+						status: 'idle',
+					} )
+					nextMessages[ id ] = []
+					nextStatuses[ id ] = 'idle'
+					nextTraces[ id ] = []
+					hydratedRef.current.add( id )
+				} catch ( error ) {
+					// Leave empty; user can retry by opening a new tab.
+				}
+			}
+
+			setTabs( nextTabs )
+			setMessagesByTab( current => {
+				const merged = { ...nextMessages }
+				// Do not wipe messages if the user already sent while bootstrap was in flight.
+				Object.keys( current ).forEach( id => {
+					if ( Array.isArray( current[ id ] ) && current[ id ].length ) {
+						const incoming = merged[ id ]
+						if ( ! incoming || incoming.length < current[ id ].length ) {
+							merged[ id ] = current[ id ]
+						}
+					}
+				} )
+				return merged
+			} )
+			setStatusByTab( nextStatuses )
+			setTraceByTab( nextTraces )
+			setProgressByTab( nextProgress )
+			setActiveTabId( current => {
+				if ( nextTabs.some( tab => tab.id === current ) ) {
+					return current
+				}
+				return nextTabs[ 0 ]?.id || current
+			} )
+			setBootstrapped( true )
+		}
+
+		bootstrap()
+
+		return () => {
+			cancelled = true
+		}
+		// Run once on mount.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [] )
+
+	// Hydrate messages when switching to a session tab.
+	useEffect( () => {
+		if ( ! bootstrapped || ! isSessionId( activeTabId ) ) {
+			return undefined
+		}
+		if ( hydratedRef.current.has( activeTabId ) ) {
+			return undefined
+		}
+
+		let cancelled = false
+		;( async () => {
+			try {
+				const session = await getSession( activeTabId )
+				if ( cancelled ) {
+					return
+				}
+				hydratedRef.current.add( activeTabId )
+				applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab )
+			} catch ( error ) {
+				// Ignore hydrate failures.
+			}
+		} )()
+
+		return () => {
+			cancelled = true
+		}
+	}, [ activeTabId, bootstrapped ] )
+
+	// Global Cmd/Ctrl+I toggle.
 	useEffect( () => {
 		const onKeyDown = event => {
 			const isI = event.code === 'KeyI' || event.key?.toLowerCase() === 'i'
@@ -179,12 +415,10 @@ export default function Sidebar() {
 		}
 	}, [ open, activeTabId ] )
 
-	// Detect admin bar (toolbar can appear after mount on some front-end setups).
 	useEffect( () => {
 		setHasAdminBar( Boolean( document.getElementById( 'wpadminbar' ) ) )
 	}, [] )
 
-	// Wire admin bar toggle when present.
 	useEffect( () => {
 		const link = document.querySelector( `#wp-admin-bar-${ adminBarId } > .ab-item` )
 		if ( ! link ) {
@@ -200,7 +434,6 @@ export default function Sidebar() {
 		return () => link.removeEventListener( 'click', onClick )
 	}, [ adminBarId ] )
 
-	// Reflect open state on the admin bar control.
 	useEffect( () => {
 		const node = document.getElementById( `wp-admin-bar-${ adminBarId }` )
 		const link = node?.querySelector( ':scope > .ab-item' )
@@ -212,6 +445,99 @@ export default function Sidebar() {
 	}, [ open, adminBarId ] )
 
 	const activeMessages = messagesByTab[ activeTabId ] || []
+	const activeTrace = traceByTab[ activeTabId ] || []
+	const activeStatus = statusByTab[ activeTabId ] || 'idle'
+	const activeProgress = progressByTab[ activeTabId ]
+	const activeTab = tabs.find( tab => tab.id === activeTabId )
+	const isBusy = sending || activeStatus === 'running' || activeStatus === 'awaiting_human' || activeStatus === 'awaiting_browser'
+	const progressLabel = activeProgress?.label || ( isBusy ? 'Ahentic is thinking…' : '' )
+
+	const runningSessionKey = useMemo( () => (
+		Object.entries( statusByTab )
+			.filter( ( [ , status ] ) => status === 'running' )
+			.map( ( [ id ] ) => id )
+			.sort()
+			.join( ',' )
+	), [ statusByTab ] )
+
+	// Poll running sessions for live progress + final messages.
+	useEffect( () => {
+		if ( ! runningSessionKey ) {
+			return undefined
+		}
+
+		const ids = runningSessionKey.split( ',' ).filter( Boolean )
+		let cancelled = false
+		const continueInFlight = new Set()
+		const seenAt = {}
+
+		const apply = session => {
+			applySessionPayload(
+				session,
+				setTabs,
+				setMessagesByTab,
+				setStatusByTab,
+				setTraceByTab,
+				setProgressByTab
+			)
+		}
+
+		const isStalled = session => {
+			if ( session?.status !== 'running' ) {
+				return false
+			}
+			const label = session.progress?.label || ''
+			const updatedAt = session.progress?.updatedAt || ''
+			const key = `${ label }|${ updatedAt }|${ session.stepCount || 0 }`
+			const now = Date.now()
+			if ( ! seenAt[ session.id ] || seenAt[ session.id ].key !== key ) {
+				seenAt[ session.id ] = { key, since: now }
+				return false
+			}
+			return ( now - seenAt[ session.id ].since ) >= STALL_MS
+		}
+
+		const pollOne = async id => {
+			try {
+				const session = await getSession( id )
+				if ( cancelled ) {
+					return
+				}
+				apply( session )
+
+				if ( isStalled( session ) && ! continueInFlight.has( id ) ) {
+					continueInFlight.add( id )
+					continueSession( id )
+						.then( continued => {
+							if ( ! cancelled && continued ) {
+								apply( continued )
+							}
+						} )
+						.catch( () => {
+							// Next poll will retry if still stalled.
+						} )
+						.finally( () => {
+							continueInFlight.delete( id )
+						} )
+				}
+			} catch ( error ) {
+				// Keep polling; transient network errors are fine.
+			}
+		}
+
+		const tick = () => {
+			ids.forEach( id => {
+				pollOne( id )
+			} )
+		}
+
+		tick()
+		const timer = window.setInterval( tick, POLL_MS )
+		return () => {
+			cancelled = true
+			window.clearInterval( timer )
+		}
+	}, [ runningSessionKey ] )
 
 	const openSidebar = useCallback( () => setOpen( true ), [] )
 	const closeSidebar = useCallback( () => setOpen( false ), [] )
@@ -220,12 +546,37 @@ export default function Sidebar() {
 		setActiveTabId( id )
 	}, [] )
 
-	const addTab = useCallback( () => {
-		const tab = createTab()
-		setTabs( current => [ ...current, tab ] )
-		setActiveTabId( tab.id )
-		setOpen( true )
-	}, [] )
+	const addTab = useCallback( async () => {
+		try {
+			const session = await createSession( { mode } )
+			const id = String( session.id )
+			const tab = {
+				id,
+				title: session.title || 'New Agent',
+				createdAt: Date.now(),
+				status: session.status || 'idle',
+			}
+			setTabs( current => [ ...current, tab ] )
+			setMessagesByTab( messages => ( {
+				...messages,
+				[ id ]: mapEntriesToMessages( session.messages ),
+			} ) )
+			setStatusByTab( statuses => ( {
+				...statuses,
+				[ id ]: session.status || 'idle',
+			} ) )
+			setTraceByTab( traces => ( {
+				...traces,
+				[ id ]: Array.isArray( session.trace ) ? session.trace : [],
+			} ) )
+			hydratedRef.current.add( id )
+			setActiveTabId( id )
+			setOpen( true )
+		} catch ( error ) {
+			// eslint-disable-next-line no-alert
+			window.alert( error.message || 'Could not create a new session.' )
+		}
+	}, [ mode ] )
 
 	const closeTab = useCallback( id => {
 		setTabs( current => {
@@ -246,16 +597,26 @@ export default function Sidebar() {
 				delete copy[ id ]
 				return copy
 			} )
+			setStatusByTab( statuses => {
+				const copy = { ...statuses }
+				delete copy[ id ]
+				return copy
+			} )
+			setTraceByTab( traces => {
+				const copy = { ...traces }
+				delete copy[ id ]
+				return copy
+			} )
+			hydratedRef.current.delete( id )
 			return next
 		} )
 	}, [] )
 
-	const renameActiveTab = useCallback( () => {
+	const renameActiveTab = useCallback( async () => {
 		const active = tabs.find( tab => tab.id === activeTabId )
 		if ( ! active ) {
 			return
 		}
-		// Temporary mock rename until an in-sidebar rename UI exists.
 		// eslint-disable-next-line no-alert
 		const nextTitle = window.prompt( 'Rename conversation', active.title )
 		if ( nextTitle === null ) {
@@ -265,67 +626,178 @@ export default function Sidebar() {
 		setTabs( current => current.map( tab => (
 			tab.id === activeTabId ? { ...tab, title } : tab
 		) ) )
+		if ( isSessionId( activeTabId ) ) {
+			try {
+				await patchSession( activeTabId, { title } )
+			} catch ( error ) {
+				// Local title still updated.
+			}
+		}
 	}, [ tabs, activeTabId ] )
 
-	const duplicateActiveTab = useCallback( () => {
+	const duplicateActiveTab = useCallback( async () => {
 		const active = tabs.find( tab => tab.id === activeTabId )
 		if ( ! active ) {
 			return
 		}
-		const tab = {
-			...createTab(),
-			title: `${ active.title } copy`,
+		try {
+			const session = await createSession( {
+				mode,
+				title: `${ active.title } copy`,
+			} )
+			const id = String( session.id )
+			setTabs( current => [ ...current, {
+				id,
+				title: session.title || `${ active.title } copy`,
+				createdAt: Date.now(),
+				status: 'idle',
+			} ] )
+			setMessagesByTab( messages => ( {
+				...messages,
+				[ id ]: [],
+			} ) )
+			setStatusByTab( statuses => ( {
+				...statuses,
+				[ id ]: 'idle',
+			} ) )
+			setTraceByTab( traces => ( {
+				...traces,
+				[ id ]: [],
+			} ) )
+			hydratedRef.current.add( id )
+			setActiveTabId( id )
+		} catch ( error ) {
+			// eslint-disable-next-line no-alert
+			window.alert( error.message || 'Could not duplicate session.' )
 		}
-		setTabs( current => [ ...current, tab ] )
-		setMessagesByTab( messages => ( {
-			...messages,
-			[ tab.id ]: [ ...( messages[ activeTabId ] || [] ) ],
-		} ) )
-		setActiveTabId( tab.id )
-	}, [ tabs, activeTabId ] )
+	}, [ tabs, activeTabId, mode ] )
 
-	const clearAllTabs = useCallback( () => {
-		const tab = createTab()
-		setTabs( [ tab ] )
-		setActiveTabId( tab.id )
-		setMessagesByTab( {} )
-	}, [] )
+	const clearAllTabs = useCallback( async () => {
+		try {
+			const session = await createSession( { mode } )
+			const id = String( session.id )
+			hydratedRef.current = new Set( [ id ] )
+			setTabs( [ {
+				id,
+				title: session.title || 'New Agent',
+				createdAt: Date.now(),
+				status: 'idle',
+			} ] )
+			setActiveTabId( id )
+			setMessagesByTab( { [ id ]: [] } )
+			setStatusByTab( { [ id ]: 'idle' } )
+			setTraceByTab( { [ id ]: [] } )
+			setProgressByTab( {} )
+		} catch ( error ) {
+			// eslint-disable-next-line no-alert
+			window.alert( error.message || 'Could not reset sessions.' )
+		}
+	}, [ mode ] )
 
-	const sendMessage = useCallback( text => {
-		const userMessage = {
-			id: `msg_${ Date.now() }_u`,
+	const sendMessage = useCallback( async text => {
+		if ( ! text?.trim() || sending || ! bootstrapped ) {
+			return
+		}
+
+		let sessionId = activeTabId
+
+		if ( ! isSessionId( sessionId ) ) {
+			try {
+				const session = await createSession( { mode } )
+				sessionId = String( session.id )
+				setTabs( current => current.map( tab => (
+					tab.id === activeTabId
+						? {
+							id: sessionId,
+							title: session.title || tab.title,
+							createdAt: tab.createdAt,
+							status: 'idle',
+						}
+						: tab
+				) ) )
+				setActiveTabId( sessionId )
+				hydratedRef.current.add( sessionId )
+			} catch ( error ) {
+				setMessagesByTab( messages => ( {
+					...messages,
+					[ activeTabId ]: [
+						...( messages[ activeTabId ] || [] ),
+						{
+							id: `err_${ Date.now() }`,
+							role: 'assistant',
+							content: error.message || 'Could not create a session.',
+						},
+					],
+				} ) )
+				return
+			}
+		}
+
+		const optimisticUser = {
+			id: `local_u_${ Date.now() }`,
 			role: 'user',
-			content: text,
-		}
-		const assistantMessage = {
-			id: `msg_${ Date.now() }_a`,
-			role: 'assistant',
-			content: 'Mock response — server / AI wiring comes next. Your message was received in the UI only.',
+			content: text.trim(),
 		}
 
 		setMessagesByTab( messages => ( {
 			...messages,
-			[ activeTabId ]: [ ...( messages[ activeTabId ] || [] ), userMessage, assistantMessage ],
+			[ sessionId ]: [ ...( messages[ sessionId ] || [] ), optimisticUser ],
 		} ) )
-
 		setTabs( current => current.map( tab => {
-			if ( tab.id !== activeTabId ) {
+			if ( tab.id !== sessionId ) {
 				return tab
 			}
-			if ( tab.title !== 'New Agent' ) {
+			if ( tab.title && tab.title !== 'New Agent' ) {
 				return tab
 			}
 			return { ...tab, title: truncateTitle( text ) }
 		} ) )
-
+		setStatusByTab( statuses => ( {
+			...statuses,
+			[ sessionId ]: 'running',
+		} ) )
+		setProgressByTab( progress => ( {
+			...progress,
+			[ sessionId ]: {
+				label: 'Starting…',
+				updatedAt: '',
+			},
+		} ) )
+		setSending( true )
 		setFocusSignal( value => value + 1 )
-	}, [ activeTabId ] )
+
+		try {
+			const session = await postMessage( sessionId, {
+				content: text.trim(),
+				mode,
+			} )
+			applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab )
+		} catch ( error ) {
+			setMessagesByTab( messages => ( {
+				...messages,
+				[ sessionId ]: [
+					...( messages[ sessionId ] || [] ),
+					{
+						id: `err_${ Date.now() }`,
+						role: 'assistant',
+						content: error.message || 'Request failed.',
+						meta: { error: true },
+					},
+				],
+			} ) )
+			setStatusByTab( statuses => ( {
+				...statuses,
+				[ sessionId ]: 'idle',
+			} ) )
+		} finally {
+			setSending( false )
+		}
+	}, [ activeTabId, mode, sending, bootstrapped ] )
 
 	const onSuggestedPrompt = useCallback( prompt => {
 		sendMessage( prompt )
 	}, [ sendMessage ] )
 
-	// Resize handle.
 	useEffect( () => {
 		const onMove = event => {
 			if ( ! resizingRef.current || isMobile ) {
@@ -408,7 +880,10 @@ export default function Sidebar() {
 					/>
 				) }
 
-				<Toolbar onClose={ closeSidebar } shortcutLabel={ shortcutLabel } />
+				<Toolbar
+					onClose={ closeSidebar }
+					shortcutLabel={ shortcutLabel }
+				/>
 
 				<TabBar
 					tabs={ tabs }
@@ -419,6 +894,8 @@ export default function Sidebar() {
 					onRename={ renameActiveTab }
 					onDuplicate={ duplicateActiveTab }
 					onClearAll={ clearAllTabs }
+					debugOpen={ debugOpen }
+					onToggleDebug={ () => setDebugOpen( value => ! value ) }
 					onHistory={ () => {
 						setHistoryNotice( true )
 						window.setTimeout( () => setHistoryNotice( false ), 2200 )
@@ -427,17 +904,28 @@ export default function Sidebar() {
 
 				{ historyNotice && (
 					<div className="ahentic-toast" role="status">
-						History will be available once conversations are saved to the database.
+						Sessions are saved on this site. Full history browser coming soon.
 					</div>
 				) }
 
-				<TabContent
-					aiReady={ aiReady }
-					aiPlugin={ aiPlugin }
-					onAiReady={ setAiReady }
-					messages={ activeMessages }
-					onSuggestedPrompt={ onSuggestedPrompt }
-				/>
+				{ debugOpen ? (
+					<DebuggerPanel
+						trace={ activeTrace }
+						sessionTitle={ activeTab?.title || '' }
+						onClose={ () => setDebugOpen( false ) }
+					/>
+				) : (
+					<TabContent
+						aiReady={ aiReady }
+						aiPlugin={ aiPlugin }
+						onAiReady={ setAiReady }
+						messages={ activeMessages }
+						onSuggestedPrompt={ onSuggestedPrompt }
+						ready={ bootstrapped }
+						busy={ isBusy }
+						progressLabel={ progressLabel }
+					/>
+				) }
 
 				<Composer
 					mode={ mode }

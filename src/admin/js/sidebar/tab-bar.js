@@ -21,6 +21,8 @@ import {
  * @param {Function} props.onDuplicate
  * @param {Function} props.onClearAll
  * @param {Function} props.onHistory
+ * @param {boolean}  props.debugOpen
+ * @param {Function} props.onToggleDebug
  */
 export default function TabBar( {
 	tabs,
@@ -32,6 +34,8 @@ export default function TabBar( {
 	onDuplicate,
 	onClearAll,
 	onHistory,
+	debugOpen = false,
+	onToggleDebug,
 } ) {
 	const [ menuOpen, setMenuOpen ] = useState( false )
 	const menuRef = useRef( null )
@@ -142,6 +146,18 @@ export default function TabBar( {
 								} }
 							>
 								Duplicate
+							</button>
+							<button
+								type="button"
+								role="menuitem"
+								className="ahentic-menu__item"
+								aria-pressed={ debugOpen }
+								onClick={ () => {
+									setMenuOpen( false )
+									onToggleDebug?.()
+								} }
+							>
+								{ debugOpen ? 'Hide debugger' : 'Debugger' }
 							</button>
 							<button
 								type="button"

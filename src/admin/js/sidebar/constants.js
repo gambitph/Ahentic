@@ -17,7 +17,8 @@ export const MODES = {
 }
 
 /**
- * Create a new empty agent tab shell (messages live in memory only).
+ * Create a local tab shell (used before a server session exists).
+ * Prefer createSession() via REST for real tabs — id becomes the session post ID.
  *
  * @return {{ id: string, title: string, createdAt: number }} New tab object.
  */

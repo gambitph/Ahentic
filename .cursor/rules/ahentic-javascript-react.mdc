@@ -33,8 +33,8 @@ Ahentic uses **regular JavaScript** (`.js`), not TypeScript. Do not add `.ts` / 
 
 ## Persistence
 
-- **Browser `localStorage`** (`ahentic.sidebar.v1`): open/closed, width, theme, mode, open tabs, active tab id.
-- **Not in the browser:** conversation message bodies — those will be saved in the database later. Keep messages in React memory for mocks only.
+- **Browser `localStorage`** (`ahentic.sidebar.v1`): open/closed, width, theme, mode, open **session ids**, active tab id.
+- **Not in the browser:** conversation message bodies — those live on `ahentic-session` CPT posts via the orchestrator REST API.
 - Do not invent ad-hoc storage keys; extend the shared helpers in `src/admin/js/sidebar/storage.js`.
 
 ## Keyboard

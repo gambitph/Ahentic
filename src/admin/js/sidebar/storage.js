@@ -1,8 +1,8 @@
 /**
  * localStorage helpers for sidebar chrome state.
  *
- * Persists: open, width, theme, tabs, activeTabId, mode.
- * Does NOT persist conversation message contents (those belong in the DB later).
+ * Persists: open, width, theme, tabs (session ids), activeTabId, mode.
+ * Does NOT persist conversation message contents (those live on ahentic-session posts).
  */
 
 import {

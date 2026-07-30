@@ -1,13 +1,18 @@
 /**
- * Empty state + mocked message list for the active tab.
+ * Empty state + message list for the active tab.
  */
 
 import {
-	createInterpolateElement, useCallback, useState,
+	createInterpolateElement,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
 } from '@wordpress/element'
 import { __ } from '@wordpress/i18n'
 import { LoaderCircle } from 'lucide-react'
 import AhenticLogo from './ahentic-logo'
+import { MessageBody } from './message-body'
 
 /**
  * Suggested empty-state prompts (translated at call time).
@@ -65,6 +70,9 @@ async function installAiPlugin() {
  * @param {Function} props.onAiReady
  * @param {Array}    props.messages
  * @param {Function} props.onSuggestedPrompt
+ * @param {boolean}  props.ready
+ * @param {boolean}  props.busy
+ * @param {string}   props.progressLabel Live status under the latest message.
  */
 export default function TabContent( {
 	aiReady,
@@ -72,9 +80,20 @@ export default function TabContent( {
 	onAiReady,
 	messages,
 	onSuggestedPrompt,
+	ready = true,
+	busy = false,
+	progressLabel = '',
 } ) {
 	const [ installing, setInstalling ] = useState( false )
 	const [ installError, setInstallError ] = useState( '' )
+	const progressRef = useRef( null )
+
+	useEffect( () => {
+		if ( ! busy || ! progressLabel || ! progressRef.current ) {
+			return
+		}
+		progressRef.current.scrollIntoView( { block: 'nearest', behavior: 'smooth' } )
+	}, [ busy, progressLabel, messages.length ] )
 
 	const canInstall = Boolean( aiPlugin?.canInstall )
 	const pluginInstalled = Boolean( aiPlugin?.pluginInstalled )
@@ -150,6 +169,7 @@ export default function TabContent( {
 									key={ prompt }
 									type="button"
 									className="ahentic-empty__prompt"
+									disabled={ ! ready || busy }
 									onClick={ () => onSuggestedPrompt( prompt ) }
 								>
 									{ prompt }
@@ -236,14 +256,30 @@ export default function TabContent( {
 						<div className="ahentic-message__label">
 							{ message.role === 'user'
 								? __( 'You', 'ahentic' )
-								: __( 'Ahentic', 'ahentic' )
+								: ( message.role === 'system'
+									? __( 'System', 'ahentic' )
+									: __( 'Ahentic', 'ahentic' )
+								)
 							}
 						</div>
 						<div className="ahentic-message__body">
-							{ message.content }
+							<MessageBody content={ message.content } role={ message.role } />
 						</div>
 					</div>
 				) ) }
+
+				{ busy && progressLabel ? (
+					<div
+						ref={ progressRef }
+						className="ahentic-live-status"
+						role="status"
+						aria-live="polite"
+					>
+						<span className="ahentic-live-status__text">
+							{ progressLabel }
+						</span>
+					</div>
+				) : null }
 			</div>
 		</div>
 	)
