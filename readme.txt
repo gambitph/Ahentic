@@ -1,4 +1,4 @@
-=== Ahentic - AI Workspace for WordPress ===
+=== Ahentic - AI Workspace ===
 Contributors: bfintal, gambitph
 Tags: ai, assistant, workspace, agent, productivity
 Requires at least: 7.0.2

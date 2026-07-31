@@ -34,12 +34,77 @@ import {
 	postMessage,
 	continueSession,
 	postApproval,
+	postSuggestedAction,
 	mapEntriesToMessages,
 	isSessionId,
 } from './api'
 
 const POLL_MS = 650
 const STALL_MS = 2500
+
+/** Generic phase placeholders — prefer real debugger step summaries instead. */
+const GENERIC_PROGRESS_LABELS = new Set( [
+	'Planning next steps…',
+	'Reviewing results…',
+	'Starting…',
+	'Finishing…',
+	'Thinking…',
+	'Ahentic is thinking…',
+] )
+
+/**
+ * Live status text: prefer a real step label (tool / intention), matching the debugger.
+ *
+ * @param {string}  progressLabel Server progress.label.
+ * @param {Array}   trace         Session trace events.
+ * @param {boolean} isBusy        Whether the session is actively working.
+ * @param {Object|null} pendingTool HITL pending tool, if any.
+ * @return {string}
+ */
+function resolveLiveStatusLabel( progressLabel, trace, isBusy, pendingTool ) {
+	if ( ! isBusy ) {
+		return ''
+	}
+
+	const label = typeof progressLabel === 'string' ? progressLabel.trim() : ''
+	if ( label && ! GENERIC_PROGRESS_LABELS.has( label ) ) {
+		return label
+	}
+
+	// Waiting for approval uses its own card; still surface the waiting label if present.
+	if ( pendingTool ) {
+		return label || ''
+	}
+
+	const events = Array.isArray( trace ) ? trace : []
+	// Only use trace from the current run — older run_start boundaries leak prior intentions.
+	let runStart = 0
+	for ( let i = events.length - 1; i >= 0; i-- ) {
+		if ( events[ i ]?.type === 'run_start' ) {
+			runStart = i
+			break
+		}
+	}
+
+	for ( let i = events.length - 1; i >= runStart; i-- ) {
+		const event = events[ i ]
+		const summary = typeof event?.summary === 'string' ? event.summary.trim() : ''
+		if ( ! summary ) {
+			continue
+		}
+		if ( event.type === 'tool_executed' ) {
+			return summary
+		}
+		if ( event.type === 'llm_thinking' && summary !== 'Model thinking' ) {
+			return summary
+		}
+		if ( event.type === 'progress' && ! GENERIC_PROGRESS_LABELS.has( summary ) ) {
+			return summary
+		}
+	}
+
+	return label || 'Planning next steps…'
+}
 
 /**
  * Compact fingerprint to detect whether a session payload is newer than local state.
@@ -508,7 +573,12 @@ export default function Sidebar() {
 	const activePendingTool = pendingToolByTab[ activeTabId ] || null
 	const activeTab = tabs.find( tab => tab.id === activeTabId )
 	const isBusy = sending || activeStatus === 'running' || activeStatus === 'awaiting_human' || activeStatus === 'awaiting_browser'
-	const progressLabel = activeProgress?.label || ( isBusy && ! activePendingTool ? 'Ahentic is thinking…' : '' )
+	const progressLabel = resolveLiveStatusLabel(
+		activeProgress?.label || '',
+		activeTrace,
+		isBusy,
+		activePendingTool
+	)
 	// Existing session tabs show a spinner until fetched; only while the sidebar is open.
 	const isSessionLoading = useMemo(
 		() => open && isSessionId( activeTabId ) && ! hydratedRef.current.has( activeTabId ),
@@ -636,11 +706,37 @@ export default function Sidebar() {
 		}
 	}, [ mode, markHydrated ] )
 
-	const closeTab = useCallback( id => {
-		setTabs( current => {
-			if ( current.length <= 1 ) {
-				return current
+	const closeTab = useCallback( async id => {
+		const closingLast = tabsRef.current.length <= 1
+		if ( closingLast ) {
+			try {
+				const session = await createSession( { mode } )
+				const nextId = String( session.id )
+				hydratedRef.current = new Set( [ nextId ] )
+				sessionStampRef.current = {
+					[ nextId ]: sessionFingerprint( session ),
+				}
+				setHydratedVersion( version => version + 1 )
+				setTabs( [ {
+					id: nextId,
+					title: session.title || 'New Agent',
+					createdAt: Date.now(),
+					status: session.status || 'idle',
+				} ] )
+				setActiveTabId( nextId )
+				setMessagesByTab( { [ nextId ]: mapEntriesToMessages( session.messages ) } )
+				setStatusByTab( { [ nextId ]: session.status || 'idle' } )
+				setTraceByTab( { [ nextId ]: Array.isArray( session.trace ) ? session.trace : [] } )
+				setProgressByTab( {} )
+				setPendingToolByTab( {} )
+			} catch ( error ) {
+				// eslint-disable-next-line no-alert
+				window.alert( error.message || 'Could not start a new session.' )
 			}
+			return
+		}
+
+		setTabs( current => {
 			const next = current.filter( tab => tab.id !== id )
 			setActiveTabId( active => {
 				if ( active !== id ) {
@@ -670,12 +766,20 @@ export default function Sidebar() {
 				delete copy[ id ]
 				return copy
 			} )
+			setProgressByTab( progress => {
+				if ( ! progress[ id ] ) {
+					return progress
+				}
+				const copy = { ...progress }
+				delete copy[ id ]
+				return copy
+			} )
 			hydratedRef.current.delete( id )
 			delete sessionStampRef.current[ id ]
 			setHydratedVersion( version => version + 1 )
 			return next
 		} )
-	}, [] )
+	}, [ mode ] )
 
 	const renameActiveTab = useCallback( async () => {
 		const active = tabs.find( tab => tab.id === activeTabId )
@@ -833,10 +937,23 @@ export default function Sidebar() {
 		setProgressByTab( progress => ( {
 			...progress,
 			[ sessionId ]: {
-				label: 'Starting…',
+				label: 'Planning next steps…',
 				updatedAt: '',
 			},
 		} ) )
+		// Drop prior-run trace so live status cannot reuse old intentions before the new run_start lands.
+		setTraceByTab( traces => ( {
+			...traces,
+			[ sessionId ]: [],
+		} ) )
+		setPendingToolByTab( pending => {
+			if ( ! pending[ sessionId ] ) {
+				return pending
+			}
+			const copy = { ...pending }
+			delete copy[ sessionId ]
+			return copy
+		} )
 		setSending( true )
 		setFocusSignal( value => value + 1 )
 
@@ -873,6 +990,24 @@ export default function Sidebar() {
 			return
 		}
 		const session = await postApproval( activeTabId, { decision } )
+		applySession( session )
+	}, [ activeTabId, applySession ] )
+
+	const onSuggestedAction = useCallback( async action => {
+		if ( ! isSessionId( activeTabId ) || ! action ) {
+			return
+		}
+		if ( action.type === 'link' && action.url ) {
+			window.open( action.url, '_blank', 'noopener,noreferrer' )
+			return
+		}
+		const session = await postSuggestedAction( activeTabId, {
+			type: action.type || 'ability',
+			id: action.id || '',
+			name: action.name || '',
+			input: action.input || {},
+			label: action.label || '',
+		} )
 		applySession( session )
 	}, [ activeTabId, applySession ] )
 
@@ -1009,6 +1144,7 @@ export default function Sidebar() {
 						progressLabel={ progressLabel }
 						pendingTool={ activePendingTool }
 						onApproval={ onApproval }
+						onSuggestedAction={ onSuggestedAction }
 					/>
 				) }
 

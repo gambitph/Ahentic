@@ -14,6 +14,7 @@ import { LoaderCircle } from 'lucide-react'
 import AhenticLogo from './ahentic-logo'
 import CapabilityRequestCard from './capability-request-card'
 import HitlApprovalCard from './hitl-approval-card'
+import SuggestedActions from './suggested-actions'
 import { MessageBody } from './message-body'
 
 /**
@@ -67,18 +68,9 @@ async function installAiPlugin() {
 }
 
 /**
- * @param {Object}      props
- * @param {boolean}     props.aiReady
- * @param {Object}      props.aiPlugin
- * @param {Function}    props.onAiReady
- * @param {Array}       props.messages
- * @param {Function}    props.onSuggestedPrompt
- * @param {boolean}     props.ready
- * @param {boolean}     props.loading
- * @param {boolean}     props.busy
- * @param {string}      props.progressLabel Live status under the latest message.
- * @param {Object|null} [props.pendingTool] HITL pending tool payload.
- * @param {Function}    [props.onApproval]  (decision: string) => Promise|void
+ * Sidebar message list for the active tab.
+ *
+ * @param {Object} props Component props.
  */
 export default function TabContent( {
 	aiReady,
@@ -92,6 +84,7 @@ export default function TabContent( {
 	progressLabel = '',
 	pendingTool = null,
 	onApproval,
+	onSuggestedAction,
 } ) {
 	const [ installing, setInstalling ] = useState( false )
 	const [ installError, setInstallError ] = useState( '' )
@@ -272,44 +265,60 @@ export default function TabContent( {
 		)
 	}
 
+	const lastAssistantIndex = messages.reduce(
+		( last, m, i ) => ( m.role === 'assistant' ? i : last ),
+		-1
+	)
+
 	return (
 		<div className="ahentic-content">
 			<div className="ahentic-messages">
-				{ messages.map( message => (
-					<div
-						key={ message.id }
-						className={ `ahentic-message ahentic-message--${ message.role }` }
-					>
-						<div className="ahentic-message__label">
-							{ message.role === 'user'
-								? __( 'You', 'ahentic' )
-								: ( message.role === 'system'
-									? __( 'System', 'ahentic' )
-									: __( 'Ahentic', 'ahentic' )
-								)
-							}
-						</div>
-						<div className="ahentic-message__body">
-							<MessageBody content={ message.content } role={ message.role } />
-							{ message.role === 'assistant' && Array.isArray( message.meta?.capability_requests ) && message.meta.capability_requests.length
-								? message.meta.capability_requests.map( ( req, index ) => (
-									<CapabilityRequestCard
-										key={ req?.ability || `cap_${ index }` }
-										request={ req }
-									/>
-								) )
-								: ( message.role === 'assistant' && message.meta?.capability_request
-									? (
-										<CapabilityRequestCard
-											request={ message.meta.capability_request }
-										/>
+				{ messages.map( ( message, messageIndex ) => {
+					const isLatestAssistant = message.role === 'assistant' && messageIndex === lastAssistantIndex
+					return (
+						<div
+							key={ message.id }
+							className={ `ahentic-message ahentic-message--${ message.role }` }
+						>
+							<div className="ahentic-message__label">
+								{ message.role === 'user'
+									? __( 'You', 'ahentic' )
+									: ( message.role === 'system'
+										? __( 'System', 'ahentic' )
+										: __( 'Ahentic', 'ahentic' )
 									)
-									: null
-								)
-							}
+								}
+							</div>
+							<div className="ahentic-message__body">
+								<MessageBody content={ message.content } role={ message.role } />
+								{ message.role === 'assistant' && Array.isArray( message.meta?.capability_requests ) && message.meta.capability_requests.length
+									? message.meta.capability_requests.map( ( req, index ) => (
+										<CapabilityRequestCard
+											key={ req?.ability || `cap_${ index }` }
+											request={ req }
+										/>
+									) )
+									: ( message.role === 'assistant' && message.meta?.capability_request
+										? (
+											<CapabilityRequestCard
+												request={ message.meta.capability_request }
+											/>
+										)
+										: null
+									)
+								}
+								{ message.role === 'assistant' && Array.isArray( message.meta?.actions ) && message.meta.actions.length ? (
+									<SuggestedActions
+										actions={ message.meta.actions }
+										isLatest={ isLatestAssistant && ! busy && ! pendingTool }
+										onAbilityAction={ onSuggestedAction }
+										disabled={ busy || Boolean( pendingTool ) }
+									/>
+								) : null }
+							</div>
 						</div>
-					</div>
-				) ) }
+					)
+				} ) }
 
 				{ pendingTool && typeof onApproval === 'function' ? (
 					<div className="ahentic-hitl-wrap">

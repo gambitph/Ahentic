@@ -1209,6 +1209,49 @@ a.ahentic-empty__ai-install:hover {
 	cursor: default;
 }
 
+/* Suggested actions under assistant replies */
+.ahentic-suggested-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+.ahentic button.ahentic-suggested-actions__btn {
+	margin: 0;
+	padding: 6px 12px;
+	border-radius: 8px;
+	border: 1px solid var(--ah-border);
+	background: transparent;
+	color: var(--ah-fg);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1.3;
+	cursor: pointer;
+}
+
+.ahentic button.ahentic-suggested-actions__btn:hover,
+.ahentic button.ahentic-suggested-actions__btn:focus {
+	background: var(--ah-hover);
+}
+
+.ahentic button.ahentic-suggested-actions__btn--primary {
+	border-color: transparent;
+	background: var(--ah-fg);
+	color: var(--ah-bg);
+}
+
+.ahentic button.ahentic-suggested-actions__btn--primary:hover,
+.ahentic button.ahentic-suggested-actions__btn--primary:focus {
+	opacity: 0.9;
+	background: var(--ah-fg);
+}
+
+.ahentic button.ahentic-suggested-actions__btn:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
 .ahentic-live-status {
 	display: flex;
 	align-items: center;

@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Ahentic - AI Workspace for WordPress
+ * Plugin Name: Ahentic - AI Workspace
  * Plugin URI: https://ahentic.com
  * Description: An intelligent AI agent that understands your WordPress site and works alongside you to build, edit, troubleshoot, and manage it.
  * Author: Gambit Technologies, Inc

@@ -1,4 +1,4 @@
-# Ahentic – AI Workspace for WordPress
+# Ahentic – AI Workspace
 
 An intelligent AI agent that understands your WordPress site and works alongside you to build, edit, troubleshoot, and manage it.
 

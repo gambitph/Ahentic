@@ -131,6 +131,20 @@ export function postApproval( id, body ) {
 }
 
 /**
+ * Start a suggested ability action (may pause for HITL).
+ *
+ * @param {number|string} id
+ * @param {Object} body Action payload.
+ * @return {Promise<Object>}
+ */
+export function postSuggestedAction( id, body ) {
+	return apiRequest( `/sessions/${ id }/actions`, {
+		method: 'POST',
+		body: JSON.stringify( body ),
+	} )
+}
+
+/**
  * Map server entries to sidebar message objects.
  *
  * @param {Array} entries

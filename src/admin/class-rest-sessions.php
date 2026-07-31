@@ -122,6 +122,16 @@ if ( ! class_exists( 'Ahentic_REST_Sessions' ) ) {
 
 			register_rest_route(
 				'ahentic/v1',
+				'/sessions/(?P<id>\d+)/actions',
+				array(
+					'methods'             => 'POST',
+					'callback'            => array( __CLASS__, 'post_action' ),
+					'permission_callback' => array( __CLASS__, 'can_manage' ),
+				)
+			);
+
+			register_rest_route(
+				'ahentic/v1',
 				'/sessions/(?P<id>\d+)/browser-results',
 				array(
 					'methods'             => 'POST',
@@ -330,6 +340,32 @@ if ( ! class_exists( 'Ahentic_REST_Sessions' ) ) {
 			}
 
 			$result = Ahentic_Orchestrator::handle_approval( $id, $params );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			return rest_ensure_response( $result );
+		}
+
+		/**
+		 * POST /sessions/{id}/actions — start a suggested ability action.
+		 *
+		 * @param \WP_REST_Request $request Request.
+		 * @return \WP_REST_Response|\WP_Error
+		 */
+		public static function post_action( $request ) {
+			$id = (int) $request['id'];
+			$ok = self::require_owned_session( $id );
+			if ( is_wp_error( $ok ) ) {
+				return $ok;
+			}
+
+			$params = $request->get_json_params();
+			if ( ! is_array( $params ) ) {
+				$params = array();
+			}
+
+			$result = Ahentic_Orchestrator::handle_suggested_action( $id, $params );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}

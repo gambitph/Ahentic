@@ -171,11 +171,15 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 					'input_schema'        => array(
 						'type'       => 'object',
 						'properties' => array(
-							'plugin' => array(
+							'plugin'      => array(
 								'type'        => 'string',
 								'description' => __( 'Plugin file (folder/file.php) or slug.', 'ahentic' ),
 							),
-							'slug'   => array(
+							'plugin_file' => array(
+								'type'        => 'string',
+								'description' => __( 'Plugin file (alias of plugin; matches install-plugin output).', 'ahentic' ),
+							),
+							'slug'        => array(
 								'type'        => 'string',
 								'description' => __( 'Plugin slug (alternative to plugin).', 'ahentic' ),
 							),
@@ -227,10 +231,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				);
 			}
 			if ( self::ACTIVATE === $name ) {
-				$plugin = isset( $input['plugin'] ) ? (string) $input['plugin'] : '';
-				if ( '' === $plugin && isset( $input['slug'] ) ) {
-					$plugin = (string) $input['slug'];
-				}
+				$plugin = self::plugin_ref_from_input( $input );
 				return sprintf(
 					/* translators: %s: plugin file or slug */
 					__( 'Activate plugin “%s”', 'ahentic' ),
@@ -447,13 +448,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 		 */
 		public static function execute_activate_plugin( $input = array() ) {
 			$input  = is_array( $input ) ? $input : array();
-			$plugin = '';
-			if ( isset( $input['plugin'] ) ) {
-				$plugin = (string) $input['plugin'];
-			} elseif ( isset( $input['slug'] ) ) {
-				$plugin = (string) $input['slug'];
-			}
-			$plugin = trim( $plugin );
+			$plugin = self::plugin_ref_from_input( $input );
 			if ( '' === $plugin ) {
 				return new WP_Error( 'ahentic_missing_plugin', __( 'A plugin file or slug is required.', 'ahentic' ) );
 			}
@@ -508,6 +503,92 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				'message'     => __( 'Plugin activated successfully.', 'ahentic' ),
 				'plugins_url' => admin_url( 'plugins.php' ),
 			);
+		}
+
+		/**
+		 * Suggested UI actions after a successful inactive install.
+		 *
+		 * @param array $payload Install tool result.
+		 * @return array<int, array<string, mixed>>
+		 */
+		public static function suggested_actions_after_install( $payload ) {
+			$payload = is_array( $payload ) ? $payload : array();
+			if ( isset( $payload['ok'] ) && ! $payload['ok'] ) {
+				return array();
+			}
+			if ( ! empty( $payload['active'] ) ) {
+				return array();
+			}
+			// Require a successful-looking install payload.
+			if ( empty( $payload['ok'] ) && empty( $payload['message'] ) && empty( $payload['plugin_file'] ) && empty( $payload['slug'] ) ) {
+				return array();
+			}
+
+			$slug = isset( $payload['slug'] ) ? sanitize_key( (string) $payload['slug'] ) : '';
+			$file = isset( $payload['plugin_file'] ) ? (string) $payload['plugin_file'] : '';
+			$name = isset( $payload['name'] ) ? wp_strip_all_tags( (string) $payload['name'] ) : '';
+			$url  = isset( $payload['plugins_url'] ) ? (string) $payload['plugins_url'] : admin_url( 'plugins.php' );
+
+			if ( '' === $slug && '' === $file ) {
+				return array();
+			}
+
+			if ( '' === $name ) {
+				$name = $slug ? $slug : $file;
+			}
+
+			$activate_input = array();
+			if ( '' !== $file ) {
+				$activate_input['plugin'] = $file;
+			}
+			if ( '' !== $slug ) {
+				$activate_input['slug'] = $slug;
+			}
+
+			$actions = array(
+				array(
+					'id'    => 'activate_plugin',
+					'type'  => 'ability',
+					'label' => sprintf(
+						/* translators: %s: plugin name */
+						__( 'Activate %s', 'ahentic' ),
+						$name
+					),
+					'name'  => self::ACTIVATE,
+					'input' => $activate_input,
+				),
+			);
+
+			if ( $url && wp_http_validate_url( $url ) ) {
+				$actions[] = array(
+					'id'    => 'visit_plugins',
+					'type'  => 'link',
+					'label' => __( 'Visit plugins page', 'ahentic' ),
+					'url'   => $url,
+				);
+			}
+
+			return $actions;
+		}
+
+		/**
+		 * Resolve plugin file or slug from activate input (plugin, plugin_file, or slug).
+		 *
+		 * @param array $input Ability input.
+		 * @return string
+		 */
+		private static function plugin_ref_from_input( $input ) {
+			$input = is_array( $input ) ? $input : array();
+			foreach ( array( 'plugin', 'plugin_file', 'slug' ) as $key ) {
+				if ( ! isset( $input[ $key ] ) ) {
+					continue;
+				}
+				$value = trim( (string) $input[ $key ] );
+				if ( '' !== $value ) {
+					return $value;
+				}
+			}
+			return '';
 		}
 
 		/**
