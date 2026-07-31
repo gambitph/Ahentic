@@ -33,6 +33,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_AUTO_TITLE       = '_ahentic_auto_title';
 		const META_TRACE            = '_ahentic_trace';
 		const META_PROGRESS         = '_ahentic_progress';
+		const META_CAPABILITY_REQUESTS = '_ahentic_capability_requests';
 
 		const STATUS_IDLE             = 'idle';
 		const STATUS_RUNNING          = 'running';
@@ -444,6 +445,57 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
+		 * Queue a missing-ability capability request for this run (deduped by ability).
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $request    Payload from Ahentic_Capability_Request::build().
+		 */
+		public static function queue_capability_request( $session_id, array $request ) {
+			$ability = isset( $request['ability'] ) ? (string) $request['ability'] : '';
+			if ( '' === $ability ) {
+				return;
+			}
+
+			$pending = self::get_capability_requests( $session_id );
+			foreach ( $pending as $existing ) {
+				if ( isset( $existing['ability'] ) && (string) $existing['ability'] === $ability ) {
+					return;
+				}
+			}
+
+			$pending[] = $request;
+			$json      = wp_json_encode( array_values( $pending ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+			update_post_meta( $session_id, self::META_CAPABILITY_REQUESTS, wp_slash( is_string( $json ) ? $json : '[]' ) );
+		}
+
+		/**
+		 * Pending capability requests for the current run.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array<int, array>
+		 */
+		public static function get_capability_requests( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_CAPABILITY_REQUESTS, true );
+			if ( empty( $raw ) ) {
+				return array();
+			}
+			$decoded = json_decode( (string) $raw, true );
+			return is_array( $decoded ) ? $decoded : array();
+		}
+
+		/**
+		 * Take and clear pending capability requests.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array<int, array>
+		 */
+		public static function consume_capability_requests( $session_id ) {
+			$pending = self::get_capability_requests( $session_id );
+			delete_post_meta( $session_id, self::META_CAPABILITY_REQUESTS );
+			return $pending;
+		}
+
+		/**
 		 * Get debug trace events.
 		 *
 		 * @param int $session_id Session ID.
@@ -636,6 +688,102 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			}
 			$decoded = json_decode( (string) $raw, true );
 			return is_array( $decoded ) ? $decoded : null;
+		}
+
+		/**
+		 * Session-scoped HITL allows (ability names).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string[]
+		 */
+		public static function get_hitl_session_allows( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_HITL_SESSION, true );
+			if ( empty( $raw ) ) {
+				return array();
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			if ( ! is_array( $decoded ) ) {
+				return array();
+			}
+			return array_values( array_filter( array_map( 'strval', $decoded ) ) );
+		}
+
+		/**
+		 * Remember that this ability is allowed for the rest of the session.
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $ability    Ability name.
+		 */
+		public static function add_hitl_session_allow( $session_id, $ability ) {
+			$ability = (string) $ability;
+			if ( '' === $ability ) {
+				return;
+			}
+			$allows = self::get_hitl_session_allows( $session_id );
+			if ( ! in_array( $ability, $allows, true ) ) {
+				$allows[] = $ability;
+			}
+			update_post_meta( $session_id, self::META_HITL_SESSION, wp_slash( wp_json_encode( $allows ) ) );
+		}
+
+		/**
+		 * User-scoped always-allow list.
+		 *
+		 * @param int|null $user_id User ID (default current).
+		 * @return string[]
+		 */
+		public static function get_hitl_always_allows( $user_id = null ) {
+			$user_id = $user_id ? (int) $user_id : get_current_user_id();
+			if ( ! $user_id ) {
+				return array();
+			}
+			$raw = get_user_meta( $user_id, '_ahentic_hitl_always', true );
+			if ( empty( $raw ) ) {
+				return array();
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			if ( ! is_array( $decoded ) ) {
+				return array();
+			}
+			return array_values( array_filter( array_map( 'strval', $decoded ) ) );
+		}
+
+		/**
+		 * Persist always-allow for an ability for the current user.
+		 *
+		 * @param string   $ability Ability name.
+		 * @param int|null $user_id User ID.
+		 */
+		public static function add_hitl_always_allow( $ability, $user_id = null ) {
+			$ability = (string) $ability;
+			$user_id = $user_id ? (int) $user_id : get_current_user_id();
+			if ( '' === $ability || ! $user_id ) {
+				return;
+			}
+			$allows = self::get_hitl_always_allows( $user_id );
+			if ( ! in_array( $ability, $allows, true ) ) {
+				$allows[] = $ability;
+			}
+			update_user_meta( $user_id, '_ahentic_hitl_always', wp_json_encode( $allows ) );
+		}
+
+		/**
+		 * Whether HITL can be skipped for this ability (session or always policy).
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $ability    Ability name.
+		 * @return bool
+		 */
+		public static function hitl_is_preallowed( $session_id, $ability ) {
+			$ability = (string) $ability;
+			if ( '' === $ability ) {
+				return false;
+			}
+			if ( in_array( $ability, self::get_hitl_session_allows( $session_id ), true ) ) {
+				return true;
+			}
+			$owner = (int) get_post_field( 'post_author', $session_id );
+			return in_array( $ability, self::get_hitl_always_allows( $owner ), true );
 		}
 
 		/**

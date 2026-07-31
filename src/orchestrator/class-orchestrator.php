@@ -16,6 +16,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		const MAX_HISTORY_TURNS = 40;
 		const MAX_TOOL_PROGRESS = 5;
 		const MAX_STEPS_PER_RUN = 12;
+		/** Max LLM attempts to obtain a valid AHENTIC_DEBUG block per think phase. */
+		const MAX_DEBUG_ATTEMPTS = 3;
 
 		/**
 		 * Accept a user message and start a run (async — sidebar polls for progress).
@@ -60,6 +62,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			Ahentic_Session_Repository::maybe_set_auto_title( $session_id, $content );
 			update_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, 0 );
+			Ahentic_Session_Repository::consume_capability_requests( $session_id );
 			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
 			Ahentic_Session_Repository::set_progress( $session_id, __( 'Starting…', 'ahentic' ) );
 
@@ -161,11 +164,10 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			$mode = Ahentic_Session_Repository::get_mode( $session_id );
 
-			$result = self::run_llm_phase(
+			$result = self::run_llm_with_debug(
 				$session_id,
 				__( 'Thinking…', 'ahentic' ),
-				self::system_prompt( $mode ),
-				null
+				self::system_prompt( $mode )
 			);
 
 			if ( is_wp_error( $result ) ) {
@@ -173,9 +175,22 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return false;
 			}
 
-			$debug   = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
-			$next    = isset( $debug['next'] ) ? (string) $debug['next'] : 'reply';
+			$debug = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
+			// Missing / unusable control block after retries → stop with last prose (do not ask the user).
+			if ( ! self::debug_is_usable( $debug ) ) {
+				self::finish_with_reply( $session_id, $result, $debug );
+				return false;
+			}
+
+			$next    = (string) $debug['next'];
 			$planned = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
+
+			// Explicit missing-ability signal (or reply that still names ability_needed).
+			if ( self::debug_signals_missing_ability( $debug ) ) {
+				self::queue_missing_abilities_from_debug( $session_id, $debug );
+				self::finish_with_reply( $session_id, $result, $debug );
+				return false;
+			}
 
 			$wants_tools = ( 'agent' === $mode ) && ( 'use_tools' === $next );
 
@@ -218,25 +233,49 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 				if ( ! in_array( $name, Ahentic_Abilities::available_for_agent(), true ) ) {
 					$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+					self::queue_missing_ability( $session_id, $name, $debug, $step );
+
+					$request = null;
+					$pending = Ahentic_Session_Repository::get_capability_requests( $session_id );
+					foreach ( $pending as $item ) {
+						if ( isset( $item['ability'] ) && (string) $item['ability'] === (string) $name ) {
+							$request = $item;
+							break;
+						}
+					}
+					if ( ! is_array( $request ) ) {
+						$request = array();
+					}
+
+					$tool_payload = array(
+						'ok'      => false,
+						'error'   => 'ability_unavailable',
+						'message' => sprintf(
+							/* translators: %s: ability name */
+							__( 'Ability %s is not available in this build yet.', 'ahentic' ),
+							$name
+						),
+					);
+					if ( ! empty( $request ) ) {
+						$tool_payload['capability_request'] = $request;
+						$tool_payload['hint']               = __(
+							'This ability is unavailable. Explain what you cannot do yet and any workaround. Do not mention X, Twitter, hashtags, @wpahentic, request cards, or sidebar UI — the product shows a separate button for that.',
+							'ahentic'
+						);
+					}
+
 					Ahentic_Session_Repository::append_entry(
 						$session_id,
 						array(
 							'role'    => 'tool',
 							'content' => wp_json_encode(
-								array(
-									'ok'      => false,
-									'error'   => 'ability_unavailable',
-									'message' => sprintf(
-										/* translators: %s: ability name */
-										__( 'Ability %s is not available in this build yet.', 'ahentic' ),
-										$name
-									),
-								),
+								$tool_payload,
 								JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
 							),
 							'meta'    => array(
-								'ability' => $name,
-								'ok'      => false,
+								'ability'            => $name,
+								'ok'                 => false,
+								'capability_request' => $request,
 							),
 						)
 					);
@@ -245,8 +284,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 						'tool_result',
 						'Ability unavailable: ' . $name,
 						array(
-							'ability' => $name,
-							'ok'      => false,
+							'ability'            => $name,
+							'ok'                 => false,
+							'capability_request' => $request,
 						),
 						$step
 					);
@@ -254,8 +294,38 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					continue;
 				}
 
+				$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+
+				// Mutating abilities pause for human approval unless already allowed.
+				if ( Ahentic_Abilities::requires_hitl( $name ) && ! Ahentic_Session_Repository::hitl_is_preallowed( $session_id, $name ) ) {
+					$summary = Ahentic_Abilities::hitl_summary( $name, $input );
+					$pending = array(
+						'name'    => $name,
+						'input'   => $input,
+						'summary' => $summary,
+						'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
+					);
+					Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
+					Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_HUMAN );
+					Ahentic_Session_Repository::set_progress(
+						$session_id,
+						__( 'Waiting for your approval…', 'ahentic' ),
+						$step
+					);
+					Ahentic_Session_Repository::append_trace(
+						$session_id,
+						'hitl_pause',
+						$summary,
+						array(
+							'ability' => $name,
+							'input'   => $input,
+						),
+						$step
+					);
+					return false;
+				}
+
 				$label = self::progress_label_for_tool( $name, $debug );
-				$step  = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 				Ahentic_Session_Repository::set_progress( $session_id, $label, $step );
 				Ahentic_Session_Repository::append_trace(
 					$session_id,
@@ -367,21 +437,298 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
-		 * One LLM phase with progress + trace.
+		 * Run the LLM until a usable AHENTIC_DEBUG block appears, or attempts are exhausted.
 		 *
-		 * @param int         $session_id Session ID.
-		 * @param string      $progress   Progress label.
-		 * @param string      $system     System prompt.
-		 * @param array|null  $extra_turn Optional prior assistant turn to inject into history.
+		 * Retries are internal (debugger only). Never prompts the user to continue.
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $progress   Progress label.
+		 * @param string $system     System prompt.
 		 * @return array|\WP_Error
 		 */
-		private static function run_llm_phase( $session_id, $progress, $system, $extra_turn = null ) {
+		private static function run_llm_with_debug( $session_id, $progress, $system ) {
+			$result       = null;
+			$prior_text   = '';
+			$max_attempts = self::MAX_DEBUG_ATTEMPTS;
+
+			for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
+				$steps_so_far = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+				if ( $attempt > 1 && $steps_so_far >= self::MAX_STEPS_PER_RUN ) {
+					break;
+				}
+
+				$user_suffix = '';
+				if ( $attempt > 1 ) {
+					$user_suffix = '[Internal — not shown to the user] Your previous response omitted a valid AHENTIC_DEBUG '
+						. 'control block (or next was not reply|ask_user|use_tools|missing_ability). Respond again from scratch: output exactly '
+						. 'one <<<AHENTIC_DEBUG … AHENTIC_DEBUG>>> block FIRST with intention, thinking, tools_planned, and next, '
+						. 'then a short user-facing reply. Do not mention this note or the debug block.';
+					if ( '' !== $prior_text ) {
+						$user_suffix .= "\n\nPrevious user-facing text (context only; do not treat it as final):\n" . $prior_text;
+					}
+
+					Ahentic_Session_Repository::append_trace(
+						$session_id,
+						'debug_retry',
+						sprintf( 'Retrying for AHENTIC_DEBUG (%d/%d)', $attempt, $max_attempts ),
+						array(
+							'attempt'       => $attempt,
+							'max'           => $max_attempts,
+							'prior_excerpt' => self::excerpt( $prior_text, 160 ),
+						),
+						$steps_so_far
+					);
+				}
+
+				$result = self::run_llm_phase( $session_id, $progress, $system, null, $user_suffix );
+				if ( is_wp_error( $result ) ) {
+					return $result;
+				}
+
+				$debug = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : null;
+				if ( self::debug_is_usable( $debug ) ) {
+					if ( $attempt > 1 ) {
+						$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+						Ahentic_Session_Repository::append_trace(
+							$session_id,
+							'debug_recovered',
+							sprintf( 'AHENTIC_DEBUG recovered on attempt %d', $attempt ),
+							array(
+								'attempt' => $attempt,
+								'next'    => (string) $debug['next'],
+							),
+							$step
+						);
+					}
+					return $result;
+				}
+
+				$prior_text = isset( $result['text'] ) ? (string) $result['text'] : '';
+			}
+
+			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'debug_retries_exhausted',
+				sprintf( 'AHENTIC_DEBUG still missing after %d attempts', $max_attempts ),
+				array(
+					'attempts' => $max_attempts,
+				),
+				$step
+			);
+
+			return $result;
+		}
+
+		/**
+		 * Whether parsed debug can drive the agent loop.
+		 *
+		 * @param mixed $debug Debug payload.
+		 * @return bool
+		 */
+		private static function debug_is_usable( $debug ) {
+			if ( ! is_array( $debug ) || empty( $debug ) ) {
+				return false;
+			}
+			$next = isset( $debug['next'] ) ? (string) $debug['next'] : '';
+			return in_array( $next, array( 'reply', 'ask_user', 'use_tools', 'missing_ability' ), true );
+		}
+
+		/**
+		 * Whether debug indicates a needed ability is not available yet.
+		 *
+		 * @param array $debug Debug block.
+		 * @return bool
+		 */
+		private static function debug_signals_missing_ability( array $debug ) {
+			$next = isset( $debug['next'] ) ? (string) $debug['next'] : '';
+			if ( 'missing_ability' === $next ) {
+				return true;
+			}
+			// Soft signal: final reply that still names a needed ability.
+			if ( in_array( $next, array( 'reply', 'ask_user' ), true ) && ! empty( $debug['ability_needed'] ) ) {
+				return true;
+			}
+			return false;
+		}
+
+		/**
+		 * Queue capability requests from a missing_ability debug block.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $debug      Debug block.
+		 */
+		private static function queue_missing_abilities_from_debug( $session_id, array $debug ) {
+			$step  = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+			$names = self::resolve_needed_ability_names( $debug );
+
+			if ( empty( $names ) ) {
+				$names = array( 'ahentic/new-ability' );
+			}
+
+			foreach ( $names as $name ) {
+				self::queue_missing_ability( $session_id, $name, $debug, $step );
+			}
+		}
+
+		/**
+		 * Ability names the model says it needs (normalized).
+		 *
+		 * @param array $debug Debug block.
+		 * @return string[]
+		 */
+		private static function resolve_needed_ability_names( array $debug ) {
+			$names = array();
+
+			if ( ! empty( $debug['ability_needed'] ) ) {
+				$needed = $debug['ability_needed'];
+				if ( is_string( $needed ) ) {
+					$names[] = self::normalize_ability_name( $needed );
+				} elseif ( is_array( $needed ) ) {
+					foreach ( $needed as $item ) {
+						if ( is_string( $item ) ) {
+							$names[] = self::normalize_ability_name( $item );
+						} elseif ( is_array( $item ) ) {
+							$raw = '';
+							if ( isset( $item['name'] ) ) {
+								$raw = (string) $item['name'];
+							} elseif ( isset( $item['ability'] ) ) {
+								$raw = (string) $item['ability'];
+							}
+							if ( '' !== $raw ) {
+								$names[] = self::normalize_ability_name( $raw );
+							}
+						}
+					}
+				}
+			}
+
+			$planned = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
+			$available = Ahentic_Abilities::available_for_agent();
+			foreach ( $planned as $call ) {
+				if ( empty( $call['name'] ) ) {
+					continue;
+				}
+				if ( ! in_array( $call['name'], $available, true ) ) {
+					$names[] = (string) $call['name'];
+				}
+			}
+
+			$names = array_values(
+				array_unique(
+					array_filter(
+						$names,
+						static function ( $n ) {
+							return is_string( $n ) && '' !== $n;
+						}
+					)
+				)
+			);
+
+			return $names;
+		}
+
+		/**
+		 * Normalize a freeform ability label to ahentic/slug form.
+		 *
+		 * @param string $name Raw name.
+		 * @return string
+		 */
+		private static function normalize_ability_name( $name ) {
+			$name = trim( (string) $name );
+			if ( '' === $name ) {
+				return '';
+			}
+
+			if ( false !== strpos( $name, '/' ) ) {
+				return strtolower( $name );
+			}
+
+			$slug = strtolower( $name );
+			$slug = preg_replace( '/[^a-z0-9]+/', '-', $slug );
+			$slug = trim( (string) $slug, '-' );
+			if ( '' === $slug ) {
+				return 'ahentic/new-ability';
+			}
+
+			return 'ahentic/' . $slug;
+		}
+
+		/**
+		 * Build + queue one missing-ability capability request (deduped by repository).
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $ability    Ability name.
+		 * @param array  $debug      Debug block.
+		 * @param int    $step       Trace step.
+		 */
+		private static function queue_missing_ability( $session_id, $ability, array $debug, $step = 0 ) {
+			if ( ! class_exists( 'Ahentic_Capability_Request' ) ) {
+				return;
+			}
+
+			$ability = self::normalize_ability_name( $ability );
+			if ( '' === $ability ) {
+				return;
+			}
+
+			// Skip if this ability is actually available.
+			if ( in_array( $ability, Ahentic_Abilities::available_for_agent(), true ) ) {
+				return;
+			}
+
+			$context = self::raw_context_for_capability_request( $session_id, $debug );
+			$request = Ahentic_Capability_Request::build( $ability, $context );
+			if ( empty( $request ) ) {
+				return;
+			}
+
+			Ahentic_Session_Repository::queue_capability_request( $session_id, $request );
+
+			if ( ! empty( $request['tokens_total'] ) ) {
+				Ahentic_Session_Repository::add_tokens(
+					$session_id,
+					isset( $request['tokens_in'] ) ? (int) $request['tokens_in'] : 0,
+					isset( $request['tokens_out'] ) ? (int) $request['tokens_out'] : 0,
+					(int) $request['tokens_total']
+				);
+			}
+
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'capability_request_goal',
+				'Summarized capability request goal',
+				array(
+					'ability' => $ability,
+					'goal'    => isset( $request['goal'] ) ? $request['goal'] : '',
+					'raw'     => isset( $request['goal_raw'] ) ? self::excerpt( (string) $request['goal_raw'], 120 ) : '',
+				),
+				(int) $step
+			);
+		}
+
+		/**
+		 * One LLM phase with progress + trace.
+		 *
+		 * @param int         $session_id  Session ID.
+		 * @param string      $progress    Progress label.
+		 * @param string      $system      System prompt.
+		 * @param array|null  $extra_turn  Optional prior assistant turn to inject into history.
+		 * @param string      $user_suffix Optional text appended to the user message (retries).
+		 * @return array|\WP_Error
+		 */
+		private static function run_llm_phase( $session_id, $progress, $system, $extra_turn = null, $user_suffix = '' ) {
 			$step = Ahentic_Session_Repository::bump_step( $session_id );
 			Ahentic_Session_Repository::set_progress( $session_id, $progress, $step );
 
 			$entries = Ahentic_Session_Repository::get_entries( $session_id );
 			$built   = self::build_chat_payload( $entries );
 			$history = $built['history'];
+			$user    = $built['user'];
+
+			if ( is_string( $user_suffix ) && '' !== trim( $user_suffix ) ) {
+				$user .= "\n\n" . trim( $user_suffix );
+			}
 
 			if ( is_array( $extra_turn ) && ! empty( $extra_turn['content'] ) ) {
 				$history[] = array(
@@ -407,12 +754,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'LLM request',
 				array(
 					'progress'     => $progress,
-					'user_excerpt' => self::excerpt( $built['user'], 120 ),
+					'user_excerpt' => self::excerpt( $user, 120 ),
 				),
 				$step
 			);
 
-			$result = Ahentic_AI::complete_chat( $system, $history, $built['user'] );
+			$result = Ahentic_AI::complete_chat( $system, $history, $user );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -499,15 +846,24 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		private static function finish_with_reply( $session_id, array $result, $debug = array() ) {
 			Ahentic_Session_Repository::set_progress( $session_id, __( 'Finishing…', 'ahentic' ) );
 
+			$meta = array(
+				'model' => isset( $result['model'] ) ? $result['model'] : '',
+				'debug' => $debug,
+			);
+
+			$requests = Ahentic_Session_Repository::consume_capability_requests( $session_id );
+			if ( ! empty( $requests ) ) {
+				$meta['capability_requests'] = array_values( $requests );
+				// Convenience: first request for simple UIs.
+				$meta['capability_request'] = $requests[0];
+			}
+
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(
 					'role'    => 'assistant',
 					'content' => $result['text'],
-					'meta'    => array(
-						'model' => isset( $result['model'] ) ? $result['model'] : '',
-						'debug' => $debug,
-					),
+					'meta'    => $meta,
 				)
 			);
 
@@ -516,8 +872,39 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$session_id,
 				'run_idle',
 				'Run idle (final reply)',
-				array( 'reason' => 'final_reply' )
+				array(
+					'reason'                      => 'final_reply',
+					'capability_request_count'    => count( $requests ),
+				)
 			);
+		}
+
+		/**
+		 * Context for summarizing a capability-request action phrase.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $debug      Debug block.
+		 * @return string
+		 */
+		private static function raw_context_for_capability_request( $session_id, $debug = array() ) {
+			$parts = array();
+
+			$entries = Ahentic_Session_Repository::get_entries( $session_id );
+			for ( $i = count( $entries ) - 1; $i >= 0; $i-- ) {
+				if ( isset( $entries[ $i ]['role'] ) && 'user' === $entries[ $i ]['role'] ) {
+					$user = isset( $entries[ $i ]['content'] ) ? trim( (string) $entries[ $i ]['content'] ) : '';
+					if ( '' !== $user ) {
+						$parts[] = 'User: ' . $user;
+					}
+					break;
+				}
+			}
+
+			if ( is_array( $debug ) && ! empty( $debug['intention'] ) ) {
+				$parts[] = 'Agent intention: ' . trim( (string) $debug['intention'] );
+			}
+
+			return implode( "\n", $parts );
 		}
 
 		/**
@@ -570,11 +957,13 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$map = array(
 				'ahentic/list-plugins'       => __( 'Checking installed plugins…', 'ahentic' ),
 				'ahentic/search-plugins'     => __( 'Searching the plugin directory…', 'ahentic' ),
-				'ahentic/analyze-plugins'    => __( 'Analyzing plugins…', 'ahentic' ),
 				'ahentic/get-site-snapshot'  => __( 'Reading site snapshot…', 'ahentic' ),
 				'ahentic/get-site-health'    => __( 'Checking site health…', 'ahentic' ),
+				'ahentic/get-option'         => __( 'Reading site settings…', 'ahentic' ),
 				'ahentic/search-content'     => __( 'Searching site content…', 'ahentic' ),
 				'ahentic/list-content'       => __( 'Listing posts and pages…', 'ahentic' ),
+				'ahentic/get-content'        => __( 'Reading post content…', 'ahentic' ),
+				'ahentic/find-unused-media'  => __( 'Scanning media for unused images…', 'ahentic' ),
 				'ahentic/install-plugin'     => __( 'Installing plugin…', 'ahentic' ),
 				'ahentic/activate-plugin'    => __( 'Activating plugin…', 'ahentic' ),
 				'core/read-content'          => __( 'Reading site content…', 'ahentic' ),
@@ -631,7 +1020,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
-		 * HITL approval resume (stub-ready).
+		 * HITL approval resume — run or deny the pending mutating ability.
 		 *
 		 * @param int   $session_id Session ID.
 		 * @param array $decision   Decision payload.
@@ -639,47 +1028,127 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 */
 		public static function handle_approval( $session_id, array $decision ) {
 			$pending = Ahentic_Session_Repository::get_pending_tool( $session_id );
-			if ( ! $pending ) {
+			if ( ! $pending || empty( $pending['name'] ) ) {
 				return new WP_Error( 'ahentic_no_pending', __( 'No pending tool to approve.', 'ahentic' ), array( 'status' => 400 ) );
 			}
 
+			$status = Ahentic_Session_Repository::get_status( $session_id );
+			if ( Ahentic_Session_Repository::STATUS_AWAITING_HUMAN !== $status ) {
+				return new WP_Error( 'ahentic_not_awaiting', __( 'This session is not waiting for approval.', 'ahentic' ), array( 'status' => 409 ) );
+			}
+
 			$choice = isset( $decision['decision'] ) ? (string) $decision['decision'] : '';
+			$name   = (string) $pending['name'];
+			$input  = isset( $pending['input'] ) && is_array( $pending['input'] ) ? $pending['input'] : array();
+			$step   = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 
 			if ( 'deny' === $choice ) {
+				$payload = array(
+					'ok'      => false,
+					'error'   => 'user_denied',
+					'message' => __( 'User denied this action.', 'ahentic' ),
+					'ability' => $name,
+				);
 				Ahentic_Session_Repository::set_pending_tool( $session_id, null );
 				Ahentic_Session_Repository::append_entry(
 					$session_id,
 					array(
 						'role'    => 'tool',
-						'content' => __( 'User denied this action.', 'ahentic' ),
+						'content' => wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ),
 						'meta'    => array(
-							'tool'   => $pending,
-							'denied' => true,
+							'ability' => $name,
+							'ok'      => false,
+							'denied'  => true,
 						),
 					)
 				);
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'hitl_denied',
+					'Denied: ' . $name,
+					array( 'ability' => $name ),
+					$step
+				);
 				Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
+				Ahentic_Session_Repository::set_progress( $session_id, __( 'Thinking…', 'ahentic' ), $step );
 				Ahentic_Step_Queue::enqueue_step( $session_id );
-				return Ahentic_Session_Repository::to_rest( $session_id );
+				Ahentic_Step_Queue::schedule_interactive_run( $session_id );
+				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 			}
 
-			// allow_once | allow_session | always_allow — ability execution comes later.
+			if ( ! in_array( $choice, array( 'allow_once', 'allow_session', 'always_allow' ), true ) ) {
+				return new WP_Error( 'ahentic_bad_decision', __( 'Invalid approval decision.', 'ahentic' ), array( 'status' => 400 ) );
+			}
+
+			if ( 'allow_session' === $choice ) {
+				Ahentic_Session_Repository::add_hitl_session_allow( $session_id, $name );
+			}
+			if ( 'always_allow' === $choice ) {
+				Ahentic_Session_Repository::add_hitl_always_allow( $name );
+				Ahentic_Session_Repository::add_hitl_session_allow( $session_id, $name );
+			}
+
+			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
+			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
+
+			$label = self::progress_label_for_tool( $name );
+			Ahentic_Session_Repository::set_progress( $session_id, $label, $step );
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'tool_executed',
+				$label,
+				array(
+					'ability'  => $name,
+					'input'    => $input,
+					'approved' => $choice,
+				),
+				$step
+			);
+
+			$tool_result = Ahentic_Abilities::execute( $name, $input );
+			$ok          = ! is_wp_error( $tool_result );
+			$payload     = $ok
+				? $tool_result
+				: array(
+					'ok'      => false,
+					'error'   => $tool_result->get_error_code(),
+					'message' => $tool_result->get_error_message(),
+				);
+
+			$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+			if ( ! is_string( $content ) ) {
+				$content = '{}';
+			}
+
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(
-					'role'    => 'event',
-					'content' => __( 'Approval recorded. Tool execution will run when abilities are wired.', 'ahentic' ),
+					'role'    => 'tool',
+					'content' => $content,
 					'meta'    => array(
-						'type'     => 'approval',
-						'decision' => $choice,
-						'tool'     => $pending,
+						'ability'  => $name,
+						'ok'       => $ok,
+						'approved' => $choice,
 					),
 				)
 			);
-			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
-			Ahentic_Session_Repository::mark_idle( $session_id );
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'tool_result',
+				$ok ? ( 'Result: ' . $name ) : ( 'Error: ' . $name ),
+				array(
+					'ability' => $name,
+					'ok'      => $ok,
+					'excerpt' => self::excerpt( $content, 240 ),
+				),
+				$step
+			);
 
-			return Ahentic_Session_Repository::to_rest( $session_id );
+			Ahentic_Session_Repository::set_progress( $session_id, __( 'Thinking…', 'ahentic' ), $step );
+			Ahentic_Step_Queue::enqueue_step( $session_id );
+			Ahentic_Step_Queue::schedule_interactive_run( $session_id );
+
+			return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 		}
 
 		/**
@@ -944,14 +1413,32 @@ Rules:
 				. 'When you need verified site data, call tools — do not guess plugin lists or stack details.';
 
 			if ( 'ask' === $mode ) {
-				$base .= ' Mode: Ask — answer questions; prefer next="reply". You may use readonly tools if needed.';
+				$base .= ' Mode: Ask — answer questions; prefer next="reply". You may use readonly tools if needed. '
+					. 'If the user asks you to change the site and you cannot (no write ability), set next="missing_ability" '
+					. 'with ability_needed (e.g. "ahentic/update-site-title"), explain you cannot do it yet, and give manual steps with admin links. '
+					. 'Do not mention X, Twitter, hashtags, @handles, request cards, or any sidebar UI for requesting features.';
 			} else {
 				$base .= ' Mode: Agent — you run a multi-step loop. When you need site facts, set next="use_tools" '
 					. 'and list tools in tools_planned. After tool results appear in the next message, think again '
-					. 'and either call more tools or set next="reply" / "ask_user". '
+					. 'and either call more tools or set next="reply" / "ask_user" / "missing_ability". '
 					. "Available abilities right now: {$tools_list}. "
 					. 'Prefer ahentic/get-site-snapshot when you need the site name, theme, environment, active plugins, or admin_links. '
-					. 'Do not claim you ran a tool that is not in the available list.';
+					. 'Prefer ahentic/get-site-health for Site Health counts/issues; ahentic/get-option for allowlisted options (blog_public, blogdescription/tagline, permalink_structure, show_on_front, etc.). '
+					. 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). '
+					. 'To install/activate a plugin after the user agrees: ahentic/install-plugin then ahentic/activate-plugin (both pause for human approval — do not claim success until a tool result confirms it). '
+					. 'Prefer ahentic/search-content to find posts/pages by phrase (title, body, or meta); '
+					. 'ahentic/list-content to browse by type/status; ahentic/get-content to read one post (body + safe meta). '
+					. 'Prefer ahentic/find-unused-media to scan the media library for images that look unused (not featured/logo/icon/in content). '
+					. 'Use edit_url / view_url / media_library_url / plugins_url from those results when linking the user. '
+					. 'Do not claim you ran a tool that is not in the available list. '
+					. 'IMPORTANT — when the user asks you to create/update/delete/change something and you do not have a matching '
+					. 'available ability, do NOT only give manual instructions with next="reply". Instead either: '
+					. '(A) set next="use_tools" and put the needed ability name in tools_planned even if it is not in the available list '
+					. '(the orchestrator will mark it unavailable), or '
+					. '(B) set next="missing_ability" and ability_needed to that ability slug (e.g. "ahentic/update-site-title" or "ahentic/delete-posts"). '
+					. 'In your user-facing reply: explain you cannot do it yet and give a short workaround with admin links if useful. '
+					. 'Never mention X, Twitter, hashtags, @handles, tweet URLs, request cards, or sidebar UI — the product UI handles feature requests separately. '
+					. 'If a tool result has error ability_unavailable, follow the same reply pattern.';
 			}
 
 			$base .= "\n\n"
@@ -967,9 +1454,10 @@ Rules:
 			$base .= "\n\n"
 				. 'Before your user-facing reply, output exactly one debug block (the user will not see it) in this form:' . "\n"
 				. '<<<AHENTIC_DEBUG' . "\n"
-				. '{"intention":"short goal for this step","thinking":"1-3 sentences","tools_planned":["ahentic/get-site-snapshot"],"next":"reply|ask_user|use_tools"}' . "\n"
+				. '{"intention":"short goal for this step","thinking":"1-3 sentences","tools_planned":["ahentic/get-site-snapshot"],"ability_needed":"ahentic/update-site-title","next":"reply|ask_user|use_tools|missing_ability"}' . "\n"
 				. 'AHENTIC_DEBUG>>>' . "\n"
 				. 'tools_planned may be strings (ability names) or objects {"name":"ahentic/…","input":{}}. '
+				. 'ability_needed is optional except when next is missing_ability (string or list of ability slugs). '
 				. 'Closing marker: AHENTIC_DEBUG followed by exactly three > characters. '
 				. 'After the closing marker, write a short normal reply the user can read (even when next is use_tools — e.g. what you are about to check). '
 				. 'Never mention the debug block.';

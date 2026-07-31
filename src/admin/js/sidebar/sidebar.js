@@ -33,12 +33,37 @@ import {
 	patchSession,
 	postMessage,
 	continueSession,
+	postApproval,
 	mapEntriesToMessages,
 	isSessionId,
 } from './api'
 
 const POLL_MS = 650
 const STALL_MS = 2500
+
+/**
+ * Compact fingerprint to detect whether a session payload is newer than local state.
+ *
+ * @param {Object} session Session REST payload.
+ * @return {string} Stable fingerprint string for comparison.
+ */
+function sessionFingerprint( session ) {
+	if ( ! session ) {
+		return ''
+	}
+	const messages = Array.isArray( session.messages ) ? session.messages : []
+	const last = messages[ messages.length - 1 ]
+	return [
+		session.modifiedAt || '',
+		session.status || '',
+		session.stepCount || 0,
+		messages.length,
+		last?.id || last?.seq || '',
+		session.progress?.label || '',
+		session.progress?.updatedAt || '',
+		session.pendingTool ? JSON.stringify( session.pendingTool ) : '',
+	].join( '\u0001' )
+}
 
 /**
  * Detect Cmd vs Ctrl for shortcut labels.
@@ -75,8 +100,9 @@ function truncateTitle( text, max = 32 ) {
  * @param {Function} [setStatusByTab]
  * @param {Function} [setTraceByTab]
  * @param {Function} [setProgressByTab]
+ * @param {Function} [setPendingToolByTab]
  */
-function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab ) {
+function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab, setPendingToolByTab ) {
 	if ( ! session?.id ) {
 		return
 	}
@@ -128,6 +154,25 @@ function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab
 			}
 		} )
 	}
+	if ( setPendingToolByTab ) {
+		setPendingToolByTab( pending => {
+			const next = session.pendingTool && typeof session.pendingTool === 'object'
+				? session.pendingTool
+				: null
+			if ( ! next ) {
+				if ( ! pending[ id ] ) {
+					return pending
+				}
+				const copy = { ...pending }
+				delete copy[ id ]
+				return copy
+			}
+			return {
+				...pending,
+				[ id ]: next,
+			}
+		} )
+	}
 }
 
 export default function Sidebar() {
@@ -141,6 +186,7 @@ export default function Sidebar() {
 	const [ messagesByTab, setMessagesByTab ] = useState( {} )
 	const [ statusByTab, setStatusByTab ] = useState( {} )
 	const [ progressByTab, setProgressByTab ] = useState( {} )
+	const [ pendingToolByTab, setPendingToolByTab ] = useState( {} )
 	const [ traceByTab, setTraceByTab ] = useState( {} )
 	const [ debugOpen, setDebugOpen ] = useState( false )
 	const [ sending, setSending ] = useState( false )
@@ -155,10 +201,40 @@ export default function Sidebar() {
 	const [ aiReady, setAiReady ] = useState(
 		() => Boolean( window.ahentic?.aiPlugin?.isReady )
 	)
-	const [ bootstrapped, setBootstrapped ] = useState( false )
+	// Bumps when hydratedRef changes so session-loading UI can re-render.
+	const [ hydratedVersion, setHydratedVersion ] = useState( 0 )
 
 	const resizingRef = useRef( false )
 	const hydratedRef = useRef( new Set() )
+	const sessionStampRef = useRef( {} )
+	const syncInflightRef = useRef( new Map() )
+	const tabsRef = useRef( tabs )
+	tabsRef.current = tabs
+
+	const markHydrated = useCallback( id => {
+		const sid = String( id || '' )
+		if ( ! sid || hydratedRef.current.has( sid ) ) {
+			return
+		}
+		hydratedRef.current.add( sid )
+		setHydratedVersion( version => version + 1 )
+	}, [] )
+
+	const applySession = useCallback( session => {
+		if ( session?.id ) {
+			sessionStampRef.current[ String( session.id ) ] = sessionFingerprint( session )
+		}
+		applySessionPayload(
+			session,
+			setTabs,
+			setMessagesByTab,
+			setStatusByTab,
+			setTraceByTab,
+			setProgressByTab,
+			setPendingToolByTab
+		)
+	}, [] )
+
 	const shortcutLabel = useMemo( () => getShortcutLabel(), [] )
 	const context = window.ahentic?.context || {}
 	const adminBarId = window.ahentic?.adminBarId || 'ahentic-toggle'
@@ -193,158 +269,139 @@ export default function Sidebar() {
 		return () => window.removeEventListener( 'resize', onResize )
 	}, [] )
 
-	// Bootstrap: ensure every open tab is a real ahentic-session post.
-	useEffect( () => {
-		let cancelled = false
-
-		const bootstrap = async () => {
-			const nextTabs = []
-			const nextMessages = {}
-			const nextStatuses = {}
-			const nextTraces = {}
-			const nextProgress = {}
-
-			for ( const tab of tabs ) {
-				if ( cancelled ) {
-					return
-				}
-
-				if ( isSessionId( tab.id ) ) {
-					try {
-						const session = await getSession( tab.id )
-						if ( cancelled ) {
-							return
-						}
-						const sid = String( session.id )
-						nextTabs.push( {
-							id: sid,
-							title: session.title || tab.title || 'New Agent',
-							createdAt: tab.createdAt || Date.now(),
-							status: session.status,
-						} )
-						nextMessages[ sid ] = mapEntriesToMessages( session.messages )
-						nextStatuses[ sid ] = session.status || 'idle'
-						nextTraces[ sid ] = Array.isArray( session.trace ) ? session.trace : []
-						if ( session.progress?.label ) {
-							nextProgress[ sid ] = {
-								label: session.progress.label,
-								updatedAt: session.progress.updatedAt || '',
-							}
-						}
-						hydratedRef.current.add( sid )
-						continue
-					} catch ( error ) {
-						// Fall through and create a fresh session.
-					}
-				}
-
-				try {
-					const session = await createSession( { mode, title: tab.title || 'New Agent' } )
-					if ( cancelled ) {
-						return
-					}
-					const id = String( session.id )
-					nextTabs.push( {
-						id,
-						title: session.title || 'New Agent',
-						createdAt: Date.now(),
-						status: session.status || 'idle',
-					} )
-					nextMessages[ id ] = mapEntriesToMessages( session.messages )
-					nextStatuses[ id ] = session.status || 'idle'
-					nextTraces[ id ] = Array.isArray( session.trace ) ? session.trace : []
-					hydratedRef.current.add( id )
-				} catch ( error ) {
-					// Keep a local placeholder if REST fails (AI not ready, etc.).
-					nextTabs.push( tab )
-				}
-			}
-
-			if ( cancelled ) {
-				return
-			}
-
-			if ( ! nextTabs.length ) {
-				try {
-					const session = await createSession( { mode } )
-					const id = String( session.id )
-					nextTabs.push( {
-						id,
-						title: session.title || 'New Agent',
-						createdAt: Date.now(),
-						status: 'idle',
-					} )
-					nextMessages[ id ] = []
-					nextStatuses[ id ] = 'idle'
-					nextTraces[ id ] = []
-					hydratedRef.current.add( id )
-				} catch ( error ) {
-					// Leave empty; user can retry by opening a new tab.
-				}
-			}
-
-			setTabs( nextTabs )
-			setMessagesByTab( current => {
-				const merged = { ...nextMessages }
-				// Do not wipe messages if the user already sent while bootstrap was in flight.
-				Object.keys( current ).forEach( id => {
-					if ( Array.isArray( current[ id ] ) && current[ id ].length ) {
-						const incoming = merged[ id ]
-						if ( ! incoming || incoming.length < current[ id ].length ) {
-							merged[ id ] = current[ id ]
-						}
-					}
-				} )
-				return merged
-			} )
-			setStatusByTab( nextStatuses )
-			setTraceByTab( nextTraces )
-			setProgressByTab( nextProgress )
-			setActiveTabId( current => {
-				if ( nextTabs.some( tab => tab.id === current ) ) {
-					return current
-				}
-				return nextTabs[ 0 ]?.id || current
-			} )
-			setBootstrapped( true )
+	/**
+	 * Fetch a session and apply it when newer than local state.
+	 * Cold loads (not yet hydrated) drive the spinner; quiet syncs do not.
+	 *
+	 * @param {string}  tabId
+	 * @param {Object}  options
+	 * @param {boolean} options.cold Replace missing sessions; show spinner via !hydrated.
+	 * @return {Promise<void>}
+	 */
+	const syncSession = useCallback( async ( tabId, {
+		cold = false,
+	} = {} ) => {
+		if ( ! isSessionId( tabId ) ) {
+			return
 		}
 
-		bootstrap()
-
-		return () => {
-			cancelled = true
-		}
-		// Run once on mount.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [] )
-
-	// Hydrate messages when switching to a session tab.
-	useEffect( () => {
-		if ( ! bootstrapped || ! isSessionId( activeTabId ) ) {
-			return undefined
-		}
-		if ( hydratedRef.current.has( activeTabId ) ) {
-			return undefined
+		const existing = syncInflightRef.current.get( tabId )
+		if ( existing ) {
+			await existing
+			return
 		}
 
-		let cancelled = false
-		;( async () => {
+		const tabTitle = tabsRef.current.find( tab => tab.id === tabId )?.title || 'New Agent'
+
+		const run = ( async () => {
 			try {
-				const session = await getSession( activeTabId )
-				if ( cancelled ) {
+				const session = await getSession( tabId )
+				const fp = sessionFingerprint( session )
+				const alreadyHydrated = hydratedRef.current.has( tabId )
+				if ( alreadyHydrated && sessionStampRef.current[ tabId ] === fp ) {
 					return
 				}
-				hydratedRef.current.add( activeTabId )
-				applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab )
+				markHydrated( tabId )
+				applySession( session )
 			} catch ( error ) {
-				// Ignore hydrate failures.
+				if ( ! cold ) {
+					return
+				}
+				// Missing/invalid session — replace this tab with a fresh one.
+				try {
+					const session = await createSession( {
+						mode,
+						title: tabTitle,
+					} )
+					const id = String( session.id )
+					setTabs( current => current.map( tab => (
+						tab.id === tabId
+							? {
+								id,
+								title: session.title || tab.title || 'New Agent',
+								createdAt: tab.createdAt || Date.now(),
+								status: session.status || 'idle',
+							}
+							: tab
+					) ) )
+					setActiveTabId( current => ( current === tabId ? id : current ) )
+					setMessagesByTab( messages => {
+						const copy = { ...messages }
+						delete copy[ tabId ]
+						return {
+							...copy,
+							[ id ]: mapEntriesToMessages( session.messages ),
+						}
+					} )
+					setStatusByTab( statuses => {
+						const copy = { ...statuses }
+						delete copy[ tabId ]
+						return {
+							...copy,
+							[ id ]: session.status || 'idle',
+						}
+					} )
+					setTraceByTab( traces => {
+						const copy = { ...traces }
+						delete copy[ tabId ]
+						return {
+							...copy,
+							[ id ]: Array.isArray( session.trace ) ? session.trace : [],
+						}
+					} )
+					setPendingToolByTab( pending => {
+						if ( ! pending[ tabId ] ) {
+							return pending
+						}
+						const copy = { ...pending }
+						delete copy[ tabId ]
+						return copy
+					} )
+					delete sessionStampRef.current[ tabId ]
+					markHydrated( id )
+					applySession( session )
+				} catch ( createError ) {
+					markHydrated( tabId )
+				}
 			}
 		} )()
 
-		return () => {
-			cancelled = true
+		syncInflightRef.current.set( tabId, run )
+		try {
+			await run
+		} finally {
+			syncInflightRef.current.delete( tabId )
 		}
-	}, [ activeTabId, bootstrapped ] )
+	}, [ mode, markHydrated, applySession ] )
+
+	// Load or quietly refresh the active tab while the sidebar is open.
+	useEffect( () => {
+		if ( ! open || ! activeTabId || ! isSessionId( activeTabId ) ) {
+			return
+		}
+
+		const tabId = activeTabId
+		const cold = ! hydratedRef.current.has( tabId )
+		syncSession( tabId, { cold } )
+	}, [ open, activeTabId, syncSession ] )
+
+	// When returning to this browser tab, quietly refresh the open agent session.
+	useEffect( () => {
+		const onVisibility = () => {
+			if ( document.visibilityState !== 'visible' ) {
+				return
+			}
+			if ( ! open || ! isSessionId( activeTabId ) || ! hydratedRef.current.has( activeTabId ) ) {
+				return
+			}
+			syncSession( activeTabId, { cold: false } )
+		}
+
+		document.addEventListener( 'visibilitychange', onVisibility )
+		return () => {
+			document.removeEventListener( 'visibilitychange', onVisibility )
+		}
+	}, [ open, activeTabId, syncSession ] )
 
 	// Global Cmd/Ctrl+I toggle.
 	useEffect( () => {
@@ -448,9 +505,17 @@ export default function Sidebar() {
 	const activeTrace = traceByTab[ activeTabId ] || []
 	const activeStatus = statusByTab[ activeTabId ] || 'idle'
 	const activeProgress = progressByTab[ activeTabId ]
+	const activePendingTool = pendingToolByTab[ activeTabId ] || null
 	const activeTab = tabs.find( tab => tab.id === activeTabId )
 	const isBusy = sending || activeStatus === 'running' || activeStatus === 'awaiting_human' || activeStatus === 'awaiting_browser'
-	const progressLabel = activeProgress?.label || ( isBusy ? 'Ahentic is thinking…' : '' )
+	const progressLabel = activeProgress?.label || ( isBusy && ! activePendingTool ? 'Ahentic is thinking…' : '' )
+	// Existing session tabs show a spinner until fetched; only while the sidebar is open.
+	const isSessionLoading = useMemo(
+		() => open && isSessionId( activeTabId ) && ! hydratedRef.current.has( activeTabId ),
+		// hydratedVersion: hydratedRef alone would not re-render.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[ open, activeTabId, hydratedVersion ]
+	)
 
 	const runningSessionKey = useMemo( () => (
 		Object.entries( statusByTab )
@@ -472,14 +537,7 @@ export default function Sidebar() {
 		const seenAt = {}
 
 		const apply = session => {
-			applySessionPayload(
-				session,
-				setTabs,
-				setMessagesByTab,
-				setStatusByTab,
-				setTraceByTab,
-				setProgressByTab
-			)
+			applySession( session )
 		}
 
 		const isStalled = session => {
@@ -537,7 +595,7 @@ export default function Sidebar() {
 			cancelled = true
 			window.clearInterval( timer )
 		}
-	}, [ runningSessionKey ] )
+	}, [ runningSessionKey, applySession ] )
 
 	const openSidebar = useCallback( () => setOpen( true ), [] )
 	const closeSidebar = useCallback( () => setOpen( false ), [] )
@@ -569,14 +627,14 @@ export default function Sidebar() {
 				...traces,
 				[ id ]: Array.isArray( session.trace ) ? session.trace : [],
 			} ) )
-			hydratedRef.current.add( id )
+			markHydrated( id )
 			setActiveTabId( id )
 			setOpen( true )
 		} catch ( error ) {
 			// eslint-disable-next-line no-alert
 			window.alert( error.message || 'Could not create a new session.' )
 		}
-	}, [ mode ] )
+	}, [ mode, markHydrated ] )
 
 	const closeTab = useCallback( id => {
 		setTabs( current => {
@@ -607,7 +665,14 @@ export default function Sidebar() {
 				delete copy[ id ]
 				return copy
 			} )
+			setPendingToolByTab( pending => {
+				const copy = { ...pending }
+				delete copy[ id ]
+				return copy
+			} )
 			hydratedRef.current.delete( id )
+			delete sessionStampRef.current[ id ]
+			setHydratedVersion( version => version + 1 )
 			return next
 		} )
 	}, [] )
@@ -664,19 +729,23 @@ export default function Sidebar() {
 				...traces,
 				[ id ]: [],
 			} ) )
-			hydratedRef.current.add( id )
+			markHydrated( id )
 			setActiveTabId( id )
 		} catch ( error ) {
 			// eslint-disable-next-line no-alert
 			window.alert( error.message || 'Could not duplicate session.' )
 		}
-	}, [ tabs, activeTabId, mode ] )
+	}, [ tabs, activeTabId, mode, markHydrated ] )
 
 	const clearAllTabs = useCallback( async () => {
 		try {
 			const session = await createSession( { mode } )
 			const id = String( session.id )
 			hydratedRef.current = new Set( [ id ] )
+			sessionStampRef.current = {
+				[ id ]: sessionFingerprint( session ),
+			}
+			setHydratedVersion( version => version + 1 )
 			setTabs( [ {
 				id,
 				title: session.title || 'New Agent',
@@ -684,10 +753,11 @@ export default function Sidebar() {
 				status: 'idle',
 			} ] )
 			setActiveTabId( id )
-			setMessagesByTab( { [ id ]: [] } )
+			setMessagesByTab( { [ id ]: mapEntriesToMessages( session.messages ) } )
 			setStatusByTab( { [ id ]: 'idle' } )
-			setTraceByTab( { [ id ]: [] } )
+			setTraceByTab( { [ id ]: Array.isArray( session.trace ) ? session.trace : [] } )
 			setProgressByTab( {} )
+			setPendingToolByTab( {} )
 		} catch ( error ) {
 			// eslint-disable-next-line no-alert
 			window.alert( error.message || 'Could not reset sessions.' )
@@ -695,7 +765,11 @@ export default function Sidebar() {
 	}, [ mode ] )
 
 	const sendMessage = useCallback( async text => {
-		if ( ! text?.trim() || sending || ! bootstrapped ) {
+		if ( ! text?.trim() || sending ) {
+			return
+		}
+		// Wait until an existing session tab has finished loading.
+		if ( isSessionId( activeTabId ) && ! hydratedRef.current.has( activeTabId ) ) {
 			return
 		}
 
@@ -716,7 +790,7 @@ export default function Sidebar() {
 						: tab
 				) ) )
 				setActiveTabId( sessionId )
-				hydratedRef.current.add( sessionId )
+				markHydrated( sessionId )
 			} catch ( error ) {
 				setMessagesByTab( messages => ( {
 					...messages,
@@ -771,7 +845,7 @@ export default function Sidebar() {
 				content: text.trim(),
 				mode,
 			} )
-			applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab )
+			applySession( session )
 		} catch ( error ) {
 			setMessagesByTab( messages => ( {
 				...messages,
@@ -792,7 +866,15 @@ export default function Sidebar() {
 		} finally {
 			setSending( false )
 		}
-	}, [ activeTabId, mode, sending, bootstrapped ] )
+	}, [ activeTabId, mode, sending, markHydrated, applySession ] )
+
+	const onApproval = useCallback( async decision => {
+		if ( ! isSessionId( activeTabId ) ) {
+			return
+		}
+		const session = await postApproval( activeTabId, { decision } )
+		applySession( session )
+	}, [ activeTabId, applySession ] )
 
 	const onSuggestedPrompt = useCallback( prompt => {
 		sendMessage( prompt )
@@ -921,9 +1003,12 @@ export default function Sidebar() {
 						onAiReady={ setAiReady }
 						messages={ activeMessages }
 						onSuggestedPrompt={ onSuggestedPrompt }
-						ready={ bootstrapped }
+						ready={ ! isSessionLoading }
+						loading={ isSessionLoading }
 						busy={ isBusy }
 						progressLabel={ progressLabel }
+						pendingTool={ activePendingTool }
+						onApproval={ onApproval }
 					/>
 				) }
 

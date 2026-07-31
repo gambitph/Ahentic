@@ -117,6 +117,20 @@ export function continueSession( id ) {
 }
 
 /**
+ * Post a HITL approval decision.
+ *
+ * @param {number|string} id
+ * @param {{ decision: string }} body
+ * @return {Promise<Object>}
+ */
+export function postApproval( id, body ) {
+	return apiRequest( `/sessions/${ id }/approvals`, {
+		method: 'POST',
+		body: JSON.stringify( body ),
+	} )
+}
+
+/**
  * Map server entries to sidebar message objects.
  *
  * @param {Array} entries

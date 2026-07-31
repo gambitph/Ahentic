@@ -12,6 +12,8 @@ import {
 import { __ } from '@wordpress/i18n'
 import { LoaderCircle } from 'lucide-react'
 import AhenticLogo from './ahentic-logo'
+import CapabilityRequestCard from './capability-request-card'
+import HitlApprovalCard from './hitl-approval-card'
 import { MessageBody } from './message-body'
 
 /**
@@ -25,6 +27,7 @@ function getSuggestedPrompts() {
 		__( 'Explain what I\'m looking at in the screen and how to use it', 'ahentic' ),
 		__( 'Find problems, errors, or opportunities on my website', 'ahentic' ),
 		__( 'Find unused plugins slowing the site down', 'ahentic' ),
+		__( 'Scan the media library for any unused images', 'ahentic' ),
 		__( 'Install an SEO plugin', 'ahentic' ),
 	]
 }
@@ -64,15 +67,18 @@ async function installAiPlugin() {
 }
 
 /**
- * @param {Object}   props
- * @param {boolean}  props.aiReady
- * @param {Object}   props.aiPlugin
- * @param {Function} props.onAiReady
- * @param {Array}    props.messages
- * @param {Function} props.onSuggestedPrompt
- * @param {boolean}  props.ready
- * @param {boolean}  props.busy
- * @param {string}   props.progressLabel Live status under the latest message.
+ * @param {Object}      props
+ * @param {boolean}     props.aiReady
+ * @param {Object}      props.aiPlugin
+ * @param {Function}    props.onAiReady
+ * @param {Array}       props.messages
+ * @param {Function}    props.onSuggestedPrompt
+ * @param {boolean}     props.ready
+ * @param {boolean}     props.loading
+ * @param {boolean}     props.busy
+ * @param {string}      props.progressLabel Live status under the latest message.
+ * @param {Object|null} [props.pendingTool] HITL pending tool payload.
+ * @param {Function}    [props.onApproval]  (decision: string) => Promise|void
  */
 export default function TabContent( {
 	aiReady,
@@ -81,8 +87,11 @@ export default function TabContent( {
 	messages,
 	onSuggestedPrompt,
 	ready = true,
+	loading = false,
 	busy = false,
 	progressLabel = '',
+	pendingTool = null,
+	onApproval,
 } ) {
 	const [ installing, setInstalling ] = useState( false )
 	const [ installError, setInstallError ] = useState( '' )
@@ -136,6 +145,24 @@ export default function TabContent( {
 			setInstalling( false )
 		}
 	}, [ installing, onAiReady ] )
+
+	if ( loading ) {
+		return (
+			<div
+				className="ahentic-content ahentic-content--empty ahentic-content--loading"
+				role="status"
+				aria-live="polite"
+				aria-busy="true"
+				aria-label={ __( 'Loading session', 'ahentic' ) }
+			>
+				<LoaderCircle
+					size={ 28 }
+					className="ahentic-spin"
+					aria-hidden="true"
+				/>
+			</div>
+		)
+	}
 
 	if ( ! messages.length ) {
 		const prompts = getSuggestedPrompts()
@@ -264,11 +291,36 @@ export default function TabContent( {
 						</div>
 						<div className="ahentic-message__body">
 							<MessageBody content={ message.content } role={ message.role } />
+							{ message.role === 'assistant' && Array.isArray( message.meta?.capability_requests ) && message.meta.capability_requests.length
+								? message.meta.capability_requests.map( ( req, index ) => (
+									<CapabilityRequestCard
+										key={ req?.ability || `cap_${ index }` }
+										request={ req }
+									/>
+								) )
+								: ( message.role === 'assistant' && message.meta?.capability_request
+									? (
+										<CapabilityRequestCard
+											request={ message.meta.capability_request }
+										/>
+									)
+									: null
+								)
+							}
 						</div>
 					</div>
 				) ) }
 
-				{ busy && progressLabel ? (
+				{ pendingTool && typeof onApproval === 'function' ? (
+					<div className="ahentic-hitl-wrap">
+						<HitlApprovalCard
+							pendingTool={ pendingTool }
+							onDecide={ onApproval }
+						/>
+					</div>
+				) : null }
+
+				{ busy && progressLabel && ! pendingTool ? (
 					<div
 						ref={ progressRef }
 						className="ahentic-live-status"

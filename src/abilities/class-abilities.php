@@ -38,6 +38,22 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 					'description' => __( 'Read-only site identity and stack inspection for Ahentic.', 'ahentic' ),
 				)
 			);
+
+			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {
+				Ahentic_Abilities_Content::register_category();
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Media' ) ) {
+				Ahentic_Abilities_Media::register_category();
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Site' ) ) {
+				Ahentic_Abilities_Site::register_category();
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Plugins' ) ) {
+				Ahentic_Abilities_Plugins::register_category();
+			}
 		}
 
 		/**
@@ -46,6 +62,22 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		public static function register_abilities() {
 			if ( ! function_exists( 'wp_register_ability' ) ) {
 				return;
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {
+				Ahentic_Abilities_Content::register();
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Media' ) ) {
+				Ahentic_Abilities_Media::register();
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Site' ) ) {
+				Ahentic_Abilities_Site::register();
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Plugins' ) ) {
+				Ahentic_Abilities_Plugins::register();
 			}
 
 			wp_register_ability(
@@ -99,7 +131,47 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		 * @return string[]
 		 */
 		public static function available_for_agent() {
-			return array( self::SNAPSHOT );
+			$names = array( self::SNAPSHOT );
+			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {
+				$names = array_merge( $names, Ahentic_Abilities_Content::names() );
+			}
+			if ( class_exists( 'Ahentic_Abilities_Media' ) ) {
+				$names = array_merge( $names, Ahentic_Abilities_Media::names() );
+			}
+			if ( class_exists( 'Ahentic_Abilities_Site' ) ) {
+				$names = array_merge( $names, Ahentic_Abilities_Site::names() );
+			}
+			if ( class_exists( 'Ahentic_Abilities_Plugins' ) ) {
+				$names = array_merge( $names, Ahentic_Abilities_Plugins::names() );
+			}
+			return $names;
+		}
+
+		/**
+		 * Whether an ability must pause for HITL before execution.
+		 *
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function requires_hitl( $name ) {
+			if ( class_exists( 'Ahentic_Abilities_Plugins' ) && Ahentic_Abilities_Plugins::requires_hitl( $name ) ) {
+				return true;
+			}
+			return false;
+		}
+
+		/**
+		 * Human-readable summary for HITL approval UI.
+		 *
+		 * @param string $name  Ability name.
+		 * @param array  $input Input args.
+		 * @return string
+		 */
+		public static function hitl_summary( $name, $input = array() ) {
+			if ( class_exists( 'Ahentic_Abilities_Plugins' ) && Ahentic_Abilities_Plugins::requires_hitl( $name ) ) {
+				return Ahentic_Abilities_Plugins::hitl_summary( $name, $input );
+			}
+			return (string) $name;
 		}
 
 		/**
@@ -131,6 +203,22 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			// Fallback when Abilities API is missing or ability not registered yet.
 			if ( self::SNAPSHOT === $name ) {
 				return self::execute_get_site_snapshot( $input );
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Content' ) && in_array( $name, Ahentic_Abilities_Content::names(), true ) ) {
+				return Ahentic_Abilities_Content::execute( $name, $input );
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Media' ) && in_array( $name, Ahentic_Abilities_Media::names(), true ) ) {
+				return Ahentic_Abilities_Media::execute( $name, $input );
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Site' ) && in_array( $name, Ahentic_Abilities_Site::names(), true ) ) {
+				return Ahentic_Abilities_Site::execute( $name, $input );
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Plugins' ) && in_array( $name, Ahentic_Abilities_Plugins::names(), true ) ) {
+				return Ahentic_Abilities_Plugins::execute( $name, $input );
 			}
 
 			return new WP_Error(
