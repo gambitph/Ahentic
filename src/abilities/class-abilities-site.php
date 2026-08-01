@@ -1,6 +1,6 @@
 <?php
 /**
- * Site abilities: health snapshot and allowlisted options.
+ * Site abilities: health, options, HTTP fetch, debug log, admin context.
  */
 
 // Exit if accessed directly.
@@ -13,8 +13,15 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 	 * Readonly site inspection for the agent loop.
 	 */
 	class Ahentic_Abilities_Site {
-		const HEALTH = 'ahentic/get-site-health';
-		const OPTION = 'ahentic/get-option';
+		const HEALTH        = 'ahentic/get-site-health';
+		const OPTION        = 'ahentic/get-option';
+		const HTTP_FETCH    = 'ahentic/http-fetch';
+		const DEBUG_LOG     = 'ahentic/get-debug-log';
+		const ADMIN_CONTEXT = 'ahentic/get-admin-context';
+
+		const HTTP_MAX_BYTES     = 32768;
+		const HTTP_TIMEOUT       = 12;
+		const DEBUG_LOG_MAX_BYTES = 32768;
 
 		/**
 		 * Allowlisted option keys the agent may read.
@@ -51,7 +58,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 		 * @return string[]
 		 */
 		public static function names() {
-			return array( self::HEALTH, self::OPTION );
+			return array(
+				self::HEALTH,
+				self::OPTION,
+				self::HTTP_FETCH,
+				self::DEBUG_LOG,
+				self::ADMIN_CONTEXT,
+			);
 		}
 
 		/**
@@ -65,7 +78,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 				'ahentic-site-ops',
 				array(
 					'label'       => __( 'Ahentic Site Ops', 'ahentic' ),
-					'description' => __( 'Site health and allowlisted option reads for Ahentic.', 'ahentic' ),
+					'description' => __( 'Site health, options, HTTP fetch, and debug inspection for Ahentic.', 'ahentic' ),
 				)
 			);
 		}
@@ -129,6 +142,77 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 					'meta'                => $meta,
 				)
 			);
+
+			wp_register_ability(
+				self::HTTP_FETCH,
+				array(
+					'label'               => __( 'HTTP fetch', 'ahentic' ),
+					'description'         => __( 'Fetches a URL and returns status plus a capped body excerpt. Public URLs run on the server. Same-site URLs with as_user=true run in the browser with your login (required for wp-admin).', 'ahentic' ),
+					'category'            => 'ahentic-site-ops',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'url' ),
+						'properties' => array(
+							'url'     => array(
+								'type'        => 'string',
+								'description' => __( 'Absolute http(s) URL to fetch.', 'ahentic' ),
+							),
+							'as_user' => array(
+								'type'        => 'boolean',
+								'description' => __( 'When true, fetch a same-site URL in the browser using the user’s logged-in session (required for wp-admin).', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_http_fetch' ),
+					'permission_callback' => $permission,
+					'meta'                => $meta,
+				)
+			);
+
+			wp_register_ability(
+				self::DEBUG_LOG,
+				array(
+					'label'               => __( 'Get debug log', 'ahentic' ),
+					'description'         => __( 'Returns a capped tail of the WordPress debug.log when available, plus WP_DEBUG flags.', 'ahentic' ),
+					'category'            => 'ahentic-site-ops',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'properties' => array(
+							'bytes' => array(
+								'type'        => 'integer',
+								'description' => __( 'Max bytes to read from the end of the log (default 32KB, max 64KB).', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_get_debug_log' ),
+					'permission_callback' => $permission,
+					'meta'                => $meta,
+				)
+			);
+
+			wp_register_ability(
+				self::ADMIN_CONTEXT,
+				array(
+					'label'               => __( 'Get admin context', 'ahentic' ),
+					'description'         => __( 'Interprets the current (or given) admin page URL into screen hints: page slug, post type, title, body classes.', 'ahentic' ),
+					'category'            => 'ahentic-site-ops',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'properties' => array(
+							'url' => array(
+								'type'        => 'string',
+								'description' => __( 'Optional admin URL. Defaults to the sidebar page context stored for this session.', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_get_admin_context' ),
+					'permission_callback' => $permission,
+					'meta'                => $meta,
+				)
+			);
 		}
 
 		/**
@@ -142,6 +226,12 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 					return self::execute_get_site_health( $input );
 				case self::OPTION:
 					return self::execute_get_option( $input );
+				case self::HTTP_FETCH:
+					return self::execute_http_fetch( $input );
+				case self::DEBUG_LOG:
+					return self::execute_get_debug_log( $input );
+				case self::ADMIN_CONTEXT:
+					return self::execute_get_admin_context( $input );
 				default:
 					return new WP_Error( 'ahentic_ability_unknown', __( 'Unknown site ability.', 'ahentic' ) );
 			}
@@ -200,7 +290,6 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 					$run[ $test_id ] = $direct[ $test_id ];
 				}
 			}
-			// Fill remaining direct tests up to a cap.
 			foreach ( $direct as $test_id => $test ) {
 				if ( count( $run ) >= 12 ) {
 					break;
@@ -236,10 +325,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 			}
 
 			return array(
-				'counts'           => $counts,
-				'issues'           => $issues,
-				'site_health_url'  => admin_url( 'site-health.php' ),
-				'notes'            => array(
+				'counts'          => $counts,
+				'issues'          => $issues,
+				'site_health_url' => admin_url( 'site-health.php' ),
+				'notes'           => array(
 					__( 'Counts come from the last Site Health run when available; issues list is a capped set of direct checks.', 'ahentic' ),
 				),
 			);
@@ -282,7 +371,6 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 				);
 			}
 
-			// Prefer a core/upstream ability when present (experimental AI plugins may register one).
 			$upstream_names = array(
 				'core/get-option',
 				'wordpress/get-option',
@@ -321,6 +409,443 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 				'source'    => 'ahentic/get-option',
 				'allowlist' => self::option_allowlist(),
 			);
+		}
+
+		/**
+		 * Whether http-fetch should run in the browser (logged-in same-site).
+		 *
+		 * @param array $input Ability input.
+		 * @return bool
+		 */
+		public static function http_fetch_requires_browser( $input = array() ) {
+			$input   = is_array( $input ) ? $input : array();
+			$as_user = ! empty( $input['as_user'] );
+			if ( ! $as_user ) {
+				return false;
+			}
+			$url = isset( $input['url'] ) ? trim( (string) $input['url'] ) : '';
+			if ( '' === $url || ! wp_http_validate_url( $url ) ) {
+				return false;
+			}
+			return self::url_is_same_site( $url );
+		}
+
+		/**
+		 * Rate-limited HTTP GET (public server-side; as_user is browser-only).
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_http_fetch( $input = array() ) {
+			$input   = is_array( $input ) ? $input : array();
+			$url     = isset( $input['url'] ) ? trim( (string) $input['url'] ) : '';
+			$as_user = ! empty( $input['as_user'] );
+
+			if ( '' === $url ) {
+				return new WP_Error( 'ahentic_missing_url', __( 'A URL is required.', 'ahentic' ) );
+			}
+
+			if ( ! wp_http_validate_url( $url ) ) {
+				return new WP_Error( 'ahentic_invalid_url', __( 'That URL is not valid.', 'ahentic' ) );
+			}
+
+			$parts = wp_parse_url( $url );
+			if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+				return new WP_Error( 'ahentic_invalid_url', __( 'That URL is not valid.', 'ahentic' ) );
+			}
+
+			$scheme = strtolower( (string) $parts['scheme'] );
+			if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
+				return new WP_Error( 'ahentic_invalid_url', __( 'Only http and https URLs are allowed.', 'ahentic' ) );
+			}
+
+			$same_site = self::url_is_same_site( $url );
+			if ( $as_user && ! $same_site ) {
+				return new WP_Error(
+					'ahentic_as_user_same_site',
+					__( 'as_user is only allowed for URLs on this WordPress site.', 'ahentic' )
+				);
+			}
+			if ( $as_user ) {
+				// Interactive path should have paused for browser already. This is the headless /
+				// Agents fallback until a signed probe exists.
+				return array(
+					'ok'               => false,
+					'error'            => 'browser_required',
+					'url'              => esc_url_raw( $url ),
+					'same_site'        => true,
+					'as_user'          => true,
+					'message'          => __( 'Logged-in fetches need the Ahentic sidebar (browser session). Keep Ahentic open on a working admin page and retry — a headless probe is not available yet.', 'ahentic' ),
+					'looks_like_login' => false,
+					'looks_like_admin' => false,
+				);
+			}
+
+			if ( ! $same_site && ! self::host_is_publicly_fetchable( (string) $parts['host'] ) ) {
+				return new WP_Error(
+					'ahentic_url_blocked',
+					__( 'That host cannot be fetched (private or reserved).', 'ahentic' )
+				);
+			}
+
+			$args = array(
+				'timeout'     => self::HTTP_TIMEOUT,
+				'redirection' => 3,
+				'sslverify'   => true,
+				'headers'     => array(
+					'Accept'     => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+					'User-Agent' => 'Ahentic/' . ( defined( 'AHENTIC_VERSION' ) ? AHENTIC_VERSION : '0.1' ) . '; ' . home_url( '/' ),
+				),
+			);
+
+			$used_auth = false;
+
+			$started  = microtime( true );
+			$response = wp_remote_get( $url, $args );
+			$duration = (int) round( ( microtime( true ) - $started ) * 1000 );
+
+			if ( is_wp_error( $response ) ) {
+				return array(
+					'ok'        => false,
+					'error'     => $response->get_error_code(),
+					'message'   => $response->get_error_message(),
+					'url'       => esc_url_raw( $url ),
+					'same_site' => $same_site,
+					'as_user'   => $as_user,
+					'duration_ms' => $duration,
+					'timed_out' => false !== strpos( strtolower( $response->get_error_message() ), 'timed out' ),
+				);
+			}
+
+			$status = (int) wp_remote_retrieve_response_code( $response );
+			$body   = (string) wp_remote_retrieve_body( $response );
+			$bytes  = strlen( $body );
+			$trunc  = $bytes > self::HTTP_MAX_BYTES;
+			if ( $trunc ) {
+				$body = substr( $body, 0, self::HTTP_MAX_BYTES );
+			}
+
+			$excerpt = self::http_body_excerpt( $body );
+			$lower   = strtolower( $body );
+
+			$looks_login = ( false !== strpos( $lower, 'name="log"' ) && false !== strpos( $lower, 'name="pwd"' ) )
+				|| false !== strpos( $lower, 'id="loginform"' )
+				|| false !== strpos( $lower, '/wp-login.php' );
+
+			$looks_admin = false !== strpos( $lower, 'id="wpadminbar"' )
+				|| false !== strpos( $lower, 'id="wpbody"' )
+				|| false !== strpos( $lower, 'class="wp-admin' );
+
+			$success_marker = $as_user ? ( $looks_admin && ! $looks_login && $status >= 200 && $status < 400 && $bytes > 200 )
+				: ( $status >= 200 && $status < 400 && $bytes > 0 );
+
+			return array(
+				'ok'               => $success_marker,
+				'url'              => esc_url_raw( $url ),
+				'final_url'        => esc_url_raw( (string) wp_remote_retrieve_header( $response, 'location' ) ),
+				'status'           => $status,
+				'duration_ms'      => $duration,
+				'body_bytes'       => $bytes,
+				'truncated'       => $trunc,
+				'excerpt'          => $excerpt,
+				'same_site'        => $same_site,
+				'as_user'          => $as_user,
+				'auth_used'        => $used_auth,
+				'looks_like_login' => $looks_login,
+				'looks_like_admin' => $looks_admin,
+				'success_marker'   => $success_marker,
+				'content_type'     => (string) wp_remote_retrieve_header( $response, 'content-type' ),
+			);
+		}
+
+		/**
+		 * Capped debug.log tail.
+		 *
+		 * @param mixed $input Input.
+		 * @return array
+		 */
+		public static function execute_get_debug_log( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$bytes = isset( $input['bytes'] ) ? (int) $input['bytes'] : self::DEBUG_LOG_MAX_BYTES;
+			$bytes = max( 1024, min( 65536, $bytes ) );
+
+			$wp_debug     = defined( 'WP_DEBUG' ) && WP_DEBUG;
+			$wp_debug_log = defined( 'WP_DEBUG_LOG' ) ? WP_DEBUG_LOG : false;
+			$wp_debug_display = defined( 'WP_DEBUG_DISPLAY' ) ? (bool) WP_DEBUG_DISPLAY : true;
+
+			$path = self::resolve_debug_log_path();
+			$base = array(
+				'wp_debug'         => (bool) $wp_debug,
+				'wp_debug_log'     => (bool) $wp_debug_log,
+				'wp_debug_display' => $wp_debug_display,
+				'path'             => $path ? self::display_path( $path ) : '',
+				'path_resolved'    => (bool) $path,
+			);
+
+			if ( ! $path ) {
+				return array_merge(
+					$base,
+					array(
+						'available' => false,
+						'reason'    => $wp_debug && $wp_debug_log ? 'not_found' : 'logging_disabled',
+						'hint'      => __( 'Enable WP_DEBUG and WP_DEBUG_LOG in wp-config.php, reproduce the issue, then retry.', 'ahentic' ),
+						'excerpt'   => '',
+					)
+				);
+			}
+
+			if ( ! is_readable( $path ) ) {
+				return array_merge(
+					$base,
+					array(
+						'available' => false,
+						'reason'    => 'not_readable',
+						'hint'      => __( 'debug.log exists but is not readable by PHP.', 'ahentic' ),
+						'excerpt'   => '',
+					)
+				);
+			}
+
+			$size = filesize( $path );
+			if ( false === $size ) {
+				$size = 0;
+			}
+
+			$offset  = max( 0, (int) $size - $bytes );
+			$chunk   = file_get_contents( $path, false, null, $offset, $bytes ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local capped read; Plugin Check allows this.
+			if ( false === $chunk ) {
+				$chunk = '';
+			}
+
+			if ( $offset > 0 && '' !== $chunk ) {
+				$nl = strpos( $chunk, "\n" );
+				if ( false !== $nl ) {
+					$chunk = substr( $chunk, $nl + 1 );
+				}
+			}
+
+			$excerpt = self::redact_log_excerpt( $chunk );
+
+			return array_merge(
+				$base,
+				array(
+					'available'  => true,
+					'exists'     => true,
+					'size_bytes' => (int) $size,
+					'truncated' => ( (int) $size > $bytes ),
+					'excerpt'    => $excerpt,
+					'mtime'      => gmdate( 'c', (int) filemtime( $path ) ),
+				)
+			);
+		}
+
+		/**
+		 * Interpret admin / page context for the agent.
+		 *
+		 * @param mixed $input Input.
+		 * @return array
+		 */
+		public static function execute_get_admin_context( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$url   = isset( $input['url'] ) ? trim( (string) $input['url'] ) : '';
+
+			$stored = array();
+			if ( class_exists( 'Ahentic_Session_Repository' ) ) {
+				// Prefer the most recently stored page context for any in-flight session owner call.
+				// Orchestrator passes session via a static request flag when available.
+				$session_id = 0;
+				if ( class_exists( 'Ahentic_Orchestrator' ) && method_exists( 'Ahentic_Orchestrator', 'current_session_id' ) ) {
+					$session_id = (int) Ahentic_Orchestrator::current_session_id();
+				}
+				if ( $session_id > 0 ) {
+					$stored = Ahentic_Session_Repository::get_page_context( $session_id );
+				}
+			}
+
+			if ( '' === $url && ! empty( $stored['url'] ) ) {
+				$url = (string) $stored['url'];
+			}
+
+			$title      = ! empty( $stored['title'] ) ? (string) $stored['title'] : '';
+			$body_class = ! empty( $stored['bodyClass'] ) ? (string) $stored['bodyClass'] : ( ! empty( $stored['body_class'] ) ? (string) $stored['body_class'] : '' );
+			$is_admin   = isset( $stored['isAdmin'] ) ? (bool) $stored['isAdmin'] : null;
+
+			$parts    = $url ? wp_parse_url( $url ) : array();
+			$path     = is_array( $parts ) && isset( $parts['path'] ) ? (string) $parts['path'] : '';
+			$query    = array();
+			if ( is_array( $parts ) && ! empty( $parts['query'] ) ) {
+				wp_parse_str( (string) $parts['query'], $query );
+			}
+
+			if ( null === $is_admin ) {
+				$is_admin = ( false !== strpos( $path, '/wp-admin' ) );
+			}
+
+			$page      = isset( $query['page'] ) ? sanitize_key( (string) $query['page'] ) : '';
+			$post_type = isset( $query['post_type'] ) ? sanitize_key( (string) $query['post_type'] ) : '';
+			$action    = isset( $query['action'] ) ? sanitize_key( (string) $query['action'] ) : '';
+			$post_id   = isset( $query['post'] ) ? (int) $query['post'] : 0;
+
+			$script = '';
+			if ( $path ) {
+				$script = basename( $path );
+			}
+
+			$screen_hints = array();
+			if ( $body_class ) {
+				foreach ( preg_split( '/\s+/', $body_class ) as $class ) {
+					$class = trim( (string) $class );
+					if ( '' === $class ) {
+						continue;
+					}
+					if (
+						0 === strpos( $class, 'toplevel_page_' )
+						|| 0 === strpos( $class, 'admin_page_' )
+						|| 0 === strpos( $class, 'post-type-' )
+						|| 0 === strpos( $class, 'taxonomy-' )
+						|| 0 === strpos( $class, 'edit-php' )
+						|| 0 === strpos( $class, 'index-php' )
+						|| 'wp-admin' === $class
+						|| 'wp-core-ui' === $class
+					) {
+						$screen_hints[] = $class;
+					}
+					if ( count( $screen_hints ) >= 12 ) {
+						break;
+					}
+				}
+			}
+
+			return array(
+				'available'    => '' !== $url || ! empty( $stored ),
+				'url'          => $url ? esc_url_raw( $url ) : '',
+				'title'        => $title,
+				'is_admin'     => (bool) $is_admin,
+				'script'       => $script,
+				'page'         => $page,
+				'post_type'    => $post_type,
+				'action'       => $action,
+				'post_id'      => $post_id > 0 ? $post_id : null,
+				'path'         => $path,
+				'body_classes' => $screen_hints,
+				'source'       => '' !== $url && empty( $stored['url'] ) ? 'input' : ( ! empty( $stored ) ? 'session' : 'none' ),
+				'notes'        => array(
+					__( 'For live page identity (URL/title/body classes), use ahentic-browser/get-current-page.', 'ahentic' ),
+					__( 'For what is visible on the open tab (headings, notices, actions, fields, excerpt), use ahentic-browser/get-visible-page.', 'ahentic' ),
+				),
+			);
+		}
+
+		/**
+		 * Resolve WP debug log path (no arbitrary user paths).
+		 *
+		 * @return string|null Absolute path or null.
+		 */
+		private static function resolve_debug_log_path() {
+			if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+				if ( in_array( strtolower( (string) WP_DEBUG_LOG ), array( 'true', '1' ), true ) ) {
+					$path = WP_CONTENT_DIR . '/debug.log';
+					return $path;
+				}
+				if ( is_string( WP_DEBUG_LOG ) && '' !== WP_DEBUG_LOG ) {
+					return WP_DEBUG_LOG;
+				}
+			}
+
+			$default = WP_CONTENT_DIR . '/debug.log';
+			return file_exists( $default ) ? $default : null;
+		}
+
+		/**
+		 * Relative-ish path for display.
+		 *
+		 * @param string $path Absolute path.
+		 * @return string
+		 */
+		private static function display_path( $path ) {
+			$path = wp_normalize_path( (string) $path );
+			$content = wp_normalize_path( WP_CONTENT_DIR );
+			if ( 0 === strpos( $path, $content ) ) {
+				return 'wp-content' . substr( $path, strlen( $content ) );
+			}
+			$abspath = wp_normalize_path( ABSPATH );
+			if ( 0 === strpos( $path, $abspath ) ) {
+				return ltrim( substr( $path, strlen( $abspath ) ), '/' );
+			}
+			return basename( $path );
+		}
+
+		/**
+		 * Redact obvious secrets from log excerpts.
+		 *
+		 * @param string $text Log chunk.
+		 * @return string
+		 */
+		private static function redact_log_excerpt( $text ) {
+			$text = (string) $text;
+			$text = preg_replace( '/(password|passwd|pwd|secret|token|authorization|api[_-]?key)\s*[:=]\s*\S+/i', '$1=[redacted]', $text );
+			$text = preg_replace( '/Bearer\s+[A-Za-z0-9\-._~+\/]+=*/i', 'Bearer [redacted]', $text );
+			$text = preg_replace( '/(wordpress_[a-z0-9_]*cookie[^=]*=)[^;\s]+/i', '$1[redacted]', $text );
+			return $text;
+		}
+
+		/**
+		 * @param string $url URL.
+		 * @return bool
+		 */
+		private static function url_is_same_site( $url ) {
+			$host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+			if ( '' === $host ) {
+				return false;
+			}
+			$home_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+			$site_host = strtolower( (string) wp_parse_url( site_url( '/' ), PHP_URL_HOST ) );
+			return ( $host === $home_host || $host === $site_host );
+		}
+
+		/**
+		 * Block obvious private/reserved hosts for public fetches.
+		 *
+		 * @param string $host Hostname.
+		 * @return bool
+		 */
+		private static function host_is_publicly_fetchable( $host ) {
+			$host = strtolower( trim( $host ) );
+			if ( '' === $host ) {
+				return false;
+			}
+			if ( 'localhost' === $host || preg_match( '/\.local$/', $host ) || preg_match( '/\.localhost$/', $host ) ) {
+				return false;
+			}
+			if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
+				return (bool) filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
+			}
+			$resolved = gethostbyname( $host );
+			if ( $resolved === $host ) {
+				// Unresolved — allow and let HTTP fail (avoids blocking valid public DNS weirdness).
+				return true;
+			}
+			return (bool) filter_var( $resolved, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
+		}
+
+		/**
+		 * Strip tags and collapse whitespace for model-sized excerpt.
+		 *
+		 * @param string $body Response body.
+		 * @return string
+		 */
+		private static function http_body_excerpt( $body ) {
+			$body = (string) $body;
+			// Avoid leaking auth forms wholesale.
+			$body = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', ' ', $body );
+			$body = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', ' ', $body );
+			$text = wp_strip_all_tags( $body );
+			$text = preg_replace( '/\s+/', ' ', $text );
+			$text = trim( (string) $text );
+			if ( strlen( $text ) > 4000 ) {
+				$text = rtrim( substr( $text, 0, 3999 ) ) . '…';
+			}
+			return $text;
 		}
 	}
 }

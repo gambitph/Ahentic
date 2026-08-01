@@ -1,6 +1,6 @@
 <?php
 /**
- * Content abilities: list, get, and search posts/pages (with meta).
+ * Content abilities: list, get, search, and update posts/pages (with meta).
  */
 
 // Exit if accessed directly.
@@ -10,15 +10,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 	/**
-	 * Read-only content inspection for the agent loop.
+	 * Content inspection and updates for the agent loop.
 	 */
 	class Ahentic_Abilities_Content {
 		const LIST   = 'ahentic/list-content';
 		const GET    = 'ahentic/get-content';
 		const SEARCH = 'ahentic/search-content';
+		const UPDATE = 'ahentic/update-post';
 
 		const MAX_PER_PAGE      = 50;
 		const MAX_CONTENT_CHARS = 20000;
+		const MAX_WRITE_CHARS   = 500000;
 		const MAX_META_KEYS     = 80;
 		const MAX_META_VALUE    = 2000;
 		const MAX_SNIPPET       = 200;
@@ -29,7 +31,91 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string[]
 		 */
 		public static function names() {
-			return array( self::LIST, self::GET, self::SEARCH );
+			return array( self::LIST, self::GET, self::SEARCH, self::UPDATE );
+		}
+
+		/**
+		 * Write (non-readonly) ability names.
+		 *
+		 * @return string[]
+		 */
+		public static function write_names() {
+			return array( self::UPDATE );
+		}
+
+		/**
+		 * Whether an ability from this module is read-only.
+		 *
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function is_readonly( $name ) {
+			return ! in_array( (string) $name, self::write_names(), true );
+		}
+
+		/**
+		 * Abilities that must pause for human approval before running.
+		 *
+		 * @return string[]
+		 */
+		public static function hitl_names() {
+			return array( self::UPDATE );
+		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function requires_hitl( $name ) {
+			return in_array( (string) $name, self::hitl_names(), true );
+		}
+
+		/**
+		 * Human-readable summary for HITL UI.
+		 *
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return string
+		 */
+		public static function hitl_summary( $name, $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			if ( self::UPDATE !== $name ) {
+				return (string) $name;
+			}
+
+			$id     = isset( $input['id'] ) ? (int) $input['id'] : 0;
+			$fields = array();
+			foreach ( array( 'content', 'title', 'excerpt', 'slug', 'meta' ) as $field ) {
+				if ( array_key_exists( $field, $input ) ) {
+					$fields[] = $field;
+				}
+			}
+
+			$title = '';
+			if ( $id > 0 ) {
+				$post = get_post( $id );
+				if ( $post instanceof WP_Post ) {
+					$title = get_the_title( $post );
+				}
+			}
+
+			$fields_label = ! empty( $fields ) ? implode( ', ', $fields ) : __( 'fields', 'ahentic' );
+			if ( $title ) {
+				return sprintf(
+					/* translators: 1: post title, 2: post ID, 3: field list */
+					__( 'Update post “%1$s” (#%2$d): %3$s', 'ahentic' ),
+					$title,
+					$id,
+					$fields_label
+				);
+			}
+
+			return sprintf(
+				/* translators: 1: post ID, 2: field list */
+				__( 'Update post #%1$d: %2$s', 'ahentic' ),
+				$id > 0 ? $id : 0,
+				$fields_label
+			);
 		}
 
 		/**
@@ -44,7 +130,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				'ahentic-content',
 				array(
 					'label'       => __( 'Ahentic Content', 'ahentic' ),
-					'description' => __( 'List, read, and search posts and pages for Ahentic.', 'ahentic' ),
+					'description' => __( 'List, read, search, and update posts and pages for Ahentic.', 'ahentic' ),
 				)
 			);
 		}
@@ -65,6 +151,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				'annotations'  => array(
 					'readonly'   => true,
 					'idempotent' => true,
+				),
+				'show_in_rest' => false,
+			);
+			$mutate_meta = array(
+				'annotations'  => array(
+					'readonly'    => false,
+					'destructive' => false,
+					'idempotent'  => false,
 				),
 				'show_in_rest' => false,
 			);
@@ -174,6 +268,50 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					'meta'                => $meta,
 				)
 			);
+
+			wp_register_ability(
+				self::UPDATE,
+				array(
+					'label'               => __( 'Update post', 'ahentic' ),
+					'description'         => __( 'Updates an existing post or page: content, title, excerpt, slug, and post meta (exact keys from get-content; WooCommerce _price/_regular_price allowed). Does not change publish status. Requires human approval in Ahentic.', 'ahentic' ),
+					'category'            => 'ahentic-content',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'id' ),
+						'properties' => array(
+							'id'      => array(
+								'type'        => 'integer',
+								'description' => __( 'Post ID.', 'ahentic' ),
+							),
+							'content' => array(
+								'type'        => 'string',
+								'description' => __( 'New post_content (HTML / block markup).', 'ahentic' ),
+							),
+							'title'   => array(
+								'type'        => 'string',
+								'description' => __( 'New post title.', 'ahentic' ),
+							),
+							'excerpt' => array(
+								'type'        => 'string',
+								'description' => __( 'New post excerpt.', 'ahentic' ),
+							),
+							'slug'    => array(
+								'type'        => 'string',
+								'description' => __( 'New post slug (post_name).', 'ahentic' ),
+							),
+							'meta'    => array(
+								'type'                 => 'object',
+								'description'          => __( 'Post meta key/value pairs to set (exact keys from get-content). Underscore keys like WooCommerce _price are allowed; sensitive/system keys are blocked.', 'ahentic' ),
+								'additionalProperties' => true,
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_update_post' ),
+					'permission_callback' => $permission,
+					'meta'                => $mutate_meta,
+				)
+			);
 		}
 
 		/**
@@ -191,6 +329,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					return self::execute_get_content( $input );
 				case self::SEARCH:
 					return self::execute_search_content( $input );
+				case self::UPDATE:
+					return self::execute_update_post( $input );
 				default:
 					return new WP_Error( 'ahentic_ability_unknown', __( 'Unknown content ability.', 'ahentic' ) );
 			}
@@ -420,6 +560,345 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				'post_type'   => $post_types,
 				'status'      => $statuses,
 				'results'     => $results,
+			);
+		}
+
+		/**
+		 * Update post content / title / excerpt / slug / safe meta.
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_update_post( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$id    = isset( $input['id'] ) ? (int) $input['id'] : 0;
+			if ( $id <= 0 ) {
+				return new WP_Error( 'ahentic_missing_id', __( 'A valid post id is required.', 'ahentic' ) );
+			}
+
+			$post = get_post( $id );
+			if ( ! $post instanceof WP_Post ) {
+				return new WP_Error( 'ahentic_post_not_found', __( 'Post not found.', 'ahentic' ), array( 'status' => 404 ) );
+			}
+
+			if ( ! current_user_can( 'edit_post', $post->ID ) && ! current_user_can( 'manage_options' ) ) {
+				return new WP_Error(
+					'ahentic_ability_forbidden',
+					__( 'You cannot edit this post.', 'ahentic' ),
+					array( 'status' => 403 )
+				);
+			}
+
+			// Skip internal / non-editable types.
+			$type_obj = get_post_type_object( $post->post_type );
+			if ( ! $type_obj ) {
+				return new WP_Error(
+					'ahentic_post_type_blocked',
+					__( 'This post type cannot be updated via Ahentic.', 'ahentic' )
+				);
+			}
+
+			$blocked_types = array(
+				'revision',
+				'nav_menu_item',
+				'attachment',
+				'ahentic-session',
+				'customize_changeset',
+				'oembed_cache',
+				'user_request',
+				'wp_template',
+				'wp_template_part',
+				'wp_global_styles',
+				'wp_navigation',
+				'wp_font_family',
+				'wp_font_face',
+			);
+			if ( in_array( $post->post_type, $blocked_types, true ) ) {
+				return new WP_Error(
+					'ahentic_post_type_blocked',
+					__( 'This post type cannot be updated via Ahentic.', 'ahentic' )
+				);
+			}
+
+			$args           = array( 'ID' => $post->ID );
+			$changed_fields = array();
+
+			if ( array_key_exists( 'content', $input ) ) {
+				$content = (string) $input['content'];
+				if ( strlen( $content ) > self::MAX_WRITE_CHARS ) {
+					return new WP_Error(
+						'ahentic_content_too_large',
+						sprintf(
+							/* translators: %d: max characters */
+							__( 'Content exceeds the maximum of %d characters.', 'ahentic' ),
+							self::MAX_WRITE_CHARS
+						)
+					);
+				}
+				$args['post_content'] = $content;
+				$changed_fields[]     = 'content';
+			}
+
+			if ( array_key_exists( 'title', $input ) ) {
+				$title = trim( (string) $input['title'] );
+				if ( '' === $title ) {
+					return new WP_Error( 'ahentic_invalid_title', __( 'Title cannot be empty.', 'ahentic' ) );
+				}
+				$args['post_title'] = $title;
+				$changed_fields[]   = 'title';
+			}
+
+			if ( array_key_exists( 'excerpt', $input ) ) {
+				$args['post_excerpt'] = (string) $input['excerpt'];
+				$changed_fields[]     = 'excerpt';
+			}
+
+			if ( array_key_exists( 'slug', $input ) ) {
+				$slug = sanitize_title( (string) $input['slug'] );
+				if ( '' === $slug ) {
+					return new WP_Error( 'ahentic_invalid_slug', __( 'Slug cannot be empty.', 'ahentic' ) );
+				}
+				$args['post_name']  = $slug;
+				$changed_fields[]   = 'slug';
+			}
+
+			$meta_input = isset( $input['meta'] ) && is_array( $input['meta'] ) ? $input['meta'] : array();
+			$meta_plan  = self::plan_meta_updates( $meta_input );
+			if ( is_wp_error( $meta_plan ) ) {
+				return $meta_plan;
+			}
+
+			if ( count( $args ) <= 1 && empty( $meta_plan['set'] ) ) {
+				return self::nothing_to_update_error( $input, $meta_plan, (int) $post->ID );
+			}
+
+			$before = self::summarize_post( $post, true );
+			$before['content_chars'] = strlen( (string) $post->post_content );
+			$before['excerpt']       = (string) $post->post_excerpt;
+
+			if ( count( $args ) > 1 ) {
+				$result = wp_update_post( wp_slash( $args ), true );
+				if ( is_wp_error( $result ) ) {
+					return $result;
+				}
+				if ( ! $result ) {
+					return new WP_Error( 'ahentic_update_failed', __( 'Failed to update the post.', 'ahentic' ) );
+				}
+			}
+
+			$meta_updated = array();
+			$meta_skipped = isset( $meta_plan['skipped'] ) ? $meta_plan['skipped'] : array();
+			foreach ( $meta_plan['set'] as $key => $value ) {
+				$prev = get_post_meta( $post->ID, $key, true );
+				$ok   = update_post_meta( $post->ID, $key, $value );
+				if ( false === $ok && (string) $prev !== (string) $value ) {
+					$meta_skipped[] = array(
+						'key'    => $key,
+						'reason' => 'update_failed',
+					);
+					continue;
+				}
+				$meta_updated[] = $key;
+			}
+
+			$fresh = get_post( $post->ID );
+			if ( ! $fresh instanceof WP_Post ) {
+				return new WP_Error( 'ahentic_post_reload_failed', __( 'Post updated but could not be reloaded.', 'ahentic' ) );
+			}
+
+			$after                   = self::summarize_post( $fresh, true );
+			$after['content_chars']  = strlen( (string) $fresh->post_content );
+			$after['excerpt']        = (string) $fresh->post_excerpt;
+			// Return a truncated content preview so the agent can confirm without dumping huge markup.
+			$preview_max             = 400;
+			$content_preview         = (string) $fresh->post_content;
+			$truncated             = false;
+			if ( strlen( $content_preview ) > $preview_max ) {
+				$content_preview = substr( $content_preview, 0, $preview_max );
+				$truncated     = true;
+			}
+			$after['content_preview']   = $content_preview;
+			$after['content_truncated'] = $truncated;
+
+			return array(
+				'ok'             => true,
+				'id'             => (int) $fresh->ID,
+				'changed_fields' => $changed_fields,
+				'meta_updated'   => $meta_updated,
+				'meta_skipped'   => $meta_skipped,
+				'before'         => $before,
+				'post'           => $after,
+				'edit_url'       => isset( $after['edit_url'] ) ? $after['edit_url'] : '',
+				'view_url'       => isset( $after['view_url'] ) ? $after['view_url'] : '',
+			);
+		}
+
+		/**
+		 * Rich error when update-post received no applicable fields.
+		 *
+		 * @param array $input     Raw ability input.
+		 * @param array $meta_plan Planned meta updates.
+		 * @param int   $post_id   Post ID.
+		 * @return \WP_Error
+		 */
+		private static function nothing_to_update_error( array $input, array $meta_plan, $post_id ) {
+			$recognized = array( 'id', 'content', 'title', 'excerpt', 'slug', 'meta' );
+			$ignored    = array();
+			foreach ( array_keys( $input ) as $key ) {
+				$key = (string) $key;
+				if ( ! in_array( $key, $recognized, true ) ) {
+					$ignored[] = $key;
+				}
+			}
+
+			$skipped = isset( $meta_plan['skipped'] ) && is_array( $meta_plan['skipped'] ) ? $meta_plan['skipped'] : array();
+			$has_meta = isset( $input['meta'] ) && is_array( $input['meta'] ) && ! empty( $input['meta'] );
+
+			if ( $has_meta && ! empty( $skipped ) ) {
+				$keys = array();
+				foreach ( $skipped as $row ) {
+					if ( ! empty( $row['key'] ) ) {
+						$keys[] = (string) $row['key'];
+					}
+				}
+				$message = sprintf(
+					/* translators: %s: comma-separated meta keys */
+					__( 'Meta keys were provided but none could be applied (%s). Use exact keys from ahentic/get-content; sensitive/system keys are blocked.', 'ahentic' ),
+					implode( ', ', $keys )
+				);
+				$code = 'ahentic_meta_not_applied';
+			} elseif ( ! empty( $ignored ) ) {
+				$message = sprintf(
+					/* translators: %s: comma-separated ignored keys */
+					__( 'Unrecognized fields (%s). Custom values must go under meta using the exact key from ahentic/get-content (include_meta=true).', 'ahentic' ),
+					implode( ', ', $ignored )
+				);
+				$code = 'ahentic_nothing_to_update';
+			} else {
+				$message = __( 'Provide at least one of: content, title, excerpt, slug, or meta (with exact keys from get-content).', 'ahentic' );
+				$code    = 'ahentic_nothing_to_update';
+			}
+
+			return new WP_Error(
+				$code,
+				$message,
+				array(
+					'status'            => 400,
+					'recognized_fields' => array( 'content', 'title', 'excerpt', 'slug', 'meta' ),
+					'ignored_keys'      => $ignored,
+					'meta_skipped'      => $skipped,
+					'hint'              => __( 'Call ahentic/get-content with this post id and include_meta=true, copy the exact meta key names from the result, then retry update-post with {"id":…,"meta":{"exact_key":"…"}}.', 'ahentic' ),
+					'next_tool'         => array(
+						'name'  => self::GET,
+						'input' => array(
+							'id'           => (int) $post_id,
+							'include_meta' => true,
+						),
+					),
+				)
+			);
+		}
+
+		/**
+		 * WordPress internal meta keys that must not be overwritten by the agent.
+		 *
+		 * @return string[]
+		 */
+		private static function blocked_system_meta_keys() {
+			return array(
+				'_edit_lock',
+				'_edit_last',
+				'_wp_trash_meta_status',
+				'_wp_trash_meta_time',
+				'_wp_desired_post_slug',
+				'_wp_old_slug',
+				'_wp_attached_file',
+				'_wp_attachment_metadata',
+				'_wp_attachment_context',
+			);
+		}
+
+		/**
+		 * Validate and normalize post meta updates.
+		 *
+		 * Underscore keys are allowed (e.g. WooCommerce `_price`) unless sensitive/system-blocked.
+		 *
+		 * @param array $meta Raw meta map.
+		 * @return array{set: array<string, mixed>, skipped: array<int, array{key: string, reason: string}>}|\WP_Error
+		 */
+		private static function plan_meta_updates( array $meta ) {
+			$set     = array();
+			$skipped = array();
+			$count   = 0;
+			$blocked = self::blocked_system_meta_keys();
+
+			foreach ( $meta as $key => $value ) {
+				$key = (string) $key;
+				if ( '' === $key ) {
+					continue;
+				}
+
+				if ( in_array( $key, $blocked, true ) ) {
+					$skipped[] = array(
+						'key'    => $key,
+						'reason' => 'system_key',
+					);
+					continue;
+				}
+
+				if ( self::is_sensitive_meta_key( $key ) ) {
+					$skipped[] = array(
+						'key'    => $key,
+						'reason' => 'sensitive_key',
+					);
+					continue;
+				}
+
+				if ( ! preg_match( '/^[a-zA-Z0-9_\-]+$/', $key ) ) {
+					$skipped[] = array(
+						'key'    => $key,
+						'reason' => 'invalid_key',
+					);
+					continue;
+				}
+
+				if ( $count >= self::MAX_META_KEYS ) {
+					$skipped[] = array(
+						'key'    => $key,
+						'reason' => 'too_many_keys',
+					);
+					continue;
+				}
+
+				if ( is_array( $value ) || is_object( $value ) ) {
+					$encoded = wp_json_encode( $value );
+					if ( false === $encoded ) {
+						$skipped[] = array(
+							'key'    => $key,
+							'reason' => 'unencodable',
+						);
+						continue;
+					}
+					$value = $encoded;
+				} elseif ( is_bool( $value ) ) {
+					$value = $value ? '1' : '0';
+				} elseif ( null === $value ) {
+					$value = '';
+				} else {
+					$value = (string) $value;
+				}
+
+				if ( strlen( $value ) > self::MAX_META_VALUE ) {
+					$value = substr( $value, 0, self::MAX_META_VALUE );
+				}
+
+				$set[ $key ] = $value;
+				++$count;
+			}
+
+			return array(
+				'set'     => $set,
+				'skipped' => $skipped,
 			);
 		}
 

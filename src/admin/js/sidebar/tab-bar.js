@@ -68,6 +68,13 @@ export default function TabBar( {
 						aria-selected={ tab.id === activeTabId }
 						tabIndex={ 0 }
 						onClick={ () => onSelect( tab.id ) }
+						onMouseDown={ event => {
+							// Middle-click closes the tab (browser-tab convention).
+							if ( event.button === 1 ) {
+								event.preventDefault()
+								onClose( tab.id )
+							}
+						} }
 						onKeyDown={ event => {
 							if ( event.key === 'Enter' || event.key === ' ' ) {
 								event.preventDefault()

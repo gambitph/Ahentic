@@ -28,12 +28,13 @@ Ahentic uses **regular JavaScript** (`.js`), not TypeScript. Do not add `.ts` / 
 - **Primary brand color:** `#5750F8` → CSS token `--ah-primary` (hover `--ah-primary-hover`). Use this for Ahentic CTAs / toggles.
 - Visual tokens live on `[data-ahentic-theme="dark"]` (and future themes). Prefer tokens (`--ah-bg`, `--ah-fg`, `--ah-primary`, …) over hard-coded colors in components.
 - Default theme is dark. Do not assume a light theme exists yet.
-- When open on desktop, the sidebar **pushes** page content via `--ahentic-sidebar-inset` (does not overlay content).
+- When open on desktop in a **docked** placement (right/left), the sidebar **pushes** page content via `--ahentic-sidebar-inset`. Floating placements overlay without pushing.
+- Left dock sits to the **left** of the WP admin menu (admin menu + content shift right).
 - Monochrome logo SVG: `src/admin/images/ahentic-icon.svg` (filename `ahentic-icon.svg`). Recolor with CSS mask + `currentColor` / white on primary buttons — do not bake brand purple into the SVG.
 
 ## Persistence
 
-- **Browser `localStorage`** (`ahentic.sidebar.v1`): open/closed, width, theme, mode, open **session ids**, active tab id.
+- **Browser `localStorage`** (`ahentic.sidebar.v1`): open/closed, width, theme, mode, **placement**, **floatRect**, open **session ids**, active tab id.
 - **Not in the browser:** conversation message bodies — those live on `ahentic-session` CPT posts via the orchestrator REST API.
 - Do not invent ad-hoc storage keys; extend the shared helpers in `src/admin/js/sidebar/storage.js`.
 

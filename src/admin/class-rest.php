@@ -70,6 +70,54 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 		}
 
 		/**
+		 * Whether at least one configured connector can run text generation.
+		 *
+		 * @return bool
+		 */
+		public static function has_text_generation() {
+			if ( function_exists( 'wp_ai_client_prompt' ) ) {
+				try {
+					$builder = wp_ai_client_prompt( 'ping' );
+					if ( is_object( $builder ) ) {
+						// Snake_case APIs are exposed via __call on the Core builder.
+						return (bool) $builder->is_supported_for_text_generation();
+					}
+				} catch ( Exception $e ) {
+					return false;
+				} catch ( Throwable $e ) {
+					return false;
+				}
+			}
+
+			if ( class_exists( '\WordPress\AiClient\AiClient' ) ) {
+				try {
+					$builder = \WordPress\AiClient\AiClient::prompt( 'ping' );
+					if ( is_object( $builder ) && method_exists( $builder, 'isSupportedForTextGeneration' ) ) {
+						return (bool) $builder->isSupportedForTextGeneration();
+					}
+				} catch ( Exception $e ) {
+					return false;
+				} catch ( Throwable $e ) {
+					return false;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		 * Admin URL for Settings → Connectors.
+		 *
+		 * @return string
+		 */
+		public static function connectors_url() {
+			if ( file_exists( ABSPATH . 'wp-admin/options-connectors.php' ) ) {
+				return admin_url( 'options-connectors.php' );
+			}
+			return admin_url( 'options-general.php' );
+		}
+
+		/**
 		 * Register REST routes.
 		 */
 		public function register_routes() {
@@ -186,10 +234,12 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 					array(
 						'success'     => true,
 						'isReady'     => self::is_ai_ready(),
+						'hasConnector'=> self::is_ai_ready() ? self::has_text_generation() : false,
 						'needsReload' => true,
 						'message'     => __( 'WordPress AI plugin installed and activated. Reloading…', 'ahentic' ),
 						'pluginFile'  => self::AI_PLUGIN_FILE,
 						'pluginSlug'  => self::AI_PLUGIN_SLUG,
+						'connectorsUrl' => self::connectors_url(),
 					)
 				);
 			}
@@ -218,9 +268,13 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 
 			$installed = self::is_ai_plugin_installed();
 			$active    = $installed && is_plugin_active( self::AI_PLUGIN_FILE );
+			$ready     = self::is_ai_ready();
+			$has_model = $ready ? self::has_text_generation() : false;
 
 			return array(
-				'isReady'         => self::is_ai_ready(),
+				'isReady'         => $ready,
+				'hasConnector'    => $has_model,
+				'canGenerate'     => $ready && $has_model,
 				'requiredAbility' => self::REQUIRED_ABILITY,
 				'pluginSlug'      => self::AI_PLUGIN_SLUG,
 				'pluginFile'      => self::AI_PLUGIN_FILE,
@@ -228,6 +282,7 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 				'pluginActive'    => $active,
 				'canInstall'      => current_user_can( 'install_plugins' ) && current_user_can( 'activate_plugins' ),
 				'pluginUrl'       => 'https://wordpress.org/plugins/ai/',
+				'connectorsUrl'   => self::connectors_url(),
 			);
 		}
 

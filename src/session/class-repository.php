@@ -34,6 +34,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_TRACE            = '_ahentic_trace';
 		const META_PROGRESS         = '_ahentic_progress';
 		const META_CAPABILITY_REQUESTS = '_ahentic_capability_requests';
+		const META_PAGE_CONTEXT        = '_ahentic_page_context';
 
 		const STATUS_IDLE             = 'idle';
 		const STATUS_RUNNING          = 'running';
@@ -688,6 +689,57 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			}
 			$decoded = json_decode( (string) $raw, true );
 			return is_array( $decoded ) ? $decoded : null;
+		}
+
+		/**
+		 * Store lightweight page context from the sidebar (URL/title/body classes).
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $context    Page context.
+		 */
+		public static function set_page_context( $session_id, $context ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 || ! is_array( $context ) ) {
+				return;
+			}
+
+			$url = isset( $context['url'] ) ? esc_url_raw( (string) $context['url'] ) : '';
+			if ( '' === $url && isset( $context['href'] ) ) {
+				$url = esc_url_raw( (string) $context['href'] );
+			}
+
+			$payload = array(
+				'url'       => $url,
+				'title'     => isset( $context['title'] ) ? sanitize_text_field( (string) $context['title'] ) : '',
+				'pathname'  => isset( $context['pathname'] ) ? sanitize_text_field( (string) $context['pathname'] ) : '',
+				'search'    => isset( $context['search'] ) ? sanitize_text_field( (string) $context['search'] ) : '',
+				'isAdmin'   => ! empty( $context['isAdmin'] ) || ! empty( $context['is_admin'] ),
+				'bodyClass' => isset( $context['bodyClass'] )
+					? substr( sanitize_text_field( (string) $context['bodyClass'] ), 0, 500 )
+					: ( isset( $context['body_class'] ) ? substr( sanitize_text_field( (string) $context['body_class'] ), 0, 500 ) : '' ),
+				'updatedAt' => gmdate( 'c' ),
+			);
+
+			update_post_meta(
+				$session_id,
+				self::META_PAGE_CONTEXT,
+				wp_slash( wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
+			);
+		}
+
+		/**
+		 * Get stored page context.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array
+		 */
+		public static function get_page_context( $session_id ) {
+			$raw = get_post_meta( (int) $session_id, self::META_PAGE_CONTEXT, true );
+			if ( empty( $raw ) ) {
+				return array();
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			return is_array( $decoded ) ? $decoded : array();
 		}
 
 		/**

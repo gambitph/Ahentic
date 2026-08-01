@@ -54,6 +54,10 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			if ( class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				Ahentic_Abilities_Plugins::register_category();
 			}
+
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
+				Ahentic_Abilities_Browser::register_category();
+			}
 		}
 
 		/**
@@ -78,6 +82,14 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 
 			if ( class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				Ahentic_Abilities_Plugins::register();
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) ) {
+				Ahentic_Abilities_Taxonomy::register();
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
+				Ahentic_Abilities_Browser::register();
 			}
 
 			wp_register_ability(
@@ -144,7 +156,138 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			if ( class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				$names = array_merge( $names, Ahentic_Abilities_Plugins::names() );
 			}
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) ) {
+				$names = array_merge( $names, Ahentic_Abilities_Taxonomy::names() );
+			}
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
+				$names = array_merge( $names, Ahentic_Abilities_Browser::names() );
+			}
 			return $names;
+		}
+
+		/**
+		 * Whether an ability must run in the browser (sidebar), not PHP.
+		 *
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function is_browser( $name ) {
+			return class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::is_browser( $name );
+		}
+
+		/**
+		 * Whether this tool call must pause for browser execution (catalog browser tools,
+		 * or http-fetch with as_user for logged-in same-site pages).
+		 *
+		 * @param string $name  Ability name.
+		 * @param array  $input Tool input.
+		 * @return bool
+		 */
+		public static function requires_browser_runtime( $name, $input = array() ) {
+			$name  = (string) $name;
+			$input = is_array( $input ) ? $input : array();
+
+			if ( self::is_browser( $name ) ) {
+				return true;
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Site' ) && Ahentic_Abilities_Site::HTTP_FETCH === $name ) {
+				return Ahentic_Abilities_Site::http_fetch_requires_browser( $input );
+			}
+
+			return false;
+		}
+
+		/**
+		 * Short pending-tool summary for browser pauses.
+		 *
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return string
+		 */
+		public static function browser_summary( $name, $input = array() ) {
+			$name  = (string) $name;
+			$input = is_array( $input ) ? $input : array();
+
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::is_browser( $name ) ) {
+				return Ahentic_Abilities_Browser::summary( $name );
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Site' ) && Ahentic_Abilities_Site::HTTP_FETCH === $name ) {
+				$url = isset( $input['url'] ) ? (string) $input['url'] : '';
+				return $url
+					? sprintf(
+						/* translators: %s: URL */
+						__( 'Fetch as you: %s', 'ahentic' ),
+						$url
+					)
+					: __( 'Fetch URL as you (browser)', 'ahentic' );
+			}
+
+			return $name;
+		}
+
+		/**
+		 * Whether an ability is annotated as read-only (lookups / searches, no site mutation).
+		 *
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function is_readonly( $name ) {
+			$name = (string) $name;
+			if ( '' === $name ) {
+				return false;
+			}
+
+			if ( function_exists( 'wp_get_ability' ) ) {
+				$ability = wp_get_ability( $name );
+				if ( $ability && is_object( $ability ) ) {
+					$meta = null;
+					if ( method_exists( $ability, 'get_meta' ) ) {
+						$meta = $ability->get_meta();
+					} elseif ( method_exists( $ability, 'get' ) ) {
+						$meta = $ability->get( 'meta' );
+					}
+					if ( is_array( $meta ) && isset( $meta['annotations'] ) && is_array( $meta['annotations'] ) && array_key_exists( 'readonly', $meta['annotations'] ) ) {
+						return (bool) $meta['annotations']['readonly'];
+					}
+				}
+			}
+
+			// Fallback when Abilities API / meta is unavailable: known writers are write.
+			if ( class_exists( 'Ahentic_Abilities_Plugins' ) && Ahentic_Abilities_Plugins::requires_hitl( $name ) ) {
+				return false;
+			}
+			if ( class_exists( 'Ahentic_Abilities_Content' ) && ! Ahentic_Abilities_Content::is_readonly( $name ) ) {
+				return false;
+			}
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) && ! Ahentic_Abilities_Taxonomy::is_readonly( $name ) ) {
+				return false;
+			}
+
+			return in_array( $name, self::available_for_agent(), true );
+		}
+
+		/**
+		 * Abilities the orchestrator may run for a composer mode.
+		 * Ask mode is limited to readonly abilities.
+		 *
+		 * @param string $mode agent|ask.
+		 * @return string[]
+		 */
+		public static function available_for_mode( $mode ) {
+			$names = self::available_for_agent();
+			if ( 'ask' !== $mode ) {
+				return $names;
+			}
+			return array_values(
+				array_filter(
+					$names,
+					static function ( $name ) {
+						return self::is_readonly( $name );
+					}
+				)
+			);
 		}
 
 		/**
@@ -155,6 +298,12 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		 */
 		public static function requires_hitl( $name ) {
 			if ( class_exists( 'Ahentic_Abilities_Plugins' ) && Ahentic_Abilities_Plugins::requires_hitl( $name ) ) {
+				return true;
+			}
+			if ( class_exists( 'Ahentic_Abilities_Content' ) && Ahentic_Abilities_Content::requires_hitl( $name ) ) {
+				return true;
+			}
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) && Ahentic_Abilities_Taxonomy::requires_hitl( $name ) ) {
 				return true;
 			}
 			return false;
@@ -170,6 +319,12 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		public static function hitl_summary( $name, $input = array() ) {
 			if ( class_exists( 'Ahentic_Abilities_Plugins' ) && Ahentic_Abilities_Plugins::requires_hitl( $name ) ) {
 				return Ahentic_Abilities_Plugins::hitl_summary( $name, $input );
+			}
+			if ( class_exists( 'Ahentic_Abilities_Content' ) && Ahentic_Abilities_Content::requires_hitl( $name ) ) {
+				return Ahentic_Abilities_Content::hitl_summary( $name, $input );
+			}
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) && Ahentic_Abilities_Taxonomy::requires_hitl( $name ) ) {
+				return Ahentic_Abilities_Taxonomy::hitl_summary( $name, $input );
 			}
 			return (string) $name;
 		}
@@ -219,6 +374,14 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 
 			if ( class_exists( 'Ahentic_Abilities_Plugins' ) && in_array( $name, Ahentic_Abilities_Plugins::names(), true ) ) {
 				return Ahentic_Abilities_Plugins::execute( $name, $input );
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) && in_array( $name, Ahentic_Abilities_Taxonomy::names(), true ) ) {
+				return Ahentic_Abilities_Taxonomy::execute( $name, $input );
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::is_browser( $name ) ) {
+				return Ahentic_Abilities_Browser::execute( $name, $input );
 			}
 
 			return new WP_Error(

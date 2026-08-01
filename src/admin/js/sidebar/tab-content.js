@@ -6,6 +6,7 @@ import {
 	createInterpolateElement,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 } from '@wordpress/element'
@@ -27,9 +28,9 @@ function getSuggestedPrompts() {
 		__( 'Analyze my website and tell me what you would improve', 'ahentic' ),
 		__( 'Explain what I\'m looking at in the screen and how to use it', 'ahentic' ),
 		__( 'Find problems, errors, or opportunities on my website', 'ahentic' ),
-		__( 'Find unused plugins slowing the site down', 'ahentic' ),
-		__( 'Scan the media library for any unused images', 'ahentic' ),
-		__( 'Install an SEO plugin', 'ahentic' ),
+		// __( 'Find unused plugins slowing the site down', 'ahentic' ),
+		// __( 'Scan the media library for any unused images', 'ahentic' ),
+		// __( 'Install an SEO plugin', 'ahentic' ),
 	]
 }
 
@@ -68,38 +69,187 @@ async function installAiPlugin() {
 }
 
 /**
- * Sidebar message list for the active tab.
+ * Sidebar message list / empty state for the active tab.
  *
- * @param {Object} props Component props.
+ * @param {Object}      props
+ * @param {boolean}     props.aiReady
+ * @param {boolean}     props.hasConnector
+ * @param {Object}      props.aiPlugin
+ * @param {Function}    props.onAiReady
+ * @param {Function}    props.onHasConnector
+ * @param {Array}       props.messages
+ * @param {string}      props.sessionId
+ * @param {Function}    props.onSuggestedPrompt
+ * @param {boolean}     props.ready
+ * @param {boolean}     props.loading
+ * @param {boolean}     props.busy
+ * @param {string}      props.progressLabel
+ * @param {Object|null} props.pendingTool
+ * @param {string}      props.sessionStatus
+ * @param {Function}    props.onApproval
+ * @param {Function}    props.onSuggestedAction
  */
 export default function TabContent( {
 	aiReady,
+	hasConnector = false,
 	aiPlugin,
 	onAiReady,
+	onHasConnector,
 	messages,
+	sessionId = '',
 	onSuggestedPrompt,
 	ready = true,
 	loading = false,
 	busy = false,
 	progressLabel = '',
 	pendingTool = null,
+	sessionStatus = 'idle',
 	onApproval,
 	onSuggestedAction,
 } ) {
 	const [ installing, setInstalling ] = useState( false )
 	const [ installError, setInstallError ] = useState( '' )
-	const progressRef = useRef( null )
+	const contentRef = useRef( null )
+	const latestAssistantRef = useRef( null )
+	const promptBeforeAssistantRef = useRef( null )
+	const prevSessionIdRef = useRef( null )
+	const skipSmoothScrollRef = useRef( false )
+	const prevLastMessageKeyRef = useRef( '' )
+	const lastMessage = messages[ messages.length - 1 ]
+	const lastMessageKey = lastMessage
+		? `${ lastMessage.id }:${ String( lastMessage.content || '' ).length }`
+		: ''
 
-	useEffect( () => {
-		if ( ! busy || ! progressLabel || ! progressRef.current ) {
+	/**
+	 * Offset of an element within the scrollable message container.
+	 *
+	 * @param {HTMLElement} container
+	 * @param {HTMLElement} el
+	 * @return {number}
+	 */
+	const offsetWithin = useCallback( ( container, el ) => {
+		return el.getBoundingClientRect().top -
+			container.getBoundingClientRect().top +
+			container.scrollTop
+	}, [] )
+
+	/**
+	 * Scroll the message list to the latest content.
+	 *
+	 * @param {'auto'|'smooth'} behavior Scroll behavior.
+	 */
+	const scrollToBottom = useCallback( ( behavior = 'auto' ) => {
+		const el = contentRef.current
+		if ( ! el ) {
 			return
 		}
-		progressRef.current.scrollIntoView( { block: 'nearest', behavior: 'smooth' } )
-	}, [ busy, progressLabel, messages.length ] )
+		el.scrollTo( { top: el.scrollHeight, behavior } )
+	}, [] )
+
+	/**
+	 * Scroll so a new AI reply is readable: prefer pinning the user prompt
+	 * above it, but only when the reply start would still be on-screen.
+	 *
+	 * @param {'auto'|'smooth'} behavior Scroll behavior.
+	 */
+	const scrollToLatestReply = useCallback( ( behavior = 'smooth' ) => {
+		const container = contentRef.current
+		const assistantEl = latestAssistantRef.current
+		if ( ! container || ! assistantEl ) {
+			scrollToBottom( behavior )
+			return
+		}
+
+		const padding = 8
+		const viewportH = container.clientHeight
+		const assistantTop = offsetWithin( container, assistantEl )
+		const promptEl = promptBeforeAssistantRef.current
+
+		if ( promptEl ) {
+			const promptTop = offsetWithin( container, promptEl )
+			const scrollIfPromptPinned = Math.max( 0, promptTop - padding )
+			const assistantFromViewportTop = assistantTop - scrollIfPromptPinned
+			// Keep the reply start in view (with a little room below the fold).
+			const minVisible = 48
+			if (
+				assistantFromViewportTop >= 0 &&
+				assistantFromViewportTop <= viewportH - minVisible
+			) {
+				container.scrollTo( { top: scrollIfPromptPinned, behavior } )
+				return
+			}
+		}
+
+		container.scrollTo( {
+			top: Math.max( 0, assistantTop - padding ),
+			behavior,
+		} )
+	}, [ offsetWithin, scrollToBottom ] )
+
+	// Jump to the latest messages when opening/switching a session tab.
+	useLayoutEffect( () => {
+		if ( loading || ! messages.length ) {
+			return
+		}
+		if ( prevSessionIdRef.current === sessionId ) {
+			return
+		}
+		prevSessionIdRef.current = sessionId
+		skipSmoothScrollRef.current = true
+		prevLastMessageKeyRef.current = lastMessageKey
+		scrollToBottom( 'auto' )
+	}, [ sessionId, loading, messages.length, lastMessageKey, scrollToBottom ] )
+
+	// Follow live status; on a new AI reply, reveal its start (not the very end).
+	useEffect( () => {
+		if ( loading || ! messages.length ) {
+			return
+		}
+		if ( skipSmoothScrollRef.current ) {
+			skipSmoothScrollRef.current = false
+			prevLastMessageKeyRef.current = lastMessageKey
+			return
+		}
+		if ( prevSessionIdRef.current !== sessionId ) {
+			// Tab switch is handled by useLayoutEffect once content is ready.
+			return
+		}
+
+		const keyChanged = prevLastMessageKeyRef.current !== lastMessageKey
+		prevLastMessageKeyRef.current = lastMessageKey
+		const isNewAssistantReply = keyChanged && lastMessage?.role === 'assistant'
+		const followLiveActivity = Boolean( busy || pendingTool ) ||
+			( keyChanged && lastMessage?.role === 'user' )
+
+		const frame = window.requestAnimationFrame( () => {
+			if ( isNewAssistantReply ) {
+				scrollToLatestReply( 'smooth' )
+				return
+			}
+			// Don't yank back to the bottom after a reply has already been revealed.
+			if ( followLiveActivity ) {
+				scrollToBottom( 'smooth' )
+			}
+		} )
+		return () => window.cancelAnimationFrame( frame )
+	}, [
+		sessionId,
+		loading,
+		messages.length,
+		lastMessageKey,
+		lastMessage,
+		busy,
+		progressLabel,
+		pendingTool,
+		scrollToBottom,
+		scrollToLatestReply,
+	] )
 
 	const canInstall = Boolean( aiPlugin?.canInstall )
 	const pluginInstalled = Boolean( aiPlugin?.pluginInstalled )
 	const pluginUrl = aiPlugin?.pluginUrl || 'https://wordpress.org/plugins/ai/'
+	const connectorsUrl = aiPlugin?.connectorsUrl || ''
+	const canGenerate = Boolean( aiReady && hasConnector )
 	const actionLabel = pluginInstalled
 		? __( 'Activate', 'ahentic' )
 		: __( 'Install & Activate', 'ahentic' )
@@ -124,7 +274,13 @@ export default function TabContent( {
 			}
 
 			if ( result?.success ) {
-				onAiReady?.( true )
+				onAiReady?.( Boolean( result.isReady ) )
+				onHasConnector?.( Boolean( result.hasConnector ) )
+				if ( result.isReady && ! result.hasConnector ) {
+					setInstalling( false )
+					return
+				}
+				window.location.reload()
 				return
 			}
 
@@ -137,7 +293,7 @@ export default function TabContent( {
 			)
 			setInstalling( false )
 		}
-	}, [ installing, onAiReady ] )
+	}, [ installing, onAiReady, onHasConnector ] )
 
 	if ( loading ) {
 		return (
@@ -179,7 +335,7 @@ export default function TabContent( {
 						) }
 					</p>
 
-					{ aiReady ? (
+					{ canGenerate ? (
 						<div className="ahentic-empty__prompts">
 							<div className="ahentic-empty__prompts-label">
 								{ __( 'Suggestions', 'ahentic' ) }
@@ -196,7 +352,7 @@ export default function TabContent( {
 								</button>
 							) ) }
 						</div>
-					) : (
+					) : ( ! aiReady ? (
 						<div className="ahentic-empty__ai-notice" role="status">
 							<p className="ahentic-empty__ai-notice-text">
 								{ createInterpolateElement(
@@ -250,7 +406,29 @@ export default function TabContent( {
 								</p>
 							) : null }
 						</div>
-					) }
+					) : (
+						<div className="ahentic-empty__ai-notice" role="status">
+							<p className="ahentic-empty__ai-notice-text">
+								{ createInterpolateElement(
+									__(
+										'Add an AI connector so Ahentic can talk to a model. Open <strong>Settings → Connectors</strong> and connect a provider (for example OpenAI).',
+										'ahentic'
+									),
+									{
+										strong: <strong />,
+									}
+								) }
+							</p>
+							{ connectorsUrl ? (
+								<a
+									className="ahentic-empty__ai-install ahentic-empty__ai-install--link"
+									href={ connectorsUrl }
+								>
+									{ __( 'Open Connectors', 'ahentic' ) }
+								</a>
+							) : null }
+						</div>
+					) ) }
 
 					<a
 						className="ahentic-empty__docs"
@@ -269,15 +447,29 @@ export default function TabContent( {
 		( last, m, i ) => ( m.role === 'assistant' ? i : last ),
 		-1
 	)
+	let promptBeforeAssistantIndex = -1
+	if ( lastAssistantIndex > 0 ) {
+		for ( let i = lastAssistantIndex - 1; i >= 0; i-- ) {
+			if ( messages[ i ].role === 'user' ) {
+				promptBeforeAssistantIndex = i
+				break
+			}
+		}
+	}
 
 	return (
-		<div className="ahentic-content">
+		<div className="ahentic-content" ref={ contentRef }>
 			<div className="ahentic-messages">
 				{ messages.map( ( message, messageIndex ) => {
 					const isLatestAssistant = message.role === 'assistant' && messageIndex === lastAssistantIndex
+					const isPromptBeforeAssistant = messageIndex === promptBeforeAssistantIndex
 					return (
 						<div
 							key={ message.id }
+							ref={ isLatestAssistant
+								? latestAssistantRef
+								: ( isPromptBeforeAssistant ? promptBeforeAssistantRef : null )
+							}
 							className={ `ahentic-message ahentic-message--${ message.role }` }
 						>
 							<div className="ahentic-message__label">
@@ -320,7 +512,7 @@ export default function TabContent( {
 					)
 				} ) }
 
-				{ pendingTool && typeof onApproval === 'function' ? (
+				{ sessionStatus === 'awaiting_human' && pendingTool && typeof onApproval === 'function' ? (
 					<div className="ahentic-hitl-wrap">
 						<HitlApprovalCard
 							pendingTool={ pendingTool }
@@ -329,9 +521,8 @@ export default function TabContent( {
 					</div>
 				) : null }
 
-				{ busy && progressLabel && ! pendingTool ? (
+				{ busy && progressLabel && sessionStatus !== 'awaiting_human' ? (
 					<div
-						ref={ progressRef }
 						className="ahentic-live-status"
 						role="status"
 						aria-live="polite"

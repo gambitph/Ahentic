@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin abilities: list, search, install, activate.
+ * Plugin abilities: list, search, install, activate, deactivate.
  */
 
 // Exit if accessed directly.
@@ -10,19 +10,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 	/**
-	 * Plugin inspection and HITL install/activate for the agent loop.
+	 * Plugin inspection and HITL install/activate/deactivate for the agent loop.
 	 */
 	class Ahentic_Abilities_Plugins {
-		const LIST     = 'ahentic/list-plugins';
-		const SEARCH   = 'ahentic/search-plugins';
-		const INSTALL  = 'ahentic/install-plugin';
-		const ACTIVATE = 'ahentic/activate-plugin';
+		const LIST       = 'ahentic/list-plugins';
+		const SEARCH     = 'ahentic/search-plugins';
+		const INSTALL    = 'ahentic/install-plugin';
+		const ACTIVATE   = 'ahentic/activate-plugin';
+		const DEACTIVATE = 'ahentic/deactivate-plugin';
 
 		/**
 		 * @return string[]
 		 */
 		public static function names() {
-			return array( self::LIST, self::SEARCH, self::INSTALL, self::ACTIVATE );
+			return array( self::LIST, self::SEARCH, self::INSTALL, self::ACTIVATE, self::DEACTIVATE );
 		}
 
 		/**
@@ -31,7 +32,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 		 * @return string[]
 		 */
 		public static function hitl_names() {
-			return array( self::INSTALL, self::ACTIVATE );
+			return array( self::INSTALL, self::ACTIVATE, self::DEACTIVATE );
 		}
 
 		/**
@@ -53,7 +54,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				'ahentic-plugins',
 				array(
 					'label'       => __( 'Ahentic Plugins', 'ahentic' ),
-					'description' => __( 'List, search, install, and activate plugins for Ahentic.', 'ahentic' ),
+					'description' => __( 'List, search, install, activate, and deactivate plugins for Ahentic.', 'ahentic' ),
 				)
 			);
 		}
@@ -191,6 +192,43 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 					'meta'                => $mutate_meta,
 				)
 			);
+
+			wp_register_ability(
+				self::DEACTIVATE,
+				array(
+					'label'               => __( 'Deactivate plugin', 'ahentic' ),
+					'description'         => __( 'Deactivates an active plugin by file or slug. Requires human approval in Ahentic.', 'ahentic' ),
+					'category'            => 'ahentic-plugins',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'properties' => array(
+							'plugin'      => array(
+								'type'        => 'string',
+								'description' => __( 'Plugin file (folder/file.php) or slug.', 'ahentic' ),
+							),
+							'plugin_file' => array(
+								'type'        => 'string',
+								'description' => __( 'Plugin file (alias of plugin).', 'ahentic' ),
+							),
+							'slug'        => array(
+								'type'        => 'string',
+								'description' => __( 'Plugin slug (alternative to plugin).', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_deactivate_plugin' ),
+					'permission_callback' => $can_manage,
+					'meta'                => array(
+						'annotations'  => array(
+							'readonly'    => false,
+							'destructive' => true,
+							'idempotent'  => false,
+						),
+						'show_in_rest' => false,
+					),
+				)
+			);
 		}
 
 		/**
@@ -208,6 +246,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 					return self::execute_install_plugin( $input );
 				case self::ACTIVATE:
 					return self::execute_activate_plugin( $input );
+				case self::DEACTIVATE:
+					return self::execute_deactivate_plugin( $input );
 				default:
 					return new WP_Error( 'ahentic_ability_unknown', __( 'Unknown plugin ability.', 'ahentic' ) );
 			}
@@ -235,6 +275,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				return sprintf(
 					/* translators: %s: plugin file or slug */
 					__( 'Activate plugin “%s”', 'ahentic' ),
+					$plugin ? $plugin : __( 'unknown', 'ahentic' )
+				);
+			}
+			if ( self::DEACTIVATE === $name ) {
+				$plugin = self::plugin_ref_from_input( $input );
+				return sprintf(
+					/* translators: %s: plugin file or slug */
+					__( 'Deactivate plugin “%s”', 'ahentic' ),
 					$plugin ? $plugin : __( 'unknown', 'ahentic' )
 				);
 			}
@@ -501,6 +549,73 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				'plugin_file' => $file,
 				'active'      => true,
 				'message'     => __( 'Plugin activated successfully.', 'ahentic' ),
+				'plugins_url' => admin_url( 'plugins.php' ),
+			);
+		}
+
+		/**
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_deactivate_plugin( $input = array() ) {
+			$input  = is_array( $input ) ? $input : array();
+			$plugin = self::plugin_ref_from_input( $input );
+			if ( '' === $plugin ) {
+				return new WP_Error( 'ahentic_missing_plugin', __( 'A plugin file or slug is required.', 'ahentic' ) );
+			}
+
+			if ( ! current_user_can( 'activate_plugins' ) ) {
+				return new WP_Error( 'ahentic_ability_forbidden', __( 'You cannot deactivate plugins.', 'ahentic' ), array( 'status' => 403 ) );
+			}
+
+			if ( ! function_exists( 'deactivate_plugins' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/plugin.php';
+			}
+
+			$file = $plugin;
+			if ( false === strpos( $plugin, '/' ) && false === strpos( $plugin, '.php' ) ) {
+				$file = self::plugin_file_from_slug( sanitize_key( $plugin ) );
+				if ( ! $file ) {
+					return new WP_Error(
+						'ahentic_plugin_not_installed',
+						sprintf(
+							/* translators: %s: plugin slug */
+							__( 'Plugin “%s” is not installed.', 'ahentic' ),
+							$plugin
+						)
+					);
+				}
+			}
+
+			if ( defined( 'AHENTIC_FILE' ) && plugin_basename( AHENTIC_FILE ) === $file ) {
+				return new WP_Error(
+					'ahentic_cannot_deactivate_self',
+					__( 'Ahentic cannot deactivate itself while you are using it.', 'ahentic' )
+				);
+			}
+
+			if ( ! file_exists( WP_PLUGIN_DIR . '/' . $file ) ) {
+				return new WP_Error( 'ahentic_plugin_missing', __( 'Plugin file was not found on disk.', 'ahentic' ) );
+			}
+
+			if ( ! is_plugin_active( $file ) ) {
+				return array(
+					'ok'          => true,
+					'already'     => true,
+					'plugin_file' => $file,
+					'active'      => false,
+					'message'     => __( 'Plugin is already inactive.', 'ahentic' ),
+				);
+			}
+
+			deactivate_plugins( $file, false, is_multisite() && is_plugin_active_for_network( $file ) );
+
+			return array(
+				'ok'          => true,
+				'already'     => false,
+				'plugin_file' => $file,
+				'active'      => is_plugin_active( $file ),
+				'message'     => __( 'Plugin deactivated successfully.', 'ahentic' ),
 				'plugins_url' => admin_url( 'plugins.php' ),
 			);
 		}

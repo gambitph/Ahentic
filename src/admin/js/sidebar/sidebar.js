@@ -18,6 +18,10 @@ import {
 	MOBILE_BREAKPOINT,
 	MIN_WIDTH,
 	MAX_WIDTH,
+	PLACEMENTS,
+	isFloatingPlacement,
+	getDefaultFloatingRect,
+	clampFloatingRect,
 } from './constants'
 import {
 	loadPersistedState,
@@ -35,9 +39,12 @@ import {
 	continueSession,
 	postApproval,
 	postSuggestedAction,
+	postBrowserResult,
 	mapEntriesToMessages,
 	isSessionId,
 } from './api'
+import { collectPageContext } from './page-context'
+import { runBrowserAbility } from './browser-abilities'
 
 const POLL_MS = 650
 const STALL_MS = 2500
@@ -128,6 +135,82 @@ function sessionFingerprint( session ) {
 		session.progress?.updatedAt || '',
 		session.pendingTool ? JSON.stringify( session.pendingTool ) : '',
 	].join( '\u0001' )
+}
+
+/**
+ * Comparable session progress snapshot (for rejecting stale poll/sync payloads).
+ *
+ * @param {Object|null} session
+ * @return {Object} Meta snapshot used for freshness checks.
+ */
+function extractSessionMeta( session ) {
+	if ( ! session ) {
+		return {
+			messageCount: 0,
+			lastSeq: 0,
+			stepCount: 0,
+			traceLen: 0,
+			modifiedAt: 0,
+			progressAt: 0,
+			status: 'idle',
+		}
+	}
+	const messages = Array.isArray( session.messages ) ? session.messages : []
+	const last = messages[ messages.length - 1 ]
+	const trace = Array.isArray( session.trace ) ? session.trace : []
+	return {
+		messageCount: messages.length,
+		lastSeq: Number( last?.seq ) || 0,
+		stepCount: Number( session.stepCount ) || 0,
+		traceLen: trace.length,
+		modifiedAt: Date.parse( session.modifiedAt || '' ) || 0,
+		progressAt: Date.parse( session.progress?.updatedAt || '' ) || 0,
+		status: session.status || 'idle',
+	}
+}
+
+/**
+ * Whether an incoming REST payload is older than state we already applied / floored.
+ *
+ * @param {Object}           incoming Incoming session payload.
+ * @param {Object|undefined} known    Previously applied / floored meta.
+ * @return {boolean} True when the payload should be ignored.
+ */
+function isSessionPayloadStale( incoming, known ) {
+	if ( ! known ) {
+		return false
+	}
+	const next = extractSessionMeta( incoming )
+
+	// Main race: a poll GET that left before POST appended the user message.
+	if ( next.lastSeq < known.lastSeq ) {
+		return true
+	}
+	if ( next.messageCount < known.messageCount ) {
+		return true
+	}
+
+	if ( next.lastSeq === known.lastSeq && next.messageCount === known.messageCount ) {
+		if ( next.stepCount < known.stepCount ) {
+			return true
+		}
+		if ( next.traceLen < known.traceLen ) {
+			return true
+		}
+		if ( known.modifiedAt && next.modifiedAt && next.modifiedAt < known.modifiedAt ) {
+			return true
+		}
+		if (
+			known.progressAt &&
+			next.progressAt &&
+			next.progressAt < known.progressAt &&
+			next.stepCount <= known.stepCount
+		) {
+			return true
+		}
+	}
+
+	return false
 }
 
 /**
@@ -246,6 +329,14 @@ export default function Sidebar() {
 	const [ width, setWidth ] = useState( initial.width )
 	const [ theme ] = useState( initial.theme )
 	const [ mode, setMode ] = useState( initial.mode )
+	const [ placement, setPlacement ] = useState( initial.placement )
+	const [ floatRect, setFloatRect ] = useState( () => (
+		initial.floatRect || (
+			isFloatingPlacement( initial.placement )
+				? getDefaultFloatingRect( initial.placement, initial.width )
+				: null
+		)
+	) )
 	const [ tabs, setTabs ] = useState( initial.tabs )
 	const [ activeTabId, setActiveTabId ] = useState( initial.activeTabId )
 	const [ messagesByTab, setMessagesByTab ] = useState( {} )
@@ -266,12 +357,22 @@ export default function Sidebar() {
 	const [ aiReady, setAiReady ] = useState(
 		() => Boolean( window.ahentic?.aiPlugin?.isReady )
 	)
+	const [ hasConnector, setHasConnector ] = useState(
+		() => Boolean( window.ahentic?.aiPlugin?.hasConnector )
+	)
 	// Bumps when hydratedRef changes so session-loading UI can re-render.
 	const [ hydratedVersion, setHydratedVersion ] = useState( 0 )
 
 	const resizingRef = useRef( false )
+	const resizeEdgeRef = useRef( null )
+	const dragRef = useRef( null )
+	const floatRectRef = useRef( floatRect )
+	floatRectRef.current = floatRect
+	const placementRef = useRef( placement )
+	placementRef.current = placement
 	const hydratedRef = useRef( new Set() )
 	const sessionStampRef = useRef( {} )
+	const sessionMetaRef = useRef( {} )
 	const syncInflightRef = useRef( new Map() )
 	const tabsRef = useRef( tabs )
 	tabsRef.current = tabs
@@ -285,10 +386,34 @@ export default function Sidebar() {
 		setHydratedVersion( version => version + 1 )
 	}, [] )
 
-	const applySession = useCallback( session => {
-		if ( session?.id ) {
-			sessionStampRef.current[ String( session.id ) ] = sessionFingerprint( session )
+	/**
+	 * Apply a session payload unless it is older than what we already have.
+	 *
+	 * @param {Object}  session
+	 * @param {Object}  [options]
+	 * @param {boolean} [options.force] Skip freshness checks (cold load / tab replace).
+	 * @return {boolean} Whether state was applied.
+	 */
+	const applySession = useCallback( ( session, options = {} ) => {
+		if ( ! session?.id ) {
+			return false
 		}
+		const id = String( session.id )
+		const force = options.force === true
+		const fp = sessionFingerprint( session )
+		const known = sessionMetaRef.current[ id ]
+
+		if ( ! force ) {
+			if ( sessionStampRef.current[ id ] === fp ) {
+				return false
+			}
+			if ( isSessionPayloadStale( session, known ) ) {
+				return false
+			}
+		}
+
+		sessionStampRef.current[ id ] = fp
+		sessionMetaRef.current[ id ] = extractSessionMeta( session )
 		applySessionPayload(
 			session,
 			setTabs,
@@ -298,12 +423,14 @@ export default function Sidebar() {
 			setProgressByTab,
 			setPendingToolByTab
 		)
+		return true
 	}, [] )
 
 	const shortcutLabel = useMemo( () => getShortcutLabel(), [] )
-	const context = window.ahentic?.context || {}
 	const adminBarId = window.ahentic?.adminBarId || 'ahentic-toggle'
 	const aiPlugin = window.ahentic?.aiPlugin || {}
+	const canGenerate = aiReady && hasConnector
+	const connectorsUrl = aiPlugin.connectorsUrl || ''
 
 	// Persist chrome state (not message bodies).
 	useEffect( () => {
@@ -312,18 +439,36 @@ export default function Sidebar() {
 			width,
 			theme,
 			mode,
+			placement,
+			floatRect,
 			tabs,
 			activeTabId,
 		} )
-	}, [ open, width, theme, mode, tabs, activeTabId ] )
+	}, [ open, width, theme, mode, placement, floatRect, tabs, activeTabId ] )
 
-	// Push page content on desktop.
+	// Push page content on desktop (docked placements only).
 	useEffect( () => {
 		syncPageInset( {
-			open, width, isMobile,
+			open, width, isMobile, placement,
 		} )
 		return () => clearPageInset()
-	}, [ open, width, isMobile ] )
+	}, [ open, width, isMobile, placement ] )
+
+	const changePlacement = useCallback( nextPlacement => {
+		const resolved = Object.values( PLACEMENTS ).includes( nextPlacement )
+			? nextPlacement
+			: PLACEMENTS.RIGHT
+
+		if ( resolved === placementRef.current ) {
+			return
+		}
+
+		setPlacement( resolved )
+
+		if ( isFloatingPlacement( resolved ) ) {
+			setFloatRect( getDefaultFloatingRect( resolved, width ) )
+		}
+	}, [ width ] )
 
 	// Responsive breakpoint.
 	useEffect( () => {
@@ -367,7 +512,7 @@ export default function Sidebar() {
 					return
 				}
 				markHydrated( tabId )
-				applySession( session )
+				applySession( session, { force: cold } )
 			} catch ( error ) {
 				if ( ! cold ) {
 					return
@@ -423,8 +568,9 @@ export default function Sidebar() {
 						return copy
 					} )
 					delete sessionStampRef.current[ tabId ]
+					delete sessionMetaRef.current[ tabId ]
 					markHydrated( id )
-					applySession( session )
+					applySession( session, { force: true } )
 				} catch ( createError ) {
 					markHydrated( tabId )
 				}
@@ -589,11 +735,59 @@ export default function Sidebar() {
 
 	const runningSessionKey = useMemo( () => (
 		Object.entries( statusByTab )
-			.filter( ( [ , status ] ) => status === 'running' )
+			.filter( ( [ , status ] ) => status === 'running' || status === 'awaiting_browser' )
 			.map( ( [ id ] ) => id )
 			.sort()
 			.join( ',' )
 	), [ statusByTab ] )
+
+	const browserHandledRef = useRef( {} )
+
+	// Execute pending browser abilities when the orchestrator pauses for them.
+	useEffect( () => {
+		if ( activeStatus !== 'awaiting_browser' || ! activePendingTool ) {
+			return undefined
+		}
+		if ( activePendingTool.runtime !== 'browser' ) {
+			return undefined
+		}
+		if ( ! isSessionId( activeTabId ) ) {
+			return undefined
+		}
+
+		const callId = activePendingTool.call_id || activePendingTool.callId || ''
+		const handledKey = `${ activeTabId }:${ callId || activePendingTool.name }`
+		if ( browserHandledRef.current[ handledKey ] ) {
+			return undefined
+		}
+		browserHandledRef.current[ handledKey ] = true
+
+		let cancelled = false
+		;( async () => {
+			const outcome = await runBrowserAbility( activePendingTool )
+			if ( cancelled ) {
+				return
+			}
+			try {
+				const session = await postBrowserResult( activeTabId, {
+					call_id: callId,
+					...( outcome.error
+						? { error: outcome.error }
+						: { result: outcome.result }
+					),
+				} )
+				if ( ! cancelled ) {
+					applySession( session, { force: true } )
+				}
+			} catch ( error ) {
+				browserHandledRef.current[ handledKey ] = false
+			}
+		} )()
+
+		return () => {
+			cancelled = true
+		}
+	}, [ activeStatus, activePendingTool, activeTabId, applySession ] )
 
 	// Poll running sessions for live progress + final messages.
 	useEffect( () => {
@@ -697,6 +891,8 @@ export default function Sidebar() {
 				...traces,
 				[ id ]: Array.isArray( session.trace ) ? session.trace : [],
 			} ) )
+			sessionStampRef.current[ id ] = sessionFingerprint( session )
+			sessionMetaRef.current[ id ] = extractSessionMeta( session )
 			markHydrated( id )
 			setActiveTabId( id )
 			setOpen( true )
@@ -715,6 +911,9 @@ export default function Sidebar() {
 				hydratedRef.current = new Set( [ nextId ] )
 				sessionStampRef.current = {
 					[ nextId ]: sessionFingerprint( session ),
+				}
+				sessionMetaRef.current = {
+					[ nextId ]: extractSessionMeta( session ),
 				}
 				setHydratedVersion( version => version + 1 )
 				setTabs( [ {
@@ -776,6 +975,7 @@ export default function Sidebar() {
 			} )
 			hydratedRef.current.delete( id )
 			delete sessionStampRef.current[ id ]
+			delete sessionMetaRef.current[ id ]
 			setHydratedVersion( version => version + 1 )
 			return next
 		} )
@@ -849,6 +1049,9 @@ export default function Sidebar() {
 			sessionStampRef.current = {
 				[ id ]: sessionFingerprint( session ),
 			}
+			sessionMetaRef.current = {
+				[ id ]: extractSessionMeta( session ),
+			}
 			setHydratedVersion( version => version + 1 )
 			setTabs( [ {
 				id,
@@ -869,7 +1072,7 @@ export default function Sidebar() {
 	}, [ mode ] )
 
 	const sendMessage = useCallback( async text => {
-		if ( ! text?.trim() || sending ) {
+		if ( ! text?.trim() || sending || ! canGenerate ) {
 			return
 		}
 		// Wait until an existing session tab has finished loading.
@@ -917,10 +1120,20 @@ export default function Sidebar() {
 			content: text.trim(),
 		}
 
-		setMessagesByTab( messages => ( {
-			...messages,
-			[ sessionId ]: [ ...( messages[ sessionId ] || [] ), optimisticUser ],
-		} ) )
+		setMessagesByTab( messages => {
+			const nextList = [ ...( messages[ sessionId ] || [] ), optimisticUser ]
+			// Floor message count so a stale poll GET cannot wipe the optimistic turn.
+			const prevMeta = sessionMetaRef.current[ sessionId ] || extractSessionMeta( null )
+			sessionMetaRef.current[ sessionId ] = {
+				...prevMeta,
+				messageCount: Math.max( prevMeta.messageCount, nextList.length ),
+				status: 'running',
+			}
+			return {
+				...messages,
+				[ sessionId ]: nextList,
+			}
+		} )
 		setTabs( current => current.map( tab => {
 			if ( tab.id !== sessionId ) {
 				return tab
@@ -961,9 +1174,13 @@ export default function Sidebar() {
 			const session = await postMessage( sessionId, {
 				content: text.trim(),
 				mode,
+				pageContext: collectPageContext(),
 			} )
-			applySession( session )
+			applySession( session, { force: true } )
 		} catch ( error ) {
+			// Drop freshness floors so the next sync can reconcile with the server.
+			delete sessionStampRef.current[ sessionId ]
+			sessionMetaRef.current[ sessionId ] = extractSessionMeta( null )
 			setMessagesByTab( messages => ( {
 				...messages,
 				[ sessionId ]: [
@@ -983,7 +1200,7 @@ export default function Sidebar() {
 		} finally {
 			setSending( false )
 		}
-	}, [ activeTabId, mode, sending, markHydrated, applySession ] )
+	}, [ activeTabId, mode, sending, markHydrated, applySession, canGenerate ] )
 
 	const onApproval = useCallback( async decision => {
 		if ( ! isSessionId( activeTabId ) ) {
@@ -1015,38 +1232,183 @@ export default function Sidebar() {
 		sendMessage( prompt )
 	}, [ sendMessage ] )
 
+	// Docked width resize + floating move/resize.
 	useEffect( () => {
+		const clearInteraction = () => {
+			resizingRef.current = false
+			resizeEdgeRef.current = null
+			dragRef.current = null
+			document.body.classList.remove(
+				'ahentic-is-resizing',
+				'ahentic-is-resizing--row',
+				'ahentic-is-resizing--corner',
+				'ahentic-is-resizing--corner-nesw',
+				'ahentic-is-dragging'
+			)
+		}
+
 		const onMove = event => {
-			if ( ! resizingRef.current || isMobile ) {
+			if ( isMobile ) {
 				return
 			}
-			const next = clampWidth( window.innerWidth - event.clientX )
-			setWidth( next )
+
+			if ( dragRef.current ) {
+				const {
+					startX, startY, originLeft, originTop,
+				} = dragRef.current
+				const next = clampFloatingRect( {
+					...floatRectRef.current,
+					left: originLeft + ( event.clientX - startX ),
+					top: originTop + ( event.clientY - startY ),
+				} )
+				setFloatRect( next )
+				return
+			}
+
+			if ( ! resizingRef.current ) {
+				return
+			}
+
+			const currentPlacement = placementRef.current
+			const edge = resizeEdgeRef.current
+
+			if ( isFloatingPlacement( currentPlacement ) && edge ) {
+				const origin = resizeEdgeRef.current.origin
+				const anchorRight = origin.left + origin.width
+				const anchorBottom = origin.top + origin.height
+				let {
+					left, top, width: nextW, height: nextH,
+				} = origin
+
+				if ( edge.dir.includes( 'e' ) ) {
+					nextW = event.clientX - origin.left
+				}
+				if ( edge.dir.includes( 's' ) ) {
+					nextH = event.clientY - origin.top
+				}
+				if ( edge.dir.includes( 'w' ) ) {
+					nextW = anchorRight - event.clientX
+					left = event.clientX
+				}
+				if ( edge.dir.includes( 'n' ) ) {
+					nextH = anchorBottom - event.clientY
+					top = event.clientY
+				}
+
+				const clamped = clampFloatingRect( {
+					left,
+					top,
+					width: nextW,
+					height: nextH,
+				} )
+
+				// Keep the opposite edge fixed when min/max size clamping kicks in.
+				if ( edge.dir.includes( 'w' ) ) {
+					clamped.left = Math.max( 0, anchorRight - clamped.width )
+					clamped.width = Math.min( clamped.width, anchorRight - clamped.left )
+				}
+				if ( edge.dir.includes( 'n' ) ) {
+					clamped.top = Math.max( 0, anchorBottom - clamped.height )
+					clamped.height = Math.min( clamped.height, anchorBottom - clamped.top )
+				}
+
+				setFloatRect( clamped )
+				setWidth( clamped.width )
+				return
+			}
+
+			if ( currentPlacement === PLACEMENTS.LEFT ) {
+				setWidth( clampWidth( event.clientX ) )
+				return
+			}
+
+			if ( currentPlacement === PLACEMENTS.RIGHT ) {
+				setWidth( clampWidth( window.innerWidth - event.clientX ) )
+			}
 		}
+
 		const onUp = () => {
-			resizingRef.current = false
-			document.body.classList.remove( 'ahentic-is-resizing' )
+			clearInteraction()
 		}
+
 		window.addEventListener( 'mousemove', onMove )
 		window.addEventListener( 'mouseup', onUp )
 		return () => {
 			window.removeEventListener( 'mousemove', onMove )
 			window.removeEventListener( 'mouseup', onUp )
+			clearInteraction()
 		}
 	}, [ isMobile ] )
 
-	const startResize = event => {
-		if ( isMobile ) {
+	const startDockResize = event => {
+		if ( isMobile || isFloatingPlacement( placement ) ) {
 			return
 		}
 		event.preventDefault()
 		resizingRef.current = true
+		resizeEdgeRef.current = null
 		document.body.classList.add( 'ahentic-is-resizing' )
 	}
 
-	const panelStyle = isMobile
-		? undefined
-		: { width: `${ width }px` }
+	const startFloatResize = ( event, dir ) => {
+		if ( isMobile || ! isFloatingPlacement( placement ) ) {
+			return
+		}
+		const origin = floatRect || getDefaultFloatingRect( placement, width )
+		if ( ! floatRect ) {
+			setFloatRect( origin )
+		}
+		event.preventDefault()
+		event.stopPropagation()
+		resizingRef.current = true
+		resizeEdgeRef.current = {
+			dir,
+			origin: { ...origin },
+		}
+		document.body.classList.add( 'ahentic-is-resizing' )
+		if ( dir === 'n' || dir === 's' ) {
+			document.body.classList.add( 'ahentic-is-resizing--row' )
+		} else if ( dir.length > 1 ) {
+			document.body.classList.add( 'ahentic-is-resizing--corner' )
+			if ( dir === 'ne' || dir === 'sw' ) {
+				document.body.classList.add( 'ahentic-is-resizing--corner-nesw' )
+			}
+		}
+	}
+
+	const startFloatDrag = event => {
+		if ( isMobile || ! isFloatingPlacement( placement ) || ! floatRect ) {
+			return
+		}
+		event.preventDefault()
+		dragRef.current = {
+			startX: event.clientX,
+			startY: event.clientY,
+			originLeft: floatRect.left,
+			originTop: floatRect.top,
+		}
+		document.body.classList.add( 'ahentic-is-dragging' )
+	}
+
+	const floating = ! isMobile && isFloatingPlacement( placement )
+	const activeFloat = floating
+		? ( floatRect || getDefaultFloatingRect( placement, width ) )
+		: null
+
+	const panelStyle = ( () => {
+		if ( isMobile ) {
+			return undefined
+		}
+		if ( activeFloat ) {
+			return {
+				width: `${ activeFloat.width }px`,
+				height: `${ activeFloat.height }px`,
+				left: `${ activeFloat.left }px`,
+				top: `${ activeFloat.top }px`,
+			}
+		}
+		return { width: `${ width }px` }
+	} )()
 
 	return (
 		<div
@@ -1078,16 +1440,19 @@ export default function Sidebar() {
 				className={ classnames( 'ahentic-sidebar', {
 					'is-open': open,
 					'is-mobile': isMobile,
+					'is-placement-left': ! isMobile && placement === PLACEMENTS.LEFT,
+					'is-placement-floating': ! isMobile && placement === PLACEMENTS.FLOATING,
+					'is-placement-floating-small': ! isMobile && placement === PLACEMENTS.FLOATING_SMALL,
 				} ) }
 				style={ panelStyle }
 				aria-label="Ahentic AI sidebar"
 				aria-hidden={ ! open }
 			>
-				{ ! isMobile && (
+				{ ! isMobile && ! floating && (
 					// eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
 					<div
 						className="ahentic-resize"
-						onMouseDown={ startResize }
+						onMouseDown={ startDockResize }
 						role="separator"
 						aria-orientation="vertical"
 						aria-valuemin={ MIN_WIDTH }
@@ -1097,9 +1462,78 @@ export default function Sidebar() {
 					/>
 				) }
 
+				{ floating && (
+					<>
+						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
+						<div
+							className="ahentic-float-handle ahentic-float-handle--n"
+							onMouseDown={ event => startFloatResize( event, 'n' ) }
+							role="separator"
+							aria-orientation="horizontal"
+							aria-label="Resize Ahentic sidebar from top"
+						/>
+						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
+						<div
+							className="ahentic-float-handle ahentic-float-handle--s"
+							onMouseDown={ event => startFloatResize( event, 's' ) }
+							role="separator"
+							aria-orientation="horizontal"
+							aria-label="Resize Ahentic sidebar from bottom"
+						/>
+						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
+						<div
+							className="ahentic-float-handle ahentic-float-handle--e"
+							onMouseDown={ event => startFloatResize( event, 'e' ) }
+							role="separator"
+							aria-orientation="vertical"
+							aria-label="Resize Ahentic sidebar from right"
+						/>
+						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
+						<div
+							className="ahentic-float-handle ahentic-float-handle--w"
+							onMouseDown={ event => startFloatResize( event, 'w' ) }
+							role="separator"
+							aria-orientation="vertical"
+							aria-label="Resize Ahentic sidebar from left"
+						/>
+						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
+						<div
+							className="ahentic-float-handle ahentic-float-handle--nw"
+							onMouseDown={ event => startFloatResize( event, 'nw' ) }
+							role="separator"
+							aria-label="Resize Ahentic sidebar from top-left corner"
+						/>
+						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
+						<div
+							className="ahentic-float-handle ahentic-float-handle--ne"
+							onMouseDown={ event => startFloatResize( event, 'ne' ) }
+							role="separator"
+							aria-label="Resize Ahentic sidebar from top-right corner"
+						/>
+						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
+						<div
+							className="ahentic-float-handle ahentic-float-handle--sw"
+							onMouseDown={ event => startFloatResize( event, 'sw' ) }
+							role="separator"
+							aria-label="Resize Ahentic sidebar from bottom-left corner"
+						/>
+						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
+						<div
+							className="ahentic-float-handle ahentic-float-handle--se"
+							onMouseDown={ event => startFloatResize( event, 'se' ) }
+							role="separator"
+							aria-label="Resize Ahentic sidebar from bottom-right corner"
+						/>
+					</>
+				) }
+
 				<Toolbar
 					onClose={ closeSidebar }
 					shortcutLabel={ shortcutLabel }
+					placement={ placement }
+					onPlacementChange={ changePlacement }
+					onDragHandlePointerDown={ startFloatDrag }
+					isMobile={ isMobile }
 				/>
 
 				<TabBar
@@ -1134,15 +1568,19 @@ export default function Sidebar() {
 				) : (
 					<TabContent
 						aiReady={ aiReady }
+						hasConnector={ hasConnector }
 						aiPlugin={ aiPlugin }
 						onAiReady={ setAiReady }
+						onHasConnector={ setHasConnector }
 						messages={ activeMessages }
+						sessionId={ activeTabId }
 						onSuggestedPrompt={ onSuggestedPrompt }
 						ready={ ! isSessionLoading }
 						loading={ isSessionLoading }
 						busy={ isBusy }
 						progressLabel={ progressLabel }
 						pendingTool={ activePendingTool }
+						sessionStatus={ activeStatus }
 						onApproval={ onApproval }
 						onSuggestedAction={ onSuggestedAction }
 					/>
@@ -1154,7 +1592,23 @@ export default function Sidebar() {
 					onSubmit={ sendMessage }
 					focusSignal={ focusSignal }
 					shortcutLabel={ shortcutLabel }
-					context={ context }
+					disabled={ ! canGenerate }
+					disabledHint={
+						canGenerate || activeMessages.length === 0
+							? ''
+							: ( ! aiReady
+								? 'Install WordPress AI to start chatting.'
+								: ( ! hasConnector
+									? 'Add an AI connector in Settings → Connectors to start chatting.'
+									: ''
+								)
+							)
+					}
+					connectorsUrl={
+						! canGenerate && activeMessages.length > 0 && ! hasConnector
+							? connectorsUrl
+							: ''
+					}
 				/>
 			</aside>
 		</div>

@@ -82,11 +82,25 @@ export function patchSession( id, body ) {
 
 /**
  * @param {number|string} id
- * @param {{ content: string, mode?: string }} body
+ * @param {{ content: string, mode?: string, pageContext?: Object }} body
  * @return {Promise<Object>}
  */
 export function postMessage( id, body ) {
 	return apiRequest( `/sessions/${ id }/messages`, {
+		method: 'POST',
+		body: JSON.stringify( body ),
+	} )
+}
+
+/**
+ * Post a browser ability result for a session awaiting_browser.
+ *
+ * @param {number|string} id
+ * @param {{ call_id?: string, result?: Object, error?: string }} body
+ * @return {Promise<Object>}
+ */
+export function postBrowserResult( id, body ) {
+	return apiRequest( `/sessions/${ id }/browser-results`, {
 		method: 'POST',
 		body: JSON.stringify( body ),
 	} )

@@ -1,6 +1,6 @@
 <?php
 /**
- * PHP Agent Orchestrator — step loop for sidebar (and future Automations).
+ * PHP Agent Orchestrator — step loop for sidebar (and future Agents).
  */
 
 // Exit if accessed directly.
@@ -20,14 +20,31 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		const MAX_DEBUG_ATTEMPTS = 3;
 
 		/**
+		 * Session currently being processed (for abilities that need page context).
+		 *
+		 * @var int
+		 */
+		private static $current_session_id = 0;
+
+		/**
+		 * Session id for the in-flight orchestrator step (0 if idle).
+		 *
+		 * @return int
+		 */
+		public static function current_session_id() {
+			return (int) self::$current_session_id;
+		}
+
+		/**
 		 * Accept a user message and start a run (async — sidebar polls for progress).
 		 *
-		 * @param int    $session_id Session ID.
-		 * @param string $content    User text.
-		 * @param string $mode       Optional mode override (agent|ask).
+		 * @param int         $session_id Session ID.
+		 * @param string      $content    User text.
+		 * @param string      $mode       Optional mode override (agent|ask).
+		 * @param array|null  $page_context Optional sidebar page context.
 		 * @return array|\WP_Error Session REST payload.
 		 */
-		public static function handle_user_message( $session_id, $content, $mode = '' ) {
+		public static function handle_user_message( $session_id, $content, $mode = '', $page_context = null ) {
 			$post = Ahentic_Session_Repository::get_post( $session_id );
 			if ( is_wp_error( $post ) ) {
 				return $post;
@@ -49,6 +66,10 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			if ( $mode ) {
 				Ahentic_Session_Repository::set_mode( $session_id, $mode );
+			}
+
+			if ( is_array( $page_context ) ) {
+				Ahentic_Session_Repository::set_page_context( $session_id, $page_context );
 			}
 
 			Ahentic_Session_Repository::clear_error( $session_id );
@@ -128,8 +149,10 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$should_continue = false;
 
 			try {
-				$should_continue = self::run_one_step( $session_id );
+				self::$current_session_id = $session_id;
+				$should_continue          = self::run_one_step( $session_id );
 			} finally {
+				self::$current_session_id = 0;
 				Ahentic_Step_Queue::release_run( $session_id );
 			}
 
@@ -201,7 +224,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return false;
 			}
 
-			$wants_tools = ( 'agent' === $mode ) && ( 'use_tools' === $next );
+			$wants_tools = ( 'use_tools' === $next );
 
 			if ( ! $wants_tools ) {
 				self::finish_with_reply( $session_id, $result, $debug );
@@ -217,7 +240,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				);
 			}
 
-			$planned = array_slice( $planned, 0, self::MAX_TOOL_PROGRESS );
+			$planned   = array_slice( $planned, 0, self::MAX_TOOL_PROGRESS );
+			$available = Ahentic_Abilities::available_for_mode( $mode );
 
 			// Show the first tool step immediately (same label the debugger will log).
 			$first_tool = isset( $planned[0]['name'] ) ? (string) $planned[0]['name'] : '';
@@ -277,42 +301,65 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$name  = $call['name'];
 				$input = $call['input'];
 
-				if ( ! in_array( $name, Ahentic_Abilities::available_for_agent(), true ) ) {
+				if ( ! in_array( $name, $available, true ) ) {
 					$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 					Ahentic_Session_Repository::set_progress(
 						$session_id,
 						self::progress_label_for_tool( $name, $debug ),
 						$step
 					);
-					self::queue_missing_ability( $session_id, $name, $debug, $step );
 
-					$request = null;
-					$pending = Ahentic_Session_Repository::get_capability_requests( $session_id );
-					foreach ( $pending as $item ) {
-						if ( isset( $item['ability'] ) && (string) $item['ability'] === (string) $name ) {
-							$request = $item;
-							break;
+					$ask_write_blocked = ( 'ask' === $mode )
+						&& in_array( $name, Ahentic_Abilities::available_for_agent(), true )
+						&& ! Ahentic_Abilities::is_readonly( $name );
+
+					$request = array();
+					if ( ! $ask_write_blocked ) {
+						self::queue_missing_ability( $session_id, $name, $debug, $step );
+
+						$pending = Ahentic_Session_Repository::get_capability_requests( $session_id );
+						foreach ( $pending as $item ) {
+							if ( isset( $item['ability'] ) && (string) $item['ability'] === (string) $name ) {
+								$request = $item;
+								break;
+							}
+						}
+						if ( ! is_array( $request ) ) {
+							$request = array();
 						}
 					}
-					if ( ! is_array( $request ) ) {
-						$request = array();
-					}
 
-					$tool_payload = array(
-						'ok'      => false,
-						'error'   => 'ability_unavailable',
-						'message' => sprintf(
-							/* translators: %s: ability name */
-							__( 'Ability %s is not available in this build yet.', 'ahentic' ),
-							$name
-						),
-					);
-					if ( ! empty( $request ) ) {
-						$tool_payload['capability_request'] = $request;
-						$tool_payload['hint']               = __(
-							'This ability is unavailable. Explain what you cannot do yet and any workaround. Do not mention X, Twitter, hashtags, @wpahentic, request cards, or sidebar UI — the product shows a separate button for that.',
-							'ahentic'
+					if ( $ask_write_blocked ) {
+						$tool_payload = array(
+							'ok'      => false,
+							'error'   => 'ability_ask_readonly',
+							'message' => sprintf(
+								/* translators: %s: ability name */
+								__( 'Ability %s changes the site and is not available in Ask mode. Switch to Agent mode to run it.', 'ahentic' ),
+								$name
+							),
+							'hint'    => __(
+								'Ask mode can only use read-only tools. Tell the user to switch the composer mode to Agent to install, activate, or otherwise change the site. Do not claim you made a change.',
+								'ahentic'
+							),
 						);
+					} else {
+						$tool_payload = array(
+							'ok'      => false,
+							'error'   => 'ability_unavailable',
+							'message' => sprintf(
+								/* translators: %s: ability name */
+								__( 'Ability %s is not available in this build yet.', 'ahentic' ),
+								$name
+							),
+						);
+						if ( ! empty( $request ) ) {
+							$tool_payload['capability_request'] = $request;
+							$tool_payload['hint']               = __(
+								'This ability is unavailable. Explain what you cannot do yet and any workaround. Do not mention X, Twitter, hashtags, @wpahentic, request cards, or sidebar UI — the product shows a separate button for that.',
+								'ahentic'
+							);
+						}
 					}
 
 					Ahentic_Session_Repository::append_entry(
@@ -333,10 +380,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					Ahentic_Session_Repository::append_trace(
 						$session_id,
 						'tool_result',
-						'Ability unavailable: ' . $name,
+						$ask_write_blocked ? ( 'Ask mode blocked write: ' . $name ) : ( 'Ability unavailable: ' . $name ),
 						array(
 							'ability'            => $name,
 							'ok'                 => false,
+							'error'              => $ask_write_blocked ? 'ability_ask_readonly' : 'ability_unavailable',
 							'capability_request' => $request,
 						),
 						$step
@@ -346,6 +394,36 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				}
 
 				$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+
+				// Browser abilities (and http-fetch as_user) pause for the sidebar to run JS and POST the result.
+				if ( Ahentic_Abilities::requires_browser_runtime( $name, $input ) ) {
+					$summary = Ahentic_Abilities::browser_summary( $name, $input );
+					$pending = array(
+						'name'    => $name,
+						'input'   => $input,
+						'summary' => $summary,
+						'runtime' => 'browser',
+						'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
+					);
+					Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
+					Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_BROWSER );
+					Ahentic_Session_Repository::set_progress(
+						$session_id,
+						self::progress_label_for_tool( $name, $debug ),
+						$step
+					);
+					Ahentic_Session_Repository::append_trace(
+						$session_id,
+						'browser_pause',
+						$summary,
+						array(
+							'ability' => $name,
+							'input'   => $input,
+						),
+						$step
+					);
+					return false;
+				}
 
 				// Mutating abilities pause for human approval unless already allowed.
 				if ( Ahentic_Abilities::requires_hitl( $name ) && ! Ahentic_Session_Repository::hitl_is_preallowed( $session_id, $name ) ) {
@@ -391,13 +469,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 				$tool_result = Ahentic_Abilities::execute( $name, $input );
 				$ok          = ! is_wp_error( $tool_result );
-				$payload     = $ok
-					? $tool_result
-					: array(
-						'ok'      => false,
-						'error'   => $tool_result->get_error_code(),
-						'message' => $tool_result->get_error_message(),
-					);
+				$payload     = $ok ? $tool_result : self::tool_error_payload( $tool_result );
 
 				$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 				if ( ! is_string( $content ) ) {
@@ -1037,7 +1109,15 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			$name  = isset( $action['name'] ) ? (string) $action['name'] : '';
 			$input = isset( $action['input'] ) && is_array( $action['input'] ) ? $action['input'] : array();
-			if ( '' === $name || ! in_array( $name, Ahentic_Abilities::available_for_agent(), true ) ) {
+			$mode  = Ahentic_Session_Repository::get_mode( $session_id );
+			if ( '' === $name || ! in_array( $name, Ahentic_Abilities::available_for_mode( $mode ), true ) ) {
+				if ( 'ask' === $mode && in_array( $name, Ahentic_Abilities::available_for_agent(), true ) && ! Ahentic_Abilities::is_readonly( $name ) ) {
+					return new WP_Error(
+						'ahentic_ask_readonly',
+						__( 'Ask mode can only run read-only actions. Switch to Agent mode to change the site.', 'ahentic' ),
+						array( 'status' => 400 )
+					);
+				}
 				return new WP_Error( 'ahentic_unknown_action', __( 'That action is not available.', 'ahentic' ), array( 'status' => 400 ) );
 			}
 
@@ -1091,14 +1171,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			$tool_result = Ahentic_Abilities::execute( $name, $input );
 			$ok          = ! is_wp_error( $tool_result );
-			$payload     = $ok
-				? $tool_result
-				: array(
-					'ok'      => false,
-					'error'   => $tool_result->get_error_code(),
-					'message' => $tool_result->get_error_message(),
-				);
-			$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+			$payload     = $ok ? $tool_result : self::tool_error_payload( $tool_result );
+			$content     = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			if ( ! is_string( $content ) ) {
 				$content = '{}';
 			}
@@ -1148,6 +1222,39 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			}
 
 			return implode( "\n", $parts );
+		}
+
+		/**
+		 * Normalize a WP_Error into the tool-result payload the agent reads.
+		 *
+		 * Includes error_data fields (hint, meta_skipped, next_tool, etc.) when present.
+		 *
+		 * @param \WP_Error $error Error from an ability.
+		 * @return array
+		 */
+		private static function tool_error_payload( $error ) {
+			$payload = array(
+				'ok'      => false,
+				'error'   => $error->get_error_code(),
+				'message' => $error->get_error_message(),
+			);
+
+			$data = $error->get_error_data();
+			if ( is_array( $data ) ) {
+				foreach ( $data as $key => $value ) {
+					$key = (string) $key;
+					if ( '' === $key || isset( $payload[ $key ] ) ) {
+						continue;
+					}
+					// Keep HTTP status internal; surface agent-facing recovery fields.
+					if ( 'status' === $key ) {
+						continue;
+					}
+					$payload[ $key ] = $value;
+				}
+			}
+
+			return $payload;
 		}
 
 		/**
@@ -1406,19 +1513,27 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 */
 		private static function progress_label_for_tool( $tool, $debug = array() ) {
 			$map = array(
-				'ahentic/list-plugins'       => __( 'Checking installed plugins…', 'ahentic' ),
-				'ahentic/search-plugins'     => __( 'Searching the plugin directory…', 'ahentic' ),
-				'ahentic/get-site-snapshot'  => __( 'Reading site snapshot…', 'ahentic' ),
-				'ahentic/get-site-health'    => __( 'Checking site health…', 'ahentic' ),
-				'ahentic/get-option'         => __( 'Reading site settings…', 'ahentic' ),
-				'ahentic/search-content'     => __( 'Searching site content…', 'ahentic' ),
-				'ahentic/list-content'       => __( 'Listing posts and pages…', 'ahentic' ),
-				'ahentic/get-content'        => __( 'Reading post content…', 'ahentic' ),
-				'ahentic/find-unused-media'  => __( 'Scanning media for unused images…', 'ahentic' ),
-				'ahentic/install-plugin'     => __( 'Installing plugin…', 'ahentic' ),
-				'ahentic/activate-plugin'    => __( 'Activating plugin…', 'ahentic' ),
-				'core/read-content'          => __( 'Reading site content…', 'ahentic' ),
-				'ahentic/inspect-site'       => __( 'Inspecting the site…', 'ahentic' ),
+				'ahentic/list-plugins'              => __( 'Checking installed plugins…', 'ahentic' ),
+				'ahentic/search-plugins'            => __( 'Searching the plugin directory…', 'ahentic' ),
+				'ahentic/get-site-snapshot'         => __( 'Reading site snapshot…', 'ahentic' ),
+				'ahentic/get-site-health'           => __( 'Checking site health…', 'ahentic' ),
+				'ahentic/get-option'                => __( 'Reading site settings…', 'ahentic' ),
+				'ahentic/http-fetch'                => __( 'Fetching URL…', 'ahentic' ),
+				'ahentic/get-debug-log'             => __( 'Reading debug log…', 'ahentic' ),
+				'ahentic/get-admin-context'         => __( 'Reading admin page context…', 'ahentic' ),
+				'ahentic-browser/get-current-page'  => __( 'Reading the current page…', 'ahentic' ),
+				'ahentic-browser/get-visible-page'  => __( 'Reading what is on the screen…', 'ahentic' ),
+				'ahentic/search-content'            => __( 'Searching site content…', 'ahentic' ),
+				'ahentic/list-content'              => __( 'Listing posts and pages…', 'ahentic' ),
+				'ahentic/get-content'               => __( 'Reading post content…', 'ahentic' ),
+				'ahentic/update-post'               => __( 'Updating post content…', 'ahentic' ),
+				'ahentic/find-unused-media'         => __( 'Scanning media for unused images…', 'ahentic' ),
+				'ahentic/install-plugin'            => __( 'Installing plugin…', 'ahentic' ),
+				'ahentic/activate-plugin'           => __( 'Activating plugin…', 'ahentic' ),
+				'ahentic/deactivate-plugin'         => __( 'Deactivating plugin…', 'ahentic' ),
+				'ahentic/update-term'               => __( 'Updating taxonomy term…', 'ahentic' ),
+				'core/read-content'                 => __( 'Reading site content…', 'ahentic' ),
+				'ahentic/inspect-site'              => __( 'Inspecting the site…', 'ahentic' ),
 			);
 
 			if ( isset( $map[ $tool ] ) ) {
@@ -1553,15 +1668,14 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$step
 			);
 
-			$tool_result = Ahentic_Abilities::execute( $name, $input );
-			$ok          = ! is_wp_error( $tool_result );
-			$payload     = $ok
-				? $tool_result
-				: array(
-					'ok'      => false,
-					'error'   => $tool_result->get_error_code(),
-					'message' => $tool_result->get_error_message(),
-				);
+			self::$current_session_id = $session_id;
+			try {
+				$tool_result = Ahentic_Abilities::execute( $name, $input );
+			} finally {
+				self::$current_session_id = 0;
+			}
+			$ok      = ! is_wp_error( $tool_result );
+			$payload = $ok ? $tool_result : self::tool_error_payload( $tool_result );
 
 			$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			if ( ! is_string( $content ) ) {
@@ -1600,7 +1714,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
-		 * Browser ability result resume (stub-ready).
+		 * Browser ability result resume.
 		 *
 		 * @param int   $session_id Session ID.
 		 * @param array $payload    { call_id, result|error }.
@@ -1608,29 +1722,81 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 */
 		public static function handle_browser_result( $session_id, array $payload ) {
 			$pending = Ahentic_Session_Repository::get_pending_tool( $session_id );
-			if ( ! $pending ) {
+			if ( ! $pending || empty( $pending['name'] ) ) {
 				return new WP_Error( 'ahentic_no_pending', __( 'No pending browser tool.', 'ahentic' ), array( 'status' => 400 ) );
+			}
+
+			$status = Ahentic_Session_Repository::get_status( $session_id );
+			if ( Ahentic_Session_Repository::STATUS_AWAITING_BROWSER !== $status ) {
+				return new WP_Error( 'ahentic_not_awaiting', __( 'This session is not waiting for a browser result.', 'ahentic' ), array( 'status' => 409 ) );
+			}
+
+			$call_id = isset( $payload['call_id'] ) ? (string) $payload['call_id'] : '';
+			if ( $call_id && ! empty( $pending['call_id'] ) && $call_id !== (string) $pending['call_id'] ) {
+				return new WP_Error( 'ahentic_call_mismatch', __( 'Browser result does not match the pending tool.', 'ahentic' ), array( 'status' => 409 ) );
+			}
+
+			$name = (string) $pending['name'];
+			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+			$ok   = empty( $payload['error'] );
+
+			if ( $ok ) {
+				$result = isset( $payload['result'] ) ? $payload['result'] : $payload;
+				if ( ! is_array( $result ) ) {
+					$result = array( 'value' => $result );
+				}
+				// Keep page identity fresh when browser page reads succeed.
+				if ( 'ahentic-browser/get-current-page' === $name || 'ahentic-browser/get-visible-page' === $name ) {
+					Ahentic_Session_Repository::set_page_context( $session_id, $result );
+				}
+				$tool_payload = $result;
+			} else {
+				$tool_payload = array(
+					'ok'      => false,
+					'error'   => 'browser_error',
+					'message' => is_string( $payload['error'] ) ? $payload['error'] : __( 'Browser ability failed.', 'ahentic' ),
+					'ability' => $name,
+				);
+			}
+
+			$content = wp_json_encode( $tool_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+			if ( ! is_string( $content ) ) {
+				$content = '{}';
 			}
 
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(
 					'role'    => 'tool',
-					'content' => isset( $payload['error'] )
-						? (string) $payload['error']
-						: wp_json_encode( isset( $payload['result'] ) ? $payload['result'] : $payload ),
+					'content' => $content,
 					'meta'    => array(
-						'tool'     => $pending,
-						'call_id'  => isset( $payload['call_id'] ) ? $payload['call_id'] : '',
+						'ability'  => $name,
+						'ok'       => $ok,
+						'call_id'  => $call_id ? $call_id : ( isset( $pending['call_id'] ) ? (string) $pending['call_id'] : '' ),
 						'browser'  => true,
 					),
 				)
 			);
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'tool_result',
+				$ok ? ( 'Result: ' . $name ) : ( 'Error: ' . $name ),
+				array(
+					'ability' => $name,
+					'ok'      => $ok,
+					'browser' => true,
+					'excerpt' => self::excerpt( $content, 240 ),
+				),
+				$step
+			);
+
 			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
 			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
+			Ahentic_Session_Repository::set_progress( $session_id, __( 'Planning next steps…', 'ahentic' ), $step );
 			Ahentic_Step_Queue::enqueue_step( $session_id );
+			Ahentic_Step_Queue::schedule_interactive_run( $session_id );
 
-			return Ahentic_Session_Repository::to_rest( $session_id );
+			return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 		}
 
 		/**
@@ -1849,7 +2015,7 @@ Rules:
 		private static function system_prompt( $mode ) {
 			$site_name  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 			$site_url   = home_url( '/' );
-			$available  = Ahentic_Abilities::available_for_agent();
+			$available  = Ahentic_Abilities::available_for_mode( $mode );
 			$tools_list = implode( ', ', $available );
 			$admin_map  = Ahentic_Abilities::format_admin_links_for_prompt();
 
@@ -1860,33 +2026,59 @@ Rules:
 				. 'Do not invent that you changed the site unless a tool confirmed it. '
 				. 'When you need verified site data, call tools — do not guess plugin lists or stack details.';
 
+			$readonly_tool_guidance = 'Prefer ahentic/get-site-snapshot when you need the site name, theme, environment, active plugins, or admin_links. '
+				. 'Prefer ahentic/get-site-health for Site Health counts/issues; ahentic/get-option for allowlisted options (blog_public, blogdescription/tagline, permalink_structure, show_on_front, etc.). '
+				. 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). '
+				. 'Tool priority: prefer server (ahentic/*) abilities when they can fully do the job. '
+				. 'Use ahentic-browser/* only when you need the live open tab, block editor APIs, or the user’s browser session — or when no server ability exists. '
+				. 'Never use the browser to simulate a server ability (e.g. do not click Install when ahentic/install-plugin exists). '
+				. 'Prefer ahentic/get-admin-context or ahentic-browser/get-current-page for screen identity (“which page am I on?”, white screen / broken admin URL). '
+				. 'Prefer ahentic-browser/get-visible-page when the user asks what is on the screen, to explain the UI, notices, buttons, or form fields currently visible. '
+				. 'pageContext may already be attached to the turn; only re-call get-current-page if you need a fresh identity read. '
+				. 'Prefer ahentic/http-fetch to GET a URL. For public pages omit as_user. For wp-admin / logged-in same-site pages pass {"url":"…","as_user":true} — that runs in the user’s browser with their session. Judge soft white screens by success_marker/body, not status alone. '
+				. 'Prefer ahentic/get-debug-log for PHP fatals when WP_DEBUG_LOG is available. '
+				. 'Prefer ahentic/search-content to find posts/pages by phrase (title, body, or meta); '
+				. 'ahentic/list-content to browse by type/status; ahentic/get-content to read one post (body + safe meta). '
+				. 'Prefer ahentic/update-post (Agent mode) to change an existing post/page content, title, excerpt, slug, or meta — pass id plus the fields to change; it does not change publish status. '
+				. 'For custom fields / WooCommerce prices: first ahentic/get-content with {"id":…,"include_meta":true}, then update using the exact meta keys under meta '
+				. '(WooCommerce simple products typically use _regular_price and _price). Never invent top-level fields like "price". '
+				. 'Always pass tools_planned as objects with input when a tool needs args (e.g. {"name":"ahentic/get-content","input":{"id":123}}), not bare ability name strings. '
+				. 'Prefer ahentic/find-unused-media to scan the media library for images that look unused (not featured/logo/icon/in content). '
+				. 'Prefer ahentic/update-term (Agent mode) to change an existing category/tag/custom taxonomy term: pass taxonomy plus term_id or term (ID/slug/name), then name/slug/description/parent and/or meta. '
+				. 'Use edit_url / view_url / media_library_url / plugins_url from those results when linking the user. '
+				. 'Do not claim you ran a tool that is not in the available list. ';
+
 			if ( 'ask' === $mode ) {
-				$base .= ' Mode: Ask — answer questions; prefer next="reply". You may use readonly tools if needed. '
-					. 'If the user asks you to change the site and you cannot (no write ability), set next="missing_ability" '
-					. 'with ability_needed (e.g. "ahentic/update-site-title"), explain you cannot do it yet, and give manual steps with admin links. '
-					. 'Do not mention X, Twitter, hashtags, @handles, request cards, or any sidebar UI for requesting features.';
+				$base .= ' Mode: Ask — you run the same multi-step loop as Agent, but ONLY with read-only tools '
+					. '(lookups and searches; no install/activate/update/delete or other site changes). '
+					. 'When you need site facts, set next="use_tools" and list tools in tools_planned. After tool results appear '
+					. 'in the next message, think again and either call more readonly tools or set next="reply" / "ask_user" / "missing_ability". '
+					. "Available readonly abilities right now: {$tools_list}. "
+					. $readonly_tool_guidance
+					. 'If the user asks you to change the site (install/activate plugins, edit content, update settings, etc.): '
+					. 'do NOT call write tools. Set next="reply" (or "ask_user" if you need a real choice), explain that Ask mode is read-only, '
+					. 'tell them to switch the composer mode to Agent to make changes, and give manual steps with admin links if useful. '
+					. 'If a tool result has error ability_ask_readonly, follow that pattern. '
+					. 'If they need a write ability that does not exist in any mode yet, set next="missing_ability" with ability_needed '
+					. '(e.g. "ahentic/update-site-title") and explain the gap with a short workaround. '
+					. 'Never mention X, Twitter, hashtags, @handles, request cards, or any sidebar UI for requesting features. '
+					. 'If a tool result has error ability_unavailable, explain you cannot do it yet and any workaround.';
 			} else {
 				$base .= ' Mode: Agent — you run a multi-step loop. When you need site facts, set next="use_tools" '
 					. 'and list tools in tools_planned. After tool results appear in the next message, think again '
 					. 'and either call more tools or set next="reply" / "ask_user" / "missing_ability". '
 					. "Available abilities right now: {$tools_list}. "
-					. 'Prefer ahentic/get-site-snapshot when you need the site name, theme, environment, active plugins, or admin_links. '
-					. 'Prefer ahentic/get-site-health for Site Health counts/issues; ahentic/get-option for allowlisted options (blog_public, blogdescription/tagline, permalink_structure, show_on_front, etc.). '
-					. 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). '
-					. 'HITL replaces ask_user for mutating abilities: when the concrete next step is ahentic/install-plugin or ahentic/activate-plugin '
-					. '(or any other ability that pauses for human approval), do NOT set next="ask_user" or ask “shall I install/activate it?” in chat. '
+					. $readonly_tool_guidance
+					. 'HITL replaces ask_user for mutating abilities: when the concrete next step is ahentic/install-plugin, ahentic/activate-plugin, '
+					. 'ahentic/deactivate-plugin, ahentic/update-post, ahentic/update-term '
+					. '(or any other ability that pauses for human approval), do NOT set next="ask_user" or ask “shall I install/activate/deactivate/update it?” in chat. '
 					. 'Instead set next="use_tools" and put that ability in tools_planned immediately — the product shows Allow/Deny; that IS the confirmation. '
-					. 'In the short user-facing reply, say what you are about to do (e.g. install or activate the chosen plugin) and that they can approve below; '
+					. 'In the short user-facing reply, say what you are about to do (e.g. install a plugin or update a post/term) and that they can approve below; '
 					. 'never claim success until a tool result confirms it. Use ask_user only for real choices the tools cannot decide '
 					. '(e.g. which of two plugins to pick when both are fine). '
 					. 'Chain install → activate: after a successful ahentic/install-plugin tool result with active=false, if the user wanted the plugin working '
 					. '(install / set up / turn on / “help me find one”), immediately set next="use_tools" with ahentic/activate-plugin using the same slug or plugin_file — '
 					. 'do not stop at “installed but not active; activate from Plugins.” Only skip chaining when the user clearly asked to install without activating. '
-					. 'Prefer ahentic/search-content to find posts/pages by phrase (title, body, or meta); '
-					. 'ahentic/list-content to browse by type/status; ahentic/get-content to read one post (body + safe meta). '
-					. 'Prefer ahentic/find-unused-media to scan the media library for images that look unused (not featured/logo/icon/in content). '
-					. 'Use edit_url / view_url / media_library_url / plugins_url from those results when linking the user. '
-					. 'Do not claim you ran a tool that is not in the available list. '
 					. 'IMPORTANT — when the user asks you to create/update/delete/change something and you do not have a matching '
 					. 'available ability, do NOT only give manual instructions with next="reply". Instead either: '
 					. '(A) set next="use_tools" and put the needed ability name in tools_planned even if it is not in the available list '

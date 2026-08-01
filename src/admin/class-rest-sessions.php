@@ -96,14 +96,17 @@ if ( ! class_exists( 'Ahentic_REST_Sessions' ) ) {
 						'callback'            => array( __CLASS__, 'post_message' ),
 						'permission_callback' => array( __CLASS__, 'can_manage' ),
 						'args'                => array(
-							'content' => array(
+							'content'     => array(
 								'required'          => true,
 								'type'              => 'string',
 								'sanitize_callback' => 'sanitize_textarea_field',
 							),
-							'mode'    => array(
+							'mode'        => array(
 								'type' => 'string',
 								'enum' => array( 'agent', 'ask' ),
+							),
+							'pageContext' => array(
+								'type' => 'object',
 							),
 						),
 					),
@@ -308,10 +311,21 @@ if ( ! class_exists( 'Ahentic_REST_Sessions' ) ) {
 				return $ok;
 			}
 
+			$page_context = $request->get_param( 'pageContext' );
+			if ( ! is_array( $page_context ) ) {
+				$json = $request->get_json_params();
+				if ( is_array( $json ) && isset( $json['pageContext'] ) && is_array( $json['pageContext'] ) ) {
+					$page_context = $json['pageContext'];
+				} else {
+					$page_context = null;
+				}
+			}
+
 			$result = Ahentic_Orchestrator::handle_user_message(
 				$id,
 				(string) $request->get_param( 'content' ),
-				(string) $request->get_param( 'mode' )
+				(string) $request->get_param( 'mode' ),
+				$page_context
 			);
 
 			if ( is_wp_error( $result ) ) {

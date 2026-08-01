@@ -6,7 +6,8 @@
  */
 
 /* -------------------------------------------------------------------------
- * Page inset — pushes WP admin / front-end content when the sidebar is open.
+ * Page inset — pushes WP admin / front-end content when a docked sidebar is open.
+ * Floating placements do not set .ahentic-sidebar-is-open (no page push).
  * These rules intentionally target the host document, not WP chrome styles.
  * ------------------------------------------------------------------------- */
 html {
@@ -15,19 +16,39 @@ html {
 	--ah-primary-hover: #4a44d4;
 }
 
-html.ahentic-sidebar-is-open body {
+/* Right dock (default) */
+html.ahentic-sidebar-is-open.ahentic-sidebar-placement-right body {
 	padding-right: var(--ahentic-sidebar-inset) !important;
 	box-sizing: border-box;
 }
 
-html.ahentic-sidebar-is-open #wpadminbar {
+html.ahentic-sidebar-is-open.ahentic-sidebar-placement-right #wpadminbar {
 	right: var(--ahentic-sidebar-inset);
 	width: auto;
 }
 
-html.ahentic-sidebar-is-open #wpcontent,
-html.ahentic-sidebar-is-open #wpfooter {
+html.ahentic-sidebar-is-open.ahentic-sidebar-placement-right #wpcontent,
+html.ahentic-sidebar-is-open.ahentic-sidebar-placement-right #wpfooter {
 	margin-right: 0;
+}
+
+/*
+ * Left dock — Ahentic sits to the LEFT of the WP admin menu.
+ * Body padding shifts in-flow content; fixed admin chrome is offset by the same inset.
+ */
+html.ahentic-sidebar-is-open.ahentic-sidebar-placement-left body {
+	padding-left: var(--ahentic-sidebar-inset) !important;
+	box-sizing: border-box;
+}
+
+html.ahentic-sidebar-is-open.ahentic-sidebar-placement-left #wpadminbar {
+	left: var(--ahentic-sidebar-inset);
+	width: auto;
+}
+
+html.ahentic-sidebar-is-open.ahentic-sidebar-placement-left #adminmenuback,
+html.ahentic-sidebar-is-open.ahentic-sidebar-placement-left #adminmenuwrap {
+	left: var(--ahentic-sidebar-inset) !important;
 }
 
 body.ahentic-is-resizing {
@@ -35,7 +56,25 @@ body.ahentic-is-resizing {
 	user-select: none !important;
 }
 
-body.ahentic-is-resizing iframe {
+body.ahentic-is-resizing.ahentic-is-resizing--row {
+	cursor: row-resize !important;
+}
+
+body.ahentic-is-resizing.ahentic-is-resizing--corner {
+	cursor: nwse-resize !important;
+}
+
+body.ahentic-is-resizing.ahentic-is-resizing--corner-nesw {
+	cursor: nesw-resize !important;
+}
+
+body.ahentic-is-dragging {
+	cursor: grabbing !important;
+	user-select: none !important;
+}
+
+body.ahentic-is-resizing iframe,
+body.ahentic-is-dragging iframe {
 	pointer-events: none !important;
 }
 
@@ -90,6 +129,7 @@ body.ahentic-is-resizing iframe {
 .ahentic[data-ahentic-theme="dark"] {
 	--ah-bg: #141416;
 	--ah-bg-2: #1c1c1f;
+	--ah-bg-elevated: #232326;
 	--ah-fg: #ececef;
 	--ah-muted: #9b9ba3;
 	--ah-border: #2a2a2e;
@@ -274,6 +314,7 @@ body.ahentic-is-resizing iframe {
 	top: 0;
 	right: 0;
 	bottom: 0;
+	left: auto;
 	z-index: 100001;
 	display: none;
 	flex-direction: column;
@@ -282,6 +323,7 @@ body.ahentic-is-resizing iframe {
 	background: var(--ah-bg);
 	color: var(--ah-fg);
 	border-left: 1px solid var(--ah-border);
+	border-right: 0;
 	box-shadow: var(--ah-shadow);
 }
 
@@ -292,6 +334,34 @@ body.ahentic-is-resizing iframe {
 .ahentic-sidebar.is-mobile {
 	width: 100% !important;
 	max-width: 100%;
+	left: 0 !important;
+	right: 0 !important;
+	top: 0 !important;
+	bottom: 0 !important;
+	height: auto !important;
+	border-radius: 0 !important;
+	border-left: 0;
+	border-right: 0;
+}
+
+.ahentic-sidebar.is-placement-left {
+	left: 0;
+	right: auto;
+	border-left: 0;
+	border-right: 1px solid var(--ah-border);
+	box-shadow: 8px 0 32px rgba(0, 0, 0, 0.35);
+}
+
+.ahentic-sidebar.is-placement-floating,
+.ahentic-sidebar.is-placement-floating-small {
+	top: auto;
+	right: auto;
+	bottom: auto;
+	left: auto;
+	border: 1px solid var(--ah-border);
+	border-radius: 12px;
+	box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04);
+	overflow: hidden;
 }
 
 .ahentic-resize {
@@ -313,6 +383,89 @@ body.ahentic-is-resizing .ahentic-resize {
 	background: color-mix(in srgb, var(--ah-accent) 35%, transparent);
 }
 
+.ahentic-sidebar.is-placement-left .ahentic-resize {
+	left: auto;
+	right: -3px;
+}
+
+/* Floating resize handles (inset so overflow:hidden does not clip them) */
+.ahentic-float-handle {
+	position: absolute;
+	z-index: 20;
+	background: transparent;
+	padding: 0;
+	border: 0;
+}
+
+.ahentic-float-handle--n {
+	top: 0;
+	left: 14px;
+	right: 14px;
+	height: 6px;
+	cursor: row-resize;
+}
+
+.ahentic-float-handle--s {
+	bottom: 0;
+	left: 14px;
+	right: 14px;
+	height: 6px;
+	cursor: row-resize;
+}
+
+.ahentic-float-handle--e {
+	top: 14px;
+	right: 0;
+	bottom: 14px;
+	width: 6px;
+	cursor: col-resize;
+}
+
+.ahentic-float-handle--w {
+	top: 14px;
+	left: 0;
+	bottom: 14px;
+	width: 6px;
+	cursor: col-resize;
+}
+
+.ahentic-float-handle--nw,
+.ahentic-float-handle--ne,
+.ahentic-float-handle--sw,
+.ahentic-float-handle--se {
+	width: 14px;
+	height: 14px;
+}
+
+.ahentic-float-handle--nw {
+	top: 0;
+	left: 0;
+	cursor: nwse-resize;
+}
+
+.ahentic-float-handle--ne {
+	top: 0;
+	right: 0;
+	cursor: nesw-resize;
+}
+
+.ahentic-float-handle--sw {
+	bottom: 0;
+	left: 0;
+	cursor: nesw-resize;
+}
+
+.ahentic-float-handle--se {
+	right: 0;
+	bottom: 0;
+	cursor: nwse-resize;
+}
+
+.ahentic-float-handle:hover,
+body.ahentic-is-resizing .ahentic-float-handle.is-active {
+	background: color-mix(in srgb, var(--ah-accent) 35%, transparent);
+}
+
 /* -------------------------------------------------------------------------
  * Toolbar
  * ------------------------------------------------------------------------- */
@@ -327,11 +480,68 @@ body.ahentic-is-resizing .ahentic-resize {
 	flex-shrink: 0;
 }
 
+.ahentic-toolbar.is-draggable {
+	cursor: grab;
+}
+
+.ahentic-toolbar.is-draggable:active {
+	cursor: grabbing;
+}
+
 .ahentic-toolbar__left,
 .ahentic-toolbar__right {
 	display: flex;
 	align-items: center;
 	gap: 6px;
+}
+
+.ahentic-placement {
+	position: relative;
+}
+
+.ahentic-placement__menu {
+	position: absolute;
+	top: calc(100% + 4px);
+	right: 0;
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 180px;
+	padding: 4px;
+	border: 1px solid var(--ah-border);
+	border-radius: var(--ah-radius);
+	background: var(--ah-bg-2);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.ahentic-placement__option {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 7px 8px;
+	border-radius: var(--ah-radius-sm);
+	color: var(--ah-fg);
+	text-align: left;
+}
+
+.ahentic-placement__option:hover {
+	background: var(--ah-hover);
+}
+
+.ahentic-placement__option.is-selected {
+	background: var(--ah-hover-2);
+	color: var(--ah-fg);
+}
+
+.ahentic-placement__option svg {
+	flex-shrink: 0;
+	color: var(--ah-muted);
+}
+
+.ahentic-placement__option.is-selected svg {
+	color: var(--ah-accent);
 }
 
 .ahentic-toolbar__brand {
@@ -566,7 +776,7 @@ a.ahentic-icon-btn {
 	align-items: stretch;
 	min-height: 36px;
 	border-bottom: 1px solid var(--ah-border);
-	background: var(--ah-bg-2);
+	background: var(--ah-bg-elevated);
 	flex-shrink: 0;
 }
 
@@ -586,7 +796,7 @@ a.ahentic-icon-btn {
 	padding: 0 6px;
 	border-left: 1px solid var(--ah-border);
 	flex-shrink: 0;
-	background: var(--ah-bg-2);
+	background: var(--ah-bg-elevated);
 }
 
 .ahentic-tab {
@@ -1297,32 +1507,41 @@ a.ahentic-empty__ai-install:hover {
 .ahentic-composer__box {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
-	padding: 10px;
+	gap: 6px;
+	padding: 6px 8px;
 	border: 1px solid var(--ah-border);
 	border-radius: 12px;
-	background: var(--ah-bg-2);
-}
-
-.ahentic-composer__box:focus-within {
-	border-color: var(--ah-border-strong);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--ah-accent) 35%, transparent);
+	background: var(--ah-bg-elevated);
 }
 
 .ahentic-composer__input {
 	width: 100%;
-	min-height: 60px;
+	min-height: 1.45em;
 	max-height: 160px;
+	padding: 0;
+	margin: 0;
 	resize: none;
 	border: 0;
+	border-radius: 0;
 	outline: none;
+	box-shadow: none;
 	background: transparent;
-	color: var(--ah-fg);
+	/* Beat WP admin / theme textarea color rules. */
+	color: var(--ah-fg) !important;
+	-webkit-text-fill-color: var(--ah-fg);
+	caret-color: var(--ah-fg);
 	line-height: 1.45;
 }
 
+.ahentic-composer__input:focus {
+	outline: none;
+	box-shadow: none;
+	border-color: transparent;
+}
+
 .ahentic-composer__input::placeholder {
-	color: var(--ah-muted);
+	color: var(--ah-muted) !important;
+	-webkit-text-fill-color: var(--ah-muted);
 	opacity: 0.85;
 }
 
@@ -1369,22 +1588,6 @@ a.ahentic-empty__ai-install:hover {
 	min-width: 120px;
 }
 
-.ahentic-context-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	max-width: 140px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	font-size: 11px;
-	color: var(--ah-muted);
-}
-
-.ahentic-context-chip__sep {
-	opacity: 0.6;
-}
-
 .ahentic-composer__hint {
 	display: flex;
 	justify-content: space-between;
@@ -1394,6 +1597,48 @@ a.ahentic-empty__ai-install:hover {
 	font-size: 11px;
 	color: var(--ah-muted);
 	opacity: 0.8;
+}
+
+.ahentic-composer.is-disabled .ahentic-composer__box {
+	opacity: 0.55;
+	pointer-events: none;
+}
+
+.ahentic-composer__blocked {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	margin-bottom: 10px;
+	padding: 10px 12px;
+	border: 1px solid var(--ah-border);
+	border-radius: 10px;
+	background: var(--ah-surface, var(--ah-bg));
+}
+
+.ahentic-composer__blocked-text {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--ah-fg);
+}
+
+.ahentic a.ahentic-composer__blocked-cta {
+	display: inline-flex;
+	align-items: center;
+	padding: 6px 12px;
+	border-radius: 8px;
+	background: var(--ah-fg);
+	color: var(--ah-bg);
+	font-size: 12px;
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.ahentic a.ahentic-composer__blocked-cta:hover,
+.ahentic a.ahentic-composer__blocked-cta:focus {
+	opacity: 0.9;
+	color: var(--ah-bg);
 }
 
 /* -------------------------------------------------------------------------

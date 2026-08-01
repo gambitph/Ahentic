@@ -13,6 +13,7 @@ This project has two GitHub repositories, used depending on whether we're buildi
 
 - Main plugin repo: https://github.com/gambitph/Ahentic
 - Contains **only** free plugin code and must remain free of premium logic (WordPress.org guidelines).
+- Must pass [WordPress Plugin Check](https://github.com/wordpress/plugin-check) for Plugin Directory inclusion (see `ahentic-wordpress-plugin-check` rule).
 
 ### Premium version
 

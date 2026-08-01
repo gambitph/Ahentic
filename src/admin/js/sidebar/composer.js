@@ -1,5 +1,5 @@
 /**
- * Composer: mode select, context chip, attachment/mic affordances, textarea.
+ * Composer: mode select, attachment/mic affordances, textarea.
  */
 
 import {
@@ -17,7 +17,9 @@ import { MODES } from './constants'
  * @param {Function} props.onSubmit
  * @param {boolean}  props.focusSignal
  * @param {string}   props.shortcutLabel
- * @param {Object}   props.context
+ * @param {boolean}  [props.disabled]
+ * @param {string}   [props.disabledHint]
+ * @param {string}   [props.connectorsUrl]
  */
 export default function Composer( {
 	mode,
@@ -25,7 +27,9 @@ export default function Composer( {
 	onSubmit,
 	focusSignal,
 	shortcutLabel,
-	context,
+	disabled = false,
+	disabledHint = '',
+	connectorsUrl = '',
 } ) {
 	const [ value, setValue ] = useState( '' )
 	const [ modeOpen, setModeOpen ] = useState( false )
@@ -33,10 +37,13 @@ export default function Composer( {
 	const modeRef = useRef( null )
 
 	useEffect( () => {
+		if ( disabled ) {
+			return
+		}
 		if ( textareaRef.current ) {
 			textareaRef.current.focus()
 		}
-	}, [ focusSignal ] )
+	}, [ focusSignal, disabled ] )
 
 	useEffect( () => {
 		if ( ! modeOpen ) {
@@ -63,6 +70,9 @@ export default function Composer( {
 	}, [ value ] )
 
 	const submit = () => {
+		if ( disabled ) {
+			return
+		}
 		const trimmed = value.trim()
 		if ( ! trimmed ) {
 			return
@@ -71,21 +81,31 @@ export default function Composer( {
 		setValue( '' )
 	}
 
-	const wpLabel = context?.wpVersion ? `WP ${ context.wpVersion }` : 'WP'
-	const phpLabel = context?.phpVersion
-		? `PHP ${ String( context.phpVersion ).split( '.' ).slice( 0, 2 ).join( '.' ) }`
-		: 'PHP'
-
 	return (
-		<div className="ahentic-composer">
+		<div className={ `ahentic-composer${ disabled ? ' is-disabled' : '' }` }>
+			{ disabled && disabledHint ? (
+				<div className="ahentic-composer__blocked" role="status">
+					<p className="ahentic-composer__blocked-text">{ disabledHint }</p>
+					{ connectorsUrl ? (
+						<a
+							className="ahentic-composer__blocked-cta"
+							href={ connectorsUrl }
+						>
+							Open Connectors
+						</a>
+					) : null }
+				</div>
+			) : null }
+
 			<div className="ahentic-composer__box">
 				<textarea
 					ref={ textareaRef }
 					className="ahentic-composer__input"
-					rows={ 3 }
+					rows={ 1 }
 					value={ value }
 					placeholder="Plan, Build, / for skills, @ for context"
 					aria-label="Ask Ahentic"
+					disabled={ disabled }
 					onChange={ event => setValue( event.target.value ) }
 					onKeyDown={ event => {
 						if ( event.key === 'Enter' && ! event.shiftKey ) {
@@ -106,6 +126,7 @@ export default function Composer( {
 								aria-expanded={ modeOpen }
 								aria-label="Select mode"
 								title="Mode"
+								disabled={ disabled }
 							>
 								<span>{ mode === MODES.ASK ? 'Ask' : 'Agent' }</span>
 								<ChevronDown size={ 12 } strokeWidth={ 2 } />
@@ -139,11 +160,6 @@ export default function Composer( {
 								</div>
 							) }
 						</div>
-						<span className="ahentic-context-chip" title="Site runtime context">
-							{ wpLabel }
-							<span className="ahentic-context-chip__sep">·</span>
-							{ phpLabel }
-						</span>
 					</div>
 
 					<div className="ahentic-composer__footer-right">

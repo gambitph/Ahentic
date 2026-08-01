@@ -1,7 +1,7 @@
 /**
  * localStorage helpers for sidebar chrome state.
  *
- * Persists: open, width, theme, tabs (session ids), activeTabId, mode.
+ * Persists: open, width, theme, tabs (session ids), activeTabId, mode, placement, floatRect.
  * Does NOT persist conversation message contents (those live on ahentic-session posts).
  */
 
@@ -9,21 +9,52 @@ import {
 	STORAGE_KEY,
 	DEFAULT_WIDTH,
 	DEFAULT_THEME,
+	DEFAULT_PLACEMENT,
 	MODES,
 	createTab,
 	MIN_WIDTH,
 	MAX_WIDTH,
+	normalizePlacement,
+	isFloatingPlacement,
+	clampFloatingRect,
+	getDefaultFloatingRect,
 } from './constants'
+
+/**
+ * @typedef {Object} FloatingRect
+ * @property {number} left
+ * @property {number} top
+ * @property {number} width
+ * @property {number} height
+ */
 
 /**
  * @typedef {Object} SidebarPersistedState
  * @property {boolean}                                                 open        Whether the sidebar is open.
- * @property {number}                                                  width       Sidebar width in pixels.
+ * @property {number}                                                  width       Docked sidebar width in pixels.
  * @property {string}                                                  theme       Theme id (e.g. dark).
  * @property {string}                                                  mode        Composer mode (agent|ask).
+ * @property {string}                                                  placement   Dock / float placement.
+ * @property {FloatingRect|null}                                       floatRect   Last floating geometry.
  * @property {Array<{ id: string, title: string, createdAt: number }>} tabs        Open tabs.
  * @property {string}                                                  activeTabId Active tab id.
  */
+
+/**
+ * @param {unknown} value
+ * @param {string}  placement
+ * @param {number}  width
+ * @return {FloatingRect|null}
+ */
+function normalizeFloatRect( value, placement, width ) {
+	if ( ! isFloatingPlacement( placement ) ) {
+		return value && typeof value === 'object' ? clampFloatingRect( /** @type {FloatingRect} */ ( value ) ) : null
+	}
+	if ( ! value || typeof value !== 'object' ) {
+		return getDefaultFloatingRect( placement, width )
+	}
+	return clampFloatingRect( /** @type {FloatingRect} */ ( value ) )
+}
 
 /**
  * @return {SidebarPersistedState} Default persisted sidebar chrome state.
@@ -35,6 +66,8 @@ export function getDefaultPersistedState() {
 		width: DEFAULT_WIDTH,
 		theme: DEFAULT_THEME,
 		mode: MODES.AGENT,
+		placement: DEFAULT_PLACEMENT,
+		floatRect: null,
 		tabs: [ tab ],
 		activeTabId: tab.id,
 	}
@@ -79,11 +112,16 @@ export function loadPersistedState() {
 			? parsed.activeTabId
 			: tabs[ 0 ].id
 
+		const width = clampWidth( parsed.width ?? defaults.width )
+		const placement = normalizePlacement( parsed.placement )
+
 		return {
 			open: Boolean( parsed.open ),
-			width: clampWidth( parsed.width ?? defaults.width ),
+			width,
 			theme: typeof parsed.theme === 'string' ? parsed.theme : defaults.theme,
 			mode: parsed.mode === MODES.ASK ? MODES.ASK : MODES.AGENT,
+			placement,
+			floatRect: normalizeFloatRect( parsed.floatRect, placement, width ),
 			tabs,
 			activeTabId,
 		}
@@ -102,7 +140,16 @@ export function savePersistedState( state ) {
 			...current,
 			...state,
 			width: clampWidth( state.width ?? current.width ),
+			placement: normalizePlacement( state.placement ?? current.placement ),
 			tabs: Array.isArray( state.tabs ) && state.tabs.length ? state.tabs : current.tabs,
+		}
+
+		if ( Object.prototype.hasOwnProperty.call( state, 'floatRect' ) ) {
+			next.floatRect = state.floatRect
+				? clampFloatingRect( state.floatRect )
+				: null
+		} else if ( next.floatRect ) {
+			next.floatRect = clampFloatingRect( next.floatRect )
 		}
 
 		if ( ! next.tabs.some( tab => tab.id === next.activeTabId ) ) {
