@@ -4,6 +4,26 @@
 
 import { collectPageContext } from './page-context'
 import { collectVisiblePage } from './visible-page'
+import {
+	getEditorState,
+	getBlocks,
+	getSelection,
+	getBlockType,
+	listBlockTypes,
+	focusBlock,
+	updateBlockAttributes,
+	replaceBlocks,
+	setBlocks,
+	insertBlocks,
+	duplicateBlocks,
+	moveBlocks,
+	normalizeBlockStyles,
+	restyleBlocksToPalette,
+	convertBlocks,
+	auditAccessibility,
+	updatePostTitle,
+	savePost,
+} from './editor-abilities'
 
 const FETCH_TIMEOUT_MS = 12000
 const FETCH_MAX_CHARS = 65536
@@ -25,6 +45,42 @@ export async function runBrowserAbility( pending ) {
 				return { result: collectPageContext() }
 			case 'ahentic-browser/get-visible-page':
 				return { result: collectVisiblePage() }
+			case 'ahentic-browser/get-editor-state':
+				return { result: getEditorState() }
+			case 'ahentic-browser/get-blocks':
+				return { result: getBlocks( input ) }
+			case 'ahentic-browser/get-selection':
+				return { result: getSelection() }
+			case 'ahentic-browser/get-block-type':
+				return { result: getBlockType( input ) }
+			case 'ahentic-browser/list-block-types':
+				return { result: listBlockTypes( input ) }
+			case 'ahentic-browser/focus-block':
+				return { result: focusBlock( input ) }
+			case 'ahentic-browser/update-block-attributes':
+				return { result: updateBlockAttributes( input ) }
+			case 'ahentic-browser/replace-blocks':
+				return { result: replaceBlocks( input ) }
+			case 'ahentic-browser/set-blocks':
+				return { result: setBlocks( input ) }
+			case 'ahentic-browser/insert-blocks':
+				return { result: insertBlocks( input ) }
+			case 'ahentic-browser/duplicate-blocks':
+				return { result: duplicateBlocks( input ) }
+			case 'ahentic-browser/move-blocks':
+				return { result: moveBlocks( input ) }
+			case 'ahentic-browser/normalize-block-styles':
+				return { result: normalizeBlockStyles( input ) }
+			case 'ahentic-browser/restyle-blocks-to-palette':
+				return { result: restyleBlocksToPalette( input ) }
+			case 'ahentic-browser/convert-blocks':
+				return { result: convertBlocks( input ) }
+			case 'ahentic-browser/audit-accessibility':
+				return { result: auditAccessibility() }
+			case 'ahentic-browser/update-post-title':
+				return { result: updatePostTitle( input ) }
+			case 'ahentic-browser/save-post':
+				return { result: await savePost() }
 			case 'ahentic/http-fetch':
 				return { result: await fetchPageAsUser( input ) }
 			default:

@@ -1,0 +1,46 @@
+{
+  "id": "pre-launch-gaps",
+  "title": "Pre-launch gaps",
+  "when_to_use": "Site not launched, missing pages, go-live checklist, what am I missing before launch.",
+  "triggers": [
+    "not launched",
+    "before launch",
+    "go live",
+    "go-live",
+    "what am i missing",
+    "ready to launch",
+    "pre-launch",
+    "coming soon",
+    "not public yet"
+  ],
+  "related_abilities": [
+    "ahentic/get-site-snapshot",
+    "ahentic/get-site-health",
+    "ahentic/get-option",
+    "ahentic/list-plugins",
+    "ahentic/list-content",
+    "ahentic/search-content",
+    "ahentic/list-post-types",
+    "ahentic/find-unused-media"
+  ],
+  "principles": [
+    "Verify with tools — do not invent missing pages or plugin lists.",
+    "Prioritize by launch risk: visibility (blog_public), HTTPS/health, contact/forms, legal pages, SEO presence, broken/empty key pages.",
+    "Distinguish “not launched” (discourage indexing) from “live but incomplete”.",
+    "Give a short ranked checklist with effort hints; ask which item to tackle first."
+  ],
+  "steps": [
+    "get-site-snapshot + get-site-health for stack and health signal.",
+    "get-option for blog_public (0 = discourage search engines), show_on_front / page_on_front, permalink_structure.",
+    "list-content / search-content for Contact, About, Privacy, Terms, Home; note drafts vs published.",
+    "list-plugins for forms, SEO, security, caching, ecommerce — note gaps without installing everything at once.",
+    "Optional: find-unused-media / list-post-types for cleanup and CPT inventory.",
+    "Summarize top gaps (≈5–10), impact vs effort; offer to fix one with tools + HITL."
+  ],
+  "anti_patterns": [
+    "A generic launch checklist with no tool results.",
+    "Installing a pile of plugins before confirming need.",
+    "Claiming the site is “ready” without checking blog_public and critical pages.",
+    "Inventing analytics or conversion numbers."
+  ]
+}

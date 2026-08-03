@@ -1,6 +1,6 @@
 <?php
 /**
- * Content abilities: list, get, search, and update posts/pages (with meta).
+ * Content abilities: list, get, search, create, update, and set post status.
  */
 
 // Exit if accessed directly.
@@ -13,10 +13,12 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 	 * Content inspection and updates for the agent loop.
 	 */
 	class Ahentic_Abilities_Content {
-		const LIST   = 'ahentic/list-content';
-		const GET    = 'ahentic/get-content';
-		const SEARCH = 'ahentic/search-content';
-		const UPDATE = 'ahentic/update-post';
+		const LIST      = 'ahentic/list-content';
+		const GET       = 'ahentic/get-content';
+		const SEARCH    = 'ahentic/search-content';
+		const CREATE    = 'ahentic/create-post';
+		const UPDATE    = 'ahentic/update-post';
+		const SET_STATUS = 'ahentic/set-post-status';
 
 		const MAX_PER_PAGE      = 50;
 		const MAX_CONTENT_CHARS = 20000;
@@ -31,7 +33,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string[]
 		 */
 		public static function names() {
-			return array( self::LIST, self::GET, self::SEARCH, self::UPDATE );
+			return array( self::LIST, self::GET, self::SEARCH, self::CREATE, self::UPDATE, self::SET_STATUS );
 		}
 
 		/**
@@ -40,7 +42,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string[]
 		 */
 		public static function write_names() {
-			return array( self::UPDATE );
+			return array( self::CREATE, self::UPDATE, self::SET_STATUS );
 		}
 
 		/**
@@ -59,7 +61,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string[]
 		 */
 		public static function hitl_names() {
-			return array( self::UPDATE );
+			return array( self::CREATE, self::UPDATE, self::SET_STATUS );
 		}
 
 		/**
@@ -79,13 +81,77 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 */
 		public static function hitl_summary( $name, $input = array() ) {
 			$input = is_array( $input ) ? $input : array();
+
+			if ( self::CREATE === $name ) {
+				$post_type = isset( $input['post_type'] ) ? sanitize_key( (string) $input['post_type'] ) : 'post';
+				$title     = isset( $input['title'] ) ? trim( (string) $input['title'] ) : '';
+				$from_mem  = isset( $input['from_memory'] ) ? trim( (string) $input['from_memory'] ) : '';
+				if ( $from_mem && $title ) {
+					return sprintf(
+						/* translators: 1: post type, 2: title, 3: artifact key */
+						__( 'Create %1$s draft “%2$s” from artifact %3$s', 'ahentic' ),
+						$post_type ? $post_type : 'post',
+						$title,
+						$from_mem
+					);
+				}
+				if ( $from_mem ) {
+					return sprintf(
+						/* translators: 1: post type, 2: artifact key */
+						__( 'Create %1$s draft from artifact %2$s', 'ahentic' ),
+						$post_type ? $post_type : 'post',
+						$from_mem
+					);
+				}
+				if ( $title ) {
+					return sprintf(
+						/* translators: 1: post type, 2: title */
+						__( 'Create %1$s draft “%2$s”', 'ahentic' ),
+						$post_type ? $post_type : 'post',
+						$title
+					);
+				}
+				return sprintf(
+					/* translators: %s: post type */
+					__( 'Create a new %s draft', 'ahentic' ),
+					$post_type ? $post_type : 'post'
+				);
+			}
+
+			if ( self::SET_STATUS === $name ) {
+				$id     = isset( $input['id'] ) ? (int) $input['id'] : 0;
+				$status = isset( $input['status'] ) ? sanitize_key( (string) $input['status'] ) : '';
+				$title  = '';
+				if ( $id > 0 ) {
+					$post = get_post( $id );
+					if ( $post instanceof WP_Post ) {
+						$title = get_the_title( $post );
+					}
+				}
+				if ( $title ) {
+					return sprintf(
+						/* translators: 1: post title, 2: post ID, 3: status */
+						__( 'Set status of “%1$s” (#%2$d) to %3$s', 'ahentic' ),
+						$title,
+						$id,
+						$status ? $status : __( 'unknown', 'ahentic' )
+					);
+				}
+				return sprintf(
+					/* translators: 1: post ID, 2: status */
+					__( 'Set status of post #%1$d to %2$s', 'ahentic' ),
+					$id > 0 ? $id : 0,
+					$status ? $status : __( 'unknown', 'ahentic' )
+				);
+			}
+
 			if ( self::UPDATE !== $name ) {
 				return (string) $name;
 			}
 
 			$id     = isset( $input['id'] ) ? (int) $input['id'] : 0;
 			$fields = array();
-			foreach ( array( 'content', 'title', 'excerpt', 'slug', 'meta' ) as $field ) {
+			foreach ( array( 'content', 'title', 'excerpt', 'slug', 'meta', 'from_memory' ) as $field ) {
 				if ( array_key_exists( $field, $input ) ) {
 					$fields[] = $field;
 				}
@@ -270,36 +336,86 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			);
 
 			wp_register_ability(
+				self::CREATE,
+				array(
+					'label'               => __( 'Create post', 'ahentic' ),
+					'description'         => __( 'Creates a new post/page/CPT as a draft (default). Only use when the block editor is NOT open — if the user is already editing a post/page in Gutenberg, edit that document with ahentic-browser/update-post-title + set-blocks/insert-blocks/replace-blocks instead. Pass real post content (not bracket stubs like [full article]), or from_memory with a staged artifact key. For publish/schedule use ahentic/set-post-status after creation. Requires human approval in Ahentic.', 'ahentic' ),
+					'category'            => 'ahentic-content',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'title' ),
+						'properties' => array(
+							'title'        => array(
+								'type'        => 'string',
+								'description' => __( 'Post title.', 'ahentic' ),
+							),
+							'post_type'    => array(
+								'type'        => 'string',
+								'description' => __( 'Post type (default: post).', 'ahentic' ),
+							),
+							'content'      => array(
+								'type'        => 'string',
+								'description' => __( 'post_content (HTML / block markup). Ignored when from_memory is set.', 'ahentic' ),
+							),
+							'from_memory'  => array(
+								'type'        => 'string',
+								'description' => __( 'Session artifact key (from ahentic/stage-artifact). Expands to content; wins over inline content.', 'ahentic' ),
+							),
+							'excerpt'      => array( 'type' => 'string' ),
+							'slug'         => array( 'type' => 'string' ),
+							'status'       => array(
+								'type'        => 'string',
+								'description' => __( 'Initial status: draft or pending only (default: draft). Use set-post-status to publish.', 'ahentic' ),
+								'enum'        => array( 'draft', 'pending' ),
+							),
+							'meta'         => array(
+								'type'                 => 'object',
+								'additionalProperties' => true,
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_create_post' ),
+					'permission_callback' => $permission,
+					'meta'                => $mutate_meta,
+				)
+			);
+
+			wp_register_ability(
 				self::UPDATE,
 				array(
 					'label'               => __( 'Update post', 'ahentic' ),
-					'description'         => __( 'Updates an existing post or page: content, title, excerpt, slug, and post meta (exact keys from get-content; WooCommerce _price/_regular_price allowed). Does not change publish status. Requires human approval in Ahentic.', 'ahentic' ),
+					'description'         => __( 'Updates an existing post or page: content, title, excerpt, slug, and post meta (exact keys from get-content; WooCommerce _price/_regular_price allowed). Content may use from_memory for a staged artifact. Does not change publish status. Requires human approval in Ahentic.', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',
 						'required'   => array( 'id' ),
 						'properties' => array(
-							'id'      => array(
+							'id'           => array(
 								'type'        => 'integer',
 								'description' => __( 'Post ID.', 'ahentic' ),
 							),
-							'content' => array(
+							'content'      => array(
 								'type'        => 'string',
-								'description' => __( 'New post_content (HTML / block markup).', 'ahentic' ),
+								'description' => __( 'New post_content (HTML / block markup). Ignored when from_memory is set.', 'ahentic' ),
 							),
-							'title'   => array(
+							'from_memory'  => array(
+								'type'        => 'string',
+								'description' => __( 'Session artifact key (from ahentic/stage-artifact). Expands to content; wins over inline content.', 'ahentic' ),
+							),
+							'title'        => array(
 								'type'        => 'string',
 								'description' => __( 'New post title.', 'ahentic' ),
 							),
-							'excerpt' => array(
+							'excerpt'      => array(
 								'type'        => 'string',
 								'description' => __( 'New post excerpt.', 'ahentic' ),
 							),
-							'slug'    => array(
+							'slug'         => array(
 								'type'        => 'string',
 								'description' => __( 'New post slug (post_name).', 'ahentic' ),
 							),
-							'meta'    => array(
+							'meta'         => array(
 								'type'                 => 'object',
 								'description'          => __( 'Post meta key/value pairs to set (exact keys from get-content). Underscore keys like WooCommerce _price are allowed; sensitive/system keys are blocked.', 'ahentic' ),
 								'additionalProperties' => true,
@@ -310,6 +426,46 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					'execute_callback'    => array( __CLASS__, 'execute_update_post' ),
 					'permission_callback' => $permission,
 					'meta'                => $mutate_meta,
+				)
+			);
+
+			$destructive_meta = array(
+				'annotations'  => array(
+					'readonly'    => false,
+					'destructive' => true,
+					'idempotent'  => false,
+				),
+				'show_in_rest' => false,
+			);
+
+			wp_register_ability(
+				self::SET_STATUS,
+				array(
+					'label'               => __( 'Set post status', 'ahentic' ),
+					'description'         => __( 'Changes publish status for a post/page (publish, draft, pending, private, future, trash). For future, pass date. Requires human approval in Ahentic.', 'ahentic' ),
+					'category'            => 'ahentic-content',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'id', 'status' ),
+						'properties' => array(
+							'id'     => array(
+								'type'        => 'integer',
+								'description' => __( 'Post ID.', 'ahentic' ),
+							),
+							'status' => array(
+								'type' => 'string',
+								'enum' => array( 'publish', 'draft', 'pending', 'private', 'future', 'trash' ),
+							),
+							'date'   => array(
+								'type'        => 'string',
+								'description' => __( 'Optional local datetime for future status (Y-m-d H:i:s).', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_set_post_status' ),
+					'permission_callback' => $permission,
+					'meta'                => $destructive_meta,
 				)
 			);
 		}
@@ -329,8 +485,12 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					return self::execute_get_content( $input );
 				case self::SEARCH:
 					return self::execute_search_content( $input );
+				case self::CREATE:
+					return self::execute_create_post( $input );
 				case self::UPDATE:
 					return self::execute_update_post( $input );
+				case self::SET_STATUS:
+					return self::execute_set_post_status( $input );
 				default:
 					return new WP_Error( 'ahentic_ability_unknown', __( 'Unknown content ability.', 'ahentic' ) );
 			}
@@ -564,6 +724,287 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		}
 
 		/**
+		 * Create a draft post/page/CPT.
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_create_post( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$title = isset( $input['title'] ) ? trim( (string) $input['title'] ) : '';
+			if ( '' === $title ) {
+				return new WP_Error( 'ahentic_invalid_title', __( 'Title is required.', 'ahentic' ) );
+			}
+
+			$post_type = isset( $input['post_type'] ) ? sanitize_key( (string) $input['post_type'] ) : 'post';
+			if ( '' === $post_type ) {
+				$post_type = 'post';
+			}
+
+			$type_obj = get_post_type_object( $post_type );
+			if ( ! $type_obj || ( ! $type_obj->public && ! $type_obj->show_ui ) ) {
+				return new WP_Error(
+					'ahentic_post_type_blocked',
+					__( 'This post type cannot be created via Ahentic.', 'ahentic' )
+				);
+			}
+
+			$blocked_types = self::blocked_post_types();
+			if ( in_array( $post_type, $blocked_types, true ) ) {
+				return new WP_Error(
+					'ahentic_post_type_blocked',
+					__( 'This post type cannot be created via Ahentic.', 'ahentic' )
+				);
+			}
+
+			$cap = isset( $type_obj->cap->create_posts ) ? $type_obj->cap->create_posts : 'edit_posts';
+			if ( ! current_user_can( $cap ) && ! current_user_can( 'manage_options' ) ) {
+				return new WP_Error(
+					'ahentic_ability_forbidden',
+					__( 'You cannot create this post type.', 'ahentic' ),
+					array( 'status' => 403 )
+				);
+			}
+
+			$status = isset( $input['status'] ) ? sanitize_key( (string) $input['status'] ) : 'draft';
+			if ( ! in_array( $status, array( 'draft', 'pending' ), true ) ) {
+				$status = 'draft';
+			}
+
+			$args = array(
+				'post_title'  => $title,
+				'post_type'   => $post_type,
+				'post_status' => $status,
+				'post_author' => get_current_user_id(),
+			);
+
+			if ( array_key_exists( 'content', $input ) ) {
+				$content = (string) $input['content'];
+				$stub    = self::reject_placeholder_content( $content );
+				if ( is_wp_error( $stub ) ) {
+					return $stub;
+				}
+				if ( strlen( $content ) > self::MAX_WRITE_CHARS ) {
+					return new WP_Error(
+						'ahentic_content_too_large',
+						sprintf(
+							/* translators: %d: max characters */
+							__( 'Content exceeds the maximum of %d characters.', 'ahentic' ),
+							self::MAX_WRITE_CHARS
+						)
+					);
+				}
+				$args['post_content'] = $content;
+			}
+
+			if ( array_key_exists( 'excerpt', $input ) ) {
+				$args['post_excerpt'] = (string) $input['excerpt'];
+			}
+
+			if ( array_key_exists( 'slug', $input ) ) {
+				$slug = sanitize_title( (string) $input['slug'] );
+				if ( '' !== $slug ) {
+					$args['post_name'] = $slug;
+				}
+			}
+
+			$meta_input = isset( $input['meta'] ) && is_array( $input['meta'] ) ? $input['meta'] : array();
+			$meta_plan  = self::plan_meta_updates( $meta_input );
+			if ( is_wp_error( $meta_plan ) ) {
+				return $meta_plan;
+			}
+
+			$post_id = wp_insert_post( wp_slash( $args ), true );
+			if ( is_wp_error( $post_id ) ) {
+				return $post_id;
+			}
+			if ( ! $post_id ) {
+				return new WP_Error( 'ahentic_create_failed', __( 'Failed to create the post.', 'ahentic' ) );
+			}
+
+			$meta_updated = array();
+			$meta_skipped = isset( $meta_plan['skipped'] ) ? $meta_plan['skipped'] : array();
+			foreach ( $meta_plan['set'] as $key => $value ) {
+				$ok = update_post_meta( (int) $post_id, $key, $value );
+				if ( false !== $ok ) {
+					$meta_updated[] = $key;
+				} else {
+					$meta_skipped[] = array(
+						'key'    => $key,
+						'reason' => 'update_failed',
+					);
+				}
+			}
+
+			$fresh = get_post( (int) $post_id );
+			if ( ! $fresh instanceof WP_Post ) {
+				return new WP_Error( 'ahentic_post_reload_failed', __( 'Post created but could not be reloaded.', 'ahentic' ) );
+			}
+
+			$summary         = self::summarize_post( $fresh, true );
+			$content_raw     = (string) $fresh->post_content;
+			$content_chars   = strlen( $content_raw );
+			$content_preview = self::substr( wp_strip_all_tags( $content_raw ), 0, 160 );
+			return array(
+				'ok'               => true,
+				'id'               => (int) $fresh->ID,
+				'status'           => $fresh->post_status,
+				'post_type'        => $fresh->post_type,
+				'meta_updated'     => $meta_updated,
+				'meta_skipped'     => $meta_skipped,
+				'post'             => $summary,
+				'content_chars'    => $content_chars,
+				'content_preview'  => $content_preview,
+				'content_truncated' => $content_chars > 160,
+				'edit_url'         => isset( $summary['edit_url'] ) ? $summary['edit_url'] : '',
+				'view_url'         => isset( $summary['view_url'] ) ? $summary['view_url'] : '',
+				'hint'             => __(
+					'If the user opens this post in the block editor, continue body edits with ahentic-browser/* so changes appear live.',
+					'ahentic'
+				),
+			);
+		}
+
+		/**
+		 * Change post status (publish/draft/…/trash).
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_set_post_status( $input = array() ) {
+			$input  = is_array( $input ) ? $input : array();
+			$id     = isset( $input['id'] ) ? (int) $input['id'] : 0;
+			$status = isset( $input['status'] ) ? sanitize_key( (string) $input['status'] ) : '';
+			$allowed = array( 'publish', 'draft', 'pending', 'private', 'future', 'trash' );
+
+			if ( $id <= 0 ) {
+				return new WP_Error( 'ahentic_missing_id', __( 'A valid post id is required.', 'ahentic' ) );
+			}
+			if ( ! in_array( $status, $allowed, true ) ) {
+				return new WP_Error(
+					'ahentic_invalid_status',
+					__( 'Status must be one of: publish, draft, pending, private, future, trash.', 'ahentic' )
+				);
+			}
+
+			$post = get_post( $id );
+			if ( ! $post instanceof WP_Post ) {
+				return new WP_Error( 'ahentic_post_not_found', __( 'Post not found.', 'ahentic' ), array( 'status' => 404 ) );
+			}
+
+			if ( in_array( $post->post_type, self::blocked_post_types(), true ) ) {
+				return new WP_Error(
+					'ahentic_post_type_blocked',
+					__( 'This post type cannot be updated via Ahentic.', 'ahentic' )
+				);
+			}
+
+			if ( 'trash' === $status ) {
+				if ( ! current_user_can( 'delete_post', $post->ID ) && ! current_user_can( 'manage_options' ) ) {
+					return new WP_Error(
+						'ahentic_ability_forbidden',
+						__( 'You cannot trash this post.', 'ahentic' ),
+						array( 'status' => 403 )
+					);
+				}
+			} elseif ( ! current_user_can( 'edit_post', $post->ID ) && ! current_user_can( 'manage_options' ) ) {
+				return new WP_Error(
+					'ahentic_ability_forbidden',
+					__( 'You cannot edit this post.', 'ahentic' ),
+					array( 'status' => 403 )
+				);
+			}
+
+			if ( in_array( $status, array( 'publish', 'future', 'private' ), true ) ) {
+				$type_obj = get_post_type_object( $post->post_type );
+				$pub_cap  = ( $type_obj && isset( $type_obj->cap->publish_posts ) ) ? $type_obj->cap->publish_posts : 'publish_posts';
+				if ( ! current_user_can( $pub_cap ) && ! current_user_can( 'manage_options' ) ) {
+					return new WP_Error(
+						'ahentic_ability_forbidden',
+						__( 'You cannot publish this post type.', 'ahentic' ),
+						array( 'status' => 403 )
+					);
+				}
+			}
+
+			$before_status = $post->post_status;
+			$args          = array(
+				'ID'          => $post->ID,
+				'post_status' => $status,
+			);
+
+			if ( 'future' === $status ) {
+				$date = isset( $input['date'] ) ? trim( (string) $input['date'] ) : '';
+				if ( '' === $date ) {
+					return new WP_Error(
+						'ahentic_missing_date',
+						__( 'A date (Y-m-d H:i:s) is required when status is future.', 'ahentic' )
+					);
+				}
+				$timestamp = strtotime( $date );
+				if ( ! $timestamp ) {
+					return new WP_Error( 'ahentic_invalid_date', __( 'Could not parse the provided date.', 'ahentic' ) );
+				}
+				$args['post_date']     = wp_date( 'Y-m-d H:i:s', $timestamp );
+				$args['post_date_gmt'] = get_gmt_from_date( $args['post_date'] );
+			}
+
+			if ( 'trash' === $status ) {
+				$result = wp_trash_post( $post->ID );
+				if ( ! $result ) {
+					return new WP_Error( 'ahentic_trash_failed', __( 'Failed to trash the post.', 'ahentic' ) );
+				}
+			} else {
+				$result = wp_update_post( wp_slash( $args ), true );
+				if ( is_wp_error( $result ) ) {
+					return $result;
+				}
+				if ( ! $result ) {
+					return new WP_Error( 'ahentic_update_failed', __( 'Failed to update post status.', 'ahentic' ) );
+				}
+			}
+
+			$fresh = get_post( $post->ID );
+			if ( ! $fresh instanceof WP_Post ) {
+				return new WP_Error( 'ahentic_post_reload_failed', __( 'Status updated but post could not be reloaded.', 'ahentic' ) );
+			}
+
+			$summary = self::summarize_post( $fresh, true );
+			return array(
+				'ok'            => true,
+				'id'            => (int) $fresh->ID,
+				'before_status' => $before_status,
+				'status'        => $fresh->post_status,
+				'post'          => $summary,
+				'edit_url'      => isset( $summary['edit_url'] ) ? $summary['edit_url'] : '',
+				'view_url'      => isset( $summary['view_url'] ) ? $summary['view_url'] : '',
+			);
+		}
+
+		/**
+		 * Post types Ahentic must not create/update/status-change.
+		 *
+		 * @return string[]
+		 */
+		private static function blocked_post_types() {
+			return array(
+				'revision',
+				'nav_menu_item',
+				'attachment',
+				'ahentic-session',
+				'customize_changeset',
+				'oembed_cache',
+				'user_request',
+				'wp_template',
+				'wp_template_part',
+				'wp_global_styles',
+				'wp_navigation',
+				'wp_font_family',
+				'wp_font_face',
+			);
+		}
+
+		/**
 		 * Update post content / title / excerpt / slug / safe meta.
 		 *
 		 * @param mixed $input Input.
@@ -598,22 +1039,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				);
 			}
 
-			$blocked_types = array(
-				'revision',
-				'nav_menu_item',
-				'attachment',
-				'ahentic-session',
-				'customize_changeset',
-				'oembed_cache',
-				'user_request',
-				'wp_template',
-				'wp_template_part',
-				'wp_global_styles',
-				'wp_navigation',
-				'wp_font_family',
-				'wp_font_face',
-			);
-			if ( in_array( $post->post_type, $blocked_types, true ) ) {
+			if ( in_array( $post->post_type, self::blocked_post_types(), true ) ) {
 				return new WP_Error(
 					'ahentic_post_type_blocked',
 					__( 'This post type cannot be updated via Ahentic.', 'ahentic' )
@@ -624,7 +1050,15 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			$changed_fields = array();
 
 			if ( array_key_exists( 'content', $input ) ) {
+				$editor_block = self::reject_server_body_write_while_editor_open( (int) $post->ID );
+				if ( is_wp_error( $editor_block ) ) {
+					return $editor_block;
+				}
 				$content = (string) $input['content'];
+				$stub    = self::reject_placeholder_content( $content );
+				if ( is_wp_error( $stub ) ) {
+					return $stub;
+				}
 				if ( strlen( $content ) > self::MAX_WRITE_CHARS ) {
 					return new WP_Error(
 						'ahentic_content_too_large',
@@ -1106,6 +1540,114 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			}
 
 			return $map;
+		}
+
+		/**
+		 * Whether text looks like an LLM content stub rather than real prose.
+		 *
+		 * @param string $text Raw or HTML content.
+		 * @return bool
+		 */
+		public static function looks_like_content_placeholder( $text ) {
+			$plain = trim( preg_replace( '/\s+/u', ' ', wp_strip_all_tags( (string) $text ) ) );
+			if ( '' === $plain ) {
+				return false;
+			}
+
+			// Bracket stubs: [expanded guide content], [full article], …
+			if ( preg_match( '/^\[[^\[\]]{3,160}\]$/u', $plain ) ) {
+				return true;
+			}
+
+			// Whole-string meta descriptions of content that should have been written.
+			if ( preg_match(
+				'/^(full|complete|expanded|entire|actual|the)\b.{0,100}\b(content|article|guide|blocks?|structure|markup|html|outline)\b\.?$/iu',
+				$plain
+			) ) {
+				return true;
+			}
+
+			if ( preg_match( '/^(placeholder|TODO|TBD|lorem ipsum)\b/iu', $plain ) ) {
+				return true;
+			}
+
+			if ( self::strlen( $plain ) <= 120 && preg_match( '/\b(block structure|gutenberg (article )?blocks|expanded guide)\b/iu', $plain ) ) {
+				return true;
+			}
+
+			return false;
+		}
+
+		/**
+		 * Reject placeholder body content for create/update.
+		 *
+		 * @param string $content Post content.
+		 * @return true|\WP_Error
+		 */
+		private static function reject_placeholder_content( $content ) {
+			if ( ! self::looks_like_content_placeholder( $content ) ) {
+				return true;
+			}
+
+			return new WP_Error(
+				'ahentic_placeholder_content',
+				__(
+					'Content looks like a placeholder stub (e.g. [full article] or “expanded guide content”). Pass the real article text or block markup unless the user asked for placeholders.',
+					'ahentic'
+				),
+				array(
+					'hint' => __(
+						'Rewrite the tool input with the full prose or Gutenberg blocks. For long articles, write one section at a time.',
+						'ahentic'
+					),
+				)
+			);
+		}
+
+		/**
+		 * Block server body writes when the sidebar page context shows that post open in the block editor.
+		 *
+		 * @param int $post_id Post being updated.
+		 * @return true|\WP_Error
+		 */
+		private static function reject_server_body_write_while_editor_open( $post_id ) {
+			$post_id = (int) $post_id;
+			if ( $post_id <= 0 || ! class_exists( 'Ahentic_Orchestrator' ) || ! class_exists( 'Ahentic_Session_Repository' ) ) {
+				return true;
+			}
+
+			$session_id = (int) Ahentic_Orchestrator::current_session_id();
+			if ( $session_id <= 0 ) {
+				return true;
+			}
+
+			$ctx = Ahentic_Session_Repository::get_page_context( $session_id );
+			if ( empty( $ctx ) || empty( $ctx['is_block_editor'] ) ) {
+				return true;
+			}
+
+			$open_id = isset( $ctx['post_id'] ) ? (int) $ctx['post_id'] : 0;
+			// Only block when the open editor document is this same post.
+			if ( $open_id <= 0 || $open_id !== $post_id ) {
+				return true;
+			}
+
+			return new WP_Error(
+				'ahentic_use_browser_editor',
+				__(
+					'The block editor is open for this document. Use ahentic-browser/set-blocks, insert-blocks, replace-blocks, or update-block-attributes so edits appear live — do not ahentic/update-post for the body while the editor is open.',
+					'ahentic'
+				),
+				array(
+					'post_id'         => $post_id,
+					'editor_post_id'  => $open_id,
+					'is_block_editor' => true,
+					'hint'            => __(
+						'Call ahentic-browser tools against the open canvas. Pass real {name, attributes, innerBlocks} objects (prefer set-blocks for full rewrites). Use block refs (b1, b2), not clientId hashes.',
+						'ahentic'
+					),
+				)
+			);
 		}
 
 		/**

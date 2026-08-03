@@ -1,0 +1,50 @@
+{
+  "id": "editor-vs-server",
+  "title": "Editor vs server content",
+  "when_to_use": "Create/edit pages or posts; unsure whether to use block editor tools or server create/update-post.",
+  "triggers": [
+    "create a page",
+    "build a landing page",
+    "edit this page",
+    "new post",
+    "update the page",
+    "add a section",
+    "in the editor",
+    "gutenberg",
+    "block editor"
+  ],
+  "related_abilities": [
+    "ahentic-browser/get-editor-state",
+    "ahentic-browser/get-blocks",
+    "ahentic-browser/get-selection",
+    "ahentic-browser/insert-blocks",
+    "ahentic-browser/replace-blocks",
+    "ahentic-browser/update-block-attributes",
+    "ahentic-browser/update-post-title",
+    "ahentic-browser/save-post",
+    "ahentic/create-post",
+    "ahentic/update-post",
+    "ahentic/set-post-status"
+  ],
+  "principles": [
+    "Trust page context: if is_block_editor=true, edit THIS open document with ahentic-browser/* — do not ahentic/create-post unless the user wants a separate post/page.",
+    "Do not call ahentic-browser/save-post after canvas edits unless the user explicitly asks to save, publish, or persist — Gutenberg keeps unsaved edits.",
+    "When the editor is NOT open: use ahentic/create-post / update-post / set-post-status (HITL for status).",
+    "Copy clientId values character-for-character from get-blocks / get-selection — never invent or recombine UUIDs.",
+    "For core/* text blocks, edit attributes directly; use get-block-type for third-party or after an attribute update fails.",
+    "If update/replace/insert returns ok:true, reply — do not re-fetch blocks only to verify unless the tool failed or the user asked to confirm."
+  ],
+  "steps": [
+    "Read attached page context (or get-editor-state / get-current-page if URL looks like post.php / post-new.php / site-editor).",
+    "Editor open + build/edit request → update-post-title if needed, then insert-blocks / replace-blocks / update-block-attributes.",
+    "Editor closed + new content → create-post (draft-first) or update-post by id; publish only via set-post-status with HITL when asked.",
+    "User says save/publish while editor open → save-post and/or set-post-status as appropriate with HITL.",
+    "Ambiguous “create a contact page” while editing another draft → ask_user only if both intents are plausible; otherwise prefer editing the open doc when they said “this page” / “here”."
+  ],
+  "anti_patterns": [
+    "ahentic/create-post while the block editor is open for the page they mean to fill.",
+    "save-post as a default last step after insert-blocks.",
+    "Guessing clientIds instead of copying from tool results.",
+    "Calling get-block-type first for every core/heading or core/paragraph edit."
+  ]
+}

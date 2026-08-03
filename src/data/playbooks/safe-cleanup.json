@@ -1,0 +1,45 @@
+{
+  "id": "safe-cleanup",
+  "title": "Safe cleanup",
+  "when_to_use": "Clean up WordPress, unused plugins, unused media, site feels cluttered or slow from cruft.",
+  "triggers": [
+    "clean up",
+    "cleanup",
+    "unused plugins",
+    "unused media",
+    "unused images",
+    "declutter",
+    "bloated",
+    "too many plugins",
+    "orphan"
+  ],
+  "related_abilities": [
+    "ahentic/list-plugins",
+    "ahentic/deactivate-plugin",
+    "ahentic/uninstall-plugin",
+    "ahentic/find-unused-media",
+    "ahentic/get-site-snapshot",
+    "ahentic/get-site-health"
+  ],
+  "principles": [
+    "Report first, mutate second — give a prioritized checklist before deleting anything.",
+    "Prefer deactivate over uninstall until the user confirms they want files gone.",
+    "Unused-media findings are heuristic (not featured/logo/in content) — never bulk-delete without HITL; bulk delete may be Premium.",
+    "Do not deactivate security, backup, or ecommerce plugins without a clear user request and warning.",
+    "Cleanup is not the same as “install a cleaner plugin” — prefer native Ahentic scans."
+  ],
+  "steps": [
+    "list-plugins: flag inactive plugins and obvious overlap (multiple SEO/cache/security).",
+    "get-site-health for environment issues that look like “cruft” but are config.",
+    "find-unused-media for a capped unused-image report with links to the media library.",
+    "Present safe actions: deactivate unused plugins (HITL), review media before delete, leave backups alone.",
+    "Only uninstall when the user clearly wants removal after deactivate; one at a time with HITL.",
+    "If bulk delete / orphan-link repair abilities are missing: report findings and use missing_ability — do not fake bulk deletes."
+  ],
+  "anti_patterns": [
+    "Uninstalling a pile of plugins in one shot without a report.",
+    "Deleting media that might be used in page builders/CSS not visible to the scanner — warn about false positives.",
+    "Installing “WP cleanup” plugins as the default answer.",
+    "Touching payment, membership, or security plugins casually."
+  ]
+}

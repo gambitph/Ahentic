@@ -1,12 +1,13 @@
 /**
- * Composer: mode select, attachment/mic affordances, textarea.
+ * Composer: mode select, attachment/mic affordances, textarea, stop.
  */
 
 import {
 	useEffect, useRef, useState,
 } from '@wordpress/element'
+import { __ } from '@wordpress/i18n'
 import {
-	ChevronDown, Paperclip, Mic,
+	ChevronDown, Paperclip, Mic, Square,
 } from 'lucide-react'
 import { MODES } from './constants'
 
@@ -17,9 +18,16 @@ import { MODES } from './constants'
  * @param {Function} props.onSubmit
  * @param {boolean}  props.focusSignal
  * @param {string}   props.shortcutLabel
- * @param {boolean}  [props.disabled]
+ * @param {boolean}  [props.disabled]       Blocked (no AI / connector) — whole composer inert.
+ * @param {boolean}  [props.inputDisabled]  Textarea/mode locked while a run is active.
+ * @param {boolean}  [props.canStop]        Show stop control for the active run.
+ * @param {Function} [props.onStop]
+ * @param {boolean}  [props.stopping]
  * @param {string}   [props.disabledHint]
  * @param {string}   [props.connectorsUrl]
+ * @param {string}   [props.placeholder]
+ * @param {string}   [props.error]
+ * @param {Function} [props.onClearError]
  */
 export default function Composer( {
 	mode,
@@ -28,22 +36,30 @@ export default function Composer( {
 	focusSignal,
 	shortcutLabel,
 	disabled = false,
+	inputDisabled = false,
+	canStop = false,
+	onStop,
+	stopping = false,
 	disabledHint = '',
 	connectorsUrl = '',
+	placeholder = 'Plan, Build, / for skills, @ for context',
+	error = '',
+	onClearError,
 } ) {
 	const [ value, setValue ] = useState( '' )
 	const [ modeOpen, setModeOpen ] = useState( false )
 	const textareaRef = useRef( null )
 	const modeRef = useRef( null )
+	const typingLocked = disabled || inputDisabled
 
 	useEffect( () => {
-		if ( disabled ) {
+		if ( typingLocked ) {
 			return
 		}
 		if ( textareaRef.current ) {
 			textareaRef.current.focus()
 		}
-	}, [ focusSignal, disabled ] )
+	}, [ focusSignal, typingLocked ] )
 
 	useEffect( () => {
 		if ( ! modeOpen ) {
@@ -69,16 +85,24 @@ export default function Composer( {
 		el.style.height = `${ Math.min( el.scrollHeight, 160 ) }px`
 	}, [ value ] )
 
-	const submit = () => {
-		if ( disabled ) {
+	const submit = async () => {
+		if ( typingLocked ) {
 			return
 		}
 		const trimmed = value.trim()
 		if ( ! trimmed ) {
 			return
 		}
-		onSubmit( trimmed )
+		// Clear immediately for snappy UX; restore if send rejects / returns false.
 		setValue( '' )
+		try {
+			const ok = await Promise.resolve( onSubmit( trimmed ) )
+			if ( ok === false ) {
+				setValue( trimmed )
+			}
+		} catch {
+			setValue( trimmed )
+		}
 	}
 
 	return (
@@ -97,16 +121,27 @@ export default function Composer( {
 				</div>
 			) : null }
 
+			{ error ? (
+				<div className="ahentic-composer__error" role="alert">
+					{ error }
+				</div>
+			) : null }
+
 			<div className="ahentic-composer__box">
 				<textarea
 					ref={ textareaRef }
 					className="ahentic-composer__input"
 					rows={ 1 }
 					value={ value }
-					placeholder="Plan, Build, / for skills, @ for context"
+					placeholder={ placeholder }
 					aria-label="Ask Ahentic"
-					disabled={ disabled }
-					onChange={ event => setValue( event.target.value ) }
+					disabled={ typingLocked }
+					onChange={ event => {
+						setValue( event.target.value )
+						if ( error && onClearError ) {
+							onClearError()
+						}
+					} }
 					onKeyDown={ event => {
 						if ( event.key === 'Enter' && ! event.shiftKey ) {
 							event.preventDefault()
@@ -126,7 +161,7 @@ export default function Composer( {
 								aria-expanded={ modeOpen }
 								aria-label="Select mode"
 								title="Mode"
-								disabled={ disabled }
+								disabled={ typingLocked }
 							>
 								<span>{ mode === MODES.ASK ? 'Ask' : 'Agent' }</span>
 								<ChevronDown size={ 12 } strokeWidth={ 2 } />
@@ -181,12 +216,32 @@ export default function Composer( {
 						>
 							<Mic size={ 14 } strokeWidth={ 1.75 } />
 						</button>
+						{ canStop ? (
+							<button
+								type="button"
+								className="ahentic-composer__stop"
+								aria-label={ __( 'Stop', 'ahentic' ) }
+								title={ __( 'Stop', 'ahentic' ) }
+								disabled={ stopping || typeof onStop !== 'function' }
+								onClick={ () => {
+									if ( typeof onStop === 'function' ) {
+										onStop()
+									}
+								} }
+							>
+								<Square size={ 11 } fill="currentColor" strokeWidth={ 0 } aria-hidden="true" />
+							</button>
+						) : null }
 					</div>
 				</div>
 			</div>
 
 			<div className="ahentic-composer__hint">
-				<span>Enter to send · Shift+Enter for newline</span>
+				<span>
+					{ canStop
+						? __( 'Stop ends the current run so you can send again', 'ahentic' )
+						: 'Enter to send · Shift+Enter for newline' }
+				</span>
 				<span aria-hidden="true">{ shortcutLabel }</span>
 			</div>
 		</div>

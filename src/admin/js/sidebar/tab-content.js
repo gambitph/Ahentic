@@ -17,6 +17,7 @@ import CapabilityRequestCard from './capability-request-card'
 import HitlApprovalCard from './hitl-approval-card'
 import SuggestedActions from './suggested-actions'
 import { MessageBody } from './message-body'
+import PlanCard from './plan-card'
 
 /**
  * Suggested empty-state prompts (translated at call time).
@@ -85,7 +86,9 @@ async function installAiPlugin() {
  * @param {boolean}     props.busy
  * @param {string}      props.progressLabel
  * @param {Object|null} props.pendingTool
+ * @param {Object|null} props.plan
  * @param {string}      props.sessionStatus
+ * @param {string}      [props.approvingDecision] HITL decision in flight (hides card, shows live status).
  * @param {Function}    props.onApproval
  * @param {Function}    props.onSuggestedAction
  */
@@ -103,7 +106,9 @@ export default function TabContent( {
 	busy = false,
 	progressLabel = '',
 	pendingTool = null,
+	plan = null,
 	sessionStatus = 'idle',
+	approvingDecision = '',
 	onApproval,
 	onSuggestedAction,
 } ) {
@@ -115,10 +120,12 @@ export default function TabContent( {
 	const prevSessionIdRef = useRef( null )
 	const skipSmoothScrollRef = useRef( false )
 	const prevLastMessageKeyRef = useRef( '' )
+	const prevPlanUpdatedAtRef = useRef( '' )
 	const lastMessage = messages[ messages.length - 1 ]
 	const lastMessageKey = lastMessage
 		? `${ lastMessage.id }:${ String( lastMessage.content || '' ).length }`
 		: ''
+	const planUpdatedAt = plan?.updatedAt || ''
 
 	/**
 	 * Offset of an element within the scrollable message container.
@@ -197,10 +204,12 @@ export default function TabContent( {
 		prevSessionIdRef.current = sessionId
 		skipSmoothScrollRef.current = true
 		prevLastMessageKeyRef.current = lastMessageKey
+		prevPlanUpdatedAtRef.current = planUpdatedAt
 		scrollToBottom( 'auto' )
-	}, [ sessionId, loading, messages.length, lastMessageKey, scrollToBottom ] )
+	}, [ sessionId, loading, messages.length, lastMessageKey, planUpdatedAt, scrollToBottom ] )
 
 	// Follow live status; on a new AI reply, reveal its start (not the very end).
+	// Plan updates must not steal scroll from intermediate Ahentic messages.
 	useEffect( () => {
 		if ( loading || ! messages.length ) {
 			return
@@ -208,6 +217,7 @@ export default function TabContent( {
 		if ( skipSmoothScrollRef.current ) {
 			skipSmoothScrollRef.current = false
 			prevLastMessageKeyRef.current = lastMessageKey
+			prevPlanUpdatedAtRef.current = planUpdatedAt
 			return
 		}
 		if ( prevSessionIdRef.current !== sessionId ) {
@@ -217,18 +227,38 @@ export default function TabContent( {
 
 		const keyChanged = prevLastMessageKeyRef.current !== lastMessageKey
 		prevLastMessageKeyRef.current = lastMessageKey
+		const planChanged = Boolean( planUpdatedAt ) &&
+			planUpdatedAt !== prevPlanUpdatedAtRef.current
+		prevPlanUpdatedAtRef.current = planUpdatedAt
+
 		const isNewAssistantReply = keyChanged && lastMessage?.role === 'assistant'
-		const followLiveActivity = Boolean( busy || pendingTool ) ||
-			( keyChanged && lastMessage?.role === 'user' )
+		const isNewUserMessage = keyChanged && lastMessage?.role === 'user'
+		// While an intermediate reply is on screen, keep it readable — don't yank to the
+		// plan/progress chrome on every progress tick. Still follow when waiting on the
+		// first reply, HITL, or a brand-new user turn.
+		const followBottomChrome = Boolean( pendingTool ) ||
+			isNewUserMessage ||
+			( busy && lastMessage?.role !== 'assistant' )
 
 		const frame = window.requestAnimationFrame( () => {
 			if ( isNewAssistantReply ) {
 				scrollToLatestReply( 'smooth' )
 				return
 			}
-			// Don't yank back to the bottom after a reply has already been revealed.
-			if ( followLiveActivity ) {
+			if ( followBottomChrome ) {
 				scrollToBottom( 'smooth' )
+				return
+			}
+			// Plan status changes update in place; only nudge to the bottom when the user
+			// is already near it (so a checklist refresh stays visible without hiding chat).
+			if ( planChanged && busy ) {
+				const el = contentRef.current
+				if ( el ) {
+					const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+					if ( distance < 96 ) {
+						scrollToBottom( 'smooth' )
+					}
+				}
 			}
 		} )
 		return () => window.cancelAnimationFrame( frame )
@@ -241,6 +271,7 @@ export default function TabContent( {
 		busy,
 		progressLabel,
 		pendingTool,
+		planUpdatedAt,
 		scrollToBottom,
 		scrollToLatestReply,
 	] )
@@ -512,7 +543,16 @@ export default function TabContent( {
 					)
 				} ) }
 
-				{ sessionStatus === 'awaiting_human' && pendingTool && typeof onApproval === 'function' ? (
+				{ plan && Array.isArray( plan.steps ) && plan.steps.length ? (
+					<div className="ahentic-plan-wrap">
+						<PlanCard
+							key={ plan.updatedAt || `plan-${ plan.steps.length }` }
+							plan={ plan }
+						/>
+					</div>
+				) : null }
+
+				{ sessionStatus === 'awaiting_human' && pendingTool && ! approvingDecision && typeof onApproval === 'function' ? (
 					<div className="ahentic-hitl-wrap">
 						<HitlApprovalCard
 							pendingTool={ pendingTool }
@@ -521,7 +561,7 @@ export default function TabContent( {
 					</div>
 				) : null }
 
-				{ busy && progressLabel && sessionStatus !== 'awaiting_human' ? (
+				{ busy && progressLabel && ( sessionStatus !== 'awaiting_human' || Boolean( approvingDecision ) ) ? (
 					<div
 						className="ahentic-live-status"
 						role="status"

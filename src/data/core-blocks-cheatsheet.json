@@ -1,0 +1,97 @@
+{
+  "source": "https://github.com/WordPress/gutenberg/tree/trunk/packages/block-library/src",
+  "note": "Curated for Ahentic. Distilled from Core block.json. Prefer live ahentic-browser/get-block-type for unknown/third-party blocks. Rich-text attrs: pass HTML strings; Ahentic converts.",
+  "rules": [
+    "For core/* text blocks, edit with update-block-attributes / replace-blocks / set-blocks — do not call get-block-type first.",
+    "get-block-type requires {name}, never a block ref alone. Use only for non-core or after an attribute update fails.",
+    "Rich-text attributes (content/text/caption/citation): pass HTML strings (e.g. per-letter <span style=\"color:#\u2026\">).",
+    "Address blocks with short refs (b1, b2) from get-blocks / get-selection — never send Gutenberg clientId UUID hashes.",
+    "Pass block trees as {name, attributes, innerBlocks} objects for createBlock; do not pass plain-text stubs."
+  ],
+  "blocks": {
+    "core/heading": {
+      "title": "Heading",
+      "rich_text": [
+        "content"
+      ],
+      "attrs": {
+        "content": "HTML",
+        "level": "1-6 (default 2)"
+      },
+      "tip": "Change wording/colors via attributes.content HTML; level for h1\u2013h6."
+    },
+    "core/paragraph": {
+      "title": "Paragraph",
+      "rich_text": [
+        "content"
+      ],
+      "attrs": {
+        "content": "HTML"
+      },
+      "tip": "Body copy lives in content as HTML."
+    },
+    "core/button": {
+      "title": "Button",
+      "rich_text": [
+        "text"
+      ],
+      "attrs": {
+        "text": "HTML label",
+        "url": "href",
+        "linkTarget": "_blank optional",
+        "rel": "string"
+      },
+      "tip": "Label is text (rich-text), link is url \u2014 not content."
+    },
+    "core/image": {
+      "title": "Image",
+      "rich_text": [
+        "caption"
+      ],
+      "attrs": {
+        "url": "src",
+        "alt": "string",
+        "id": "attachment id",
+        "caption": "HTML"
+      },
+      "tip": "Set url/alt/id; caption is rich-text HTML."
+    },
+    "core/list": {
+      "title": "List",
+      "rich_text": [],
+      "attrs": {
+        "ordered": "boolean"
+      },
+      "tip": "Prefer innerBlocks of core/list-item; avoid legacy values HTML when possible."
+    },
+    "core/list-item": {
+      "title": "List Item",
+      "rich_text": [
+        "content"
+      ],
+      "attrs": {
+        "content": "HTML"
+      },
+      "tip": "Child of core/list; edit content HTML."
+    },
+    "core/quote": {
+      "title": "Quote",
+      "rich_text": [
+        "citation"
+      ],
+      "attrs": {
+        "value": "HTML (legacy)",
+        "citation": "HTML"
+      },
+      "tip": "Modern quotes often use inner paragraph blocks plus citation."
+    },
+    "core/html": {
+      "title": "Custom HTML",
+      "rich_text": [],
+      "attrs": {
+        "content": "raw HTML string"
+      },
+      "tip": "Escape hatch for arbitrary markup (e.g. multicolor spans in an h2 wrapper)."
+    }
+  }
+}

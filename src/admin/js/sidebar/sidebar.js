@@ -9,6 +9,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element'
+import { __, sprintf } from '@wordpress/i18n'
 import classnames from 'classnames'
 import Toolbar from './toolbar'
 import TabBar from './tab-bar'
@@ -37,6 +38,7 @@ import {
 	patchSession,
 	postMessage,
 	continueSession,
+	cancelSession,
 	postApproval,
 	postSuggestedAction,
 	postBrowserResult,
@@ -57,16 +59,56 @@ const GENERIC_PROGRESS_LABELS = new Set( [
 	'Finishing…',
 	'Thinking…',
 	'Ahentic is thinking…',
+	// HITL wait label must not stick as live status after Allow/Skip.
+	'Waiting for your approval…',
 ] )
+
+/** Debugger-only llm_thinking summaries — never surface in the live-status row. */
+const HIDDEN_LIVE_STATUS_LABELS = new Set( [
+	'Model thinking',
+	'Thinking block not provided by model',
+] )
+
+/**
+ * Optimistic progress label after HITL approval (mirrors server tool labels).
+ *
+ * @param {string} ability Ability name.
+ * @return {string} Progress label for the live-status row.
+ */
+function progressLabelForAbility( ability ) {
+	const map = {
+		'ahentic/create-post': __( 'Creating a draft post…', 'ahentic' ),
+		'ahentic/update-post': __( 'Updating post content…', 'ahentic' ),
+		'ahentic/set-post-status': __( 'Updating post status…', 'ahentic' ),
+		'ahentic/install-plugin': __( 'Installing plugin…', 'ahentic' ),
+		'ahentic/activate-plugin': __( 'Activating plugin…', 'ahentic' ),
+		'ahentic/deactivate-plugin': __( 'Deactivating plugin…', 'ahentic' ),
+		'ahentic/uninstall-plugin': __( 'Uninstalling plugin…', 'ahentic' ),
+		'ahentic/update-term': __( 'Updating taxonomy term…', 'ahentic' ),
+		'ahentic-browser/save-post': __( 'Saving the post…', 'ahentic' ),
+		'ahentic-browser/convert-blocks': __( 'Converting blocks to core…', 'ahentic' ),
+	}
+	if ( map[ ability ] ) {
+		return map[ ability ]
+	}
+	const short = String( ability || '' ).replace( /^.*\//, '' ).replace( /-/g, ' ' )
+	return short
+		? sprintf(
+			/* translators: %s: tool slug */
+			__( 'Running %s…', 'ahentic' ),
+			short
+		)
+		: __( 'Working…', 'ahentic' )
+}
 
 /**
  * Live status text: prefer a real step label (tool / intention), matching the debugger.
  *
- * @param {string}  progressLabel Server progress.label.
- * @param {Array}   trace         Session trace events.
- * @param {boolean} isBusy        Whether the session is actively working.
- * @param {Object|null} pendingTool HITL pending tool, if any.
- * @return {string}
+ * @param {string}      progressLabel Server progress.label.
+ * @param {Array}       trace         Session trace events.
+ * @param {boolean}     isBusy        Whether the session is actively working.
+ * @param {Object|null} pendingTool   HITL pending tool, if any.
+ * @return {string} Label for the live-status row.
  */
 function resolveLiveStatusLabel( progressLabel, trace, isBusy, pendingTool ) {
 	if ( ! isBusy ) {
@@ -74,7 +116,11 @@ function resolveLiveStatusLabel( progressLabel, trace, isBusy, pendingTool ) {
 	}
 
 	const label = typeof progressLabel === 'string' ? progressLabel.trim() : ''
-	if ( label && ! GENERIC_PROGRESS_LABELS.has( label ) ) {
+	if (
+		label &&
+		! GENERIC_PROGRESS_LABELS.has( label ) &&
+		! HIDDEN_LIVE_STATUS_LABELS.has( label )
+	) {
 		return label
 	}
 
@@ -102,15 +148,31 @@ function resolveLiveStatusLabel( progressLabel, trace, isBusy, pendingTool ) {
 		if ( event.type === 'tool_executed' ) {
 			return summary
 		}
-		if ( event.type === 'llm_thinking' && summary !== 'Model thinking' ) {
+		// Prefer intention/thinking labels; skip missing-debug diagnostics (debugger only).
+		if (
+			event.type === 'llm_thinking' &&
+			! HIDDEN_LIVE_STATUS_LABELS.has( summary ) &&
+			! event?.data?.missing
+		) {
 			return summary
 		}
-		if ( event.type === 'progress' && ! GENERIC_PROGRESS_LABELS.has( summary ) ) {
+		if (
+			event.type === 'progress' &&
+			! GENERIC_PROGRESS_LABELS.has( summary ) &&
+			! HIDDEN_LIVE_STATUS_LABELS.has( summary )
+		) {
 			return summary
 		}
 	}
 
-	return label || 'Planning next steps…'
+	if (
+		label &&
+		! GENERIC_PROGRESS_LABELS.has( label ) &&
+		! HIDDEN_LIVE_STATUS_LABELS.has( label )
+	) {
+		return label
+	}
+	return 'Planning next steps…'
 }
 
 /**
@@ -133,6 +195,7 @@ function sessionFingerprint( session ) {
 		last?.id || last?.seq || '',
 		session.progress?.label || '',
 		session.progress?.updatedAt || '',
+		session.plan?.updatedAt || '',
 		session.pendingTool ? JSON.stringify( session.pendingTool ) : '',
 	].join( '\u0001' )
 }
@@ -152,6 +215,7 @@ function extractSessionMeta( session ) {
 			traceLen: 0,
 			modifiedAt: 0,
 			progressAt: 0,
+			planAt: 0,
 			status: 'idle',
 		}
 	}
@@ -165,6 +229,7 @@ function extractSessionMeta( session ) {
 		traceLen: trace.length,
 		modifiedAt: Date.parse( session.modifiedAt || '' ) || 0,
 		progressAt: Date.parse( session.progress?.updatedAt || '' ) || 0,
+		planAt: Date.parse( session.plan?.updatedAt || '' ) || 0,
 		status: session.status || 'idle',
 	}
 }
@@ -208,6 +273,14 @@ function isSessionPayloadStale( incoming, known ) {
 		) {
 			return true
 		}
+		if (
+			known.planAt &&
+			next.planAt &&
+			next.planAt < known.planAt &&
+			next.stepCount <= known.stepCount
+		) {
+			return true
+		}
 	}
 
 	return false
@@ -240,17 +313,138 @@ function truncateTitle( text, max = 32 ) {
 }
 
 /**
+ * Whether a message is an optimistic local user turn (not yet confirmed by the server).
+ *
+ * @param {Object} message Message object.
+ * @return {boolean} True when the message is a pending local user bubble.
+ */
+function isLocalPendingUserMessage( message ) {
+	return Boolean(
+		message &&
+		message.role === 'user' &&
+		String( message.id || '' ).startsWith( 'local_u_' )
+	)
+}
+
+/**
+ * Merge server transcript with trailing optimistic user turns still in flight.
+ * Pending locals already mirrored as the newest server user turn(s) are dropped
+ * so polls cannot render a duplicate bubble.
+ *
+ * @param {Array}            serverMessages  Mapped server messages.
+ * @param {Array}            currentMessages Current UI messages for the tab.
+ * @param {Object|undefined} pendingById     Map of local id → content for in-flight sends.
+ * @return {Array} Messages to render for the tab.
+ */
+function mergeServerMessagesWithPendingLocal( serverMessages, currentMessages, pendingById ) {
+	const server = Array.isArray( serverMessages ) ? serverMessages : []
+	if ( ! pendingById || ! Object.keys( pendingById ).length ) {
+		return server
+	}
+	const current = Array.isArray( currentMessages ) ? currentMessages : []
+	const pending = []
+	for ( let i = current.length - 1; i >= 0; i-- ) {
+		const message = current[ i ]
+		const localId = message?.id
+		if ( localId && pendingById[ localId ] && isLocalPendingUserMessage( message ) ) {
+			pending.unshift( message )
+			continue
+		}
+		break
+	}
+	if ( ! pending.length ) {
+		return server
+	}
+
+	// Drop locals already present as the newest server user turn(s) (match from the end).
+	const stillPending = []
+	let serverIdx = server.length - 1
+	for ( let p = pending.length - 1; p >= 0; p-- ) {
+		const content = String( pending[ p ].content || '' )
+		let matched = false
+		while ( serverIdx >= 0 ) {
+			const entry = server[ serverIdx ]
+			serverIdx -= 1
+			if ( entry?.role !== 'user' ) {
+				continue
+			}
+			if ( String( entry.content || '' ) === content ) {
+				matched = true
+			}
+			break
+		}
+		if ( ! matched ) {
+			stillPending.unshift( pending[ p ] )
+		}
+	}
+
+	if ( ! stillPending.length ) {
+		return server
+	}
+	return [ ...server, ...stillPending ]
+}
+
+/**
+ * Whether a session has optimistic user turns waiting on POST confirmation.
+ *
+ * @param {Object|undefined} pendingByTab Pending map keyed by session id.
+ * @param {string}           sessionId    Session id.
+ * @return {boolean} True when a send is still in flight for this session.
+ */
+function hasPendingLocalTurns( pendingByTab, sessionId ) {
+	const pending = pendingByTab?.[ sessionId ]
+	return Boolean( pending && Object.keys( pending ).length )
+}
+
+/**
+ * Whether every in-flight local user turn already appears as a trailing server user row.
+ *
+ * @param {Array}  serverMessages Mapped server messages.
+ * @param {Object} pendingById    Map of local id → content.
+ * @return {boolean} True when the server transcript confirms all pending locals.
+ */
+function pendingLocalsConfirmedOnServer( serverMessages, pendingById ) {
+	if ( ! pendingById || ! Object.keys( pendingById ).length ) {
+		return true
+	}
+	const pendingContents = Object.values( pendingById ).map( content => String( content || '' ) )
+	const server = Array.isArray( serverMessages ) ? serverMessages : []
+	let serverIdx = server.length - 1
+	for ( let p = pendingContents.length - 1; p >= 0; p-- ) {
+		const content = pendingContents[ p ]
+		let matched = false
+		while ( serverIdx >= 0 ) {
+			const entry = server[ serverIdx ]
+			serverIdx -= 1
+			if ( entry?.role !== 'user' ) {
+				continue
+			}
+			if ( String( entry.content || '' ) === content ) {
+				matched = true
+			}
+			break
+		}
+		if ( ! matched ) {
+			return false
+		}
+	}
+	return true
+}
+
+/**
  * Apply a session payload into local tab + message / trace / progress state.
  *
- * @param {Object}   session
- * @param {Function} setTabs
- * @param {Function} setMessagesByTab
- * @param {Function} [setStatusByTab]
- * @param {Function} [setTraceByTab]
- * @param {Function} [setProgressByTab]
- * @param {Function} [setPendingToolByTab]
+ * @param {Object}   session               Session REST payload.
+ * @param {Function} setTabs               Tabs state setter.
+ * @param {Function} setMessagesByTab      Messages state setter.
+ * @param {Function} [setStatusByTab]      Status state setter.
+ * @param {Function} [setTraceByTab]       Trace state setter.
+ * @param {Function} [setProgressByTab]    Progress state setter.
+ * @param {Function} [setPendingToolByTab] Pending tool state setter.
+ * @param {Function} [setPlanByTab]        Plan state setter.
+ * @param {Object}   [pendingLocalByTab]   In-flight optimistic user messages keyed by session id.
  */
-function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab, setPendingToolByTab ) {
+function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab, setPendingToolByTab, setPlanByTab, pendingLocalByTab ) {
 	if ( ! session?.id ) {
 		return
 	}
@@ -265,9 +459,14 @@ function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab
 			: tab
 	) ) )
 	if ( Array.isArray( session.messages ) ) {
+		const pendingById = pendingLocalByTab?.[ id ]
 		setMessagesByTab( messages => ( {
 			...messages,
-			[ id ]: mapEntriesToMessages( session.messages ),
+			[ id ]: mergeServerMessagesWithPendingLocal(
+				mapEntriesToMessages( session.messages ),
+				messages[ id ],
+				pendingById
+			),
 		} ) )
 	}
 	if ( setStatusByTab ) {
@@ -321,6 +520,25 @@ function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab
 			}
 		} )
 	}
+	if ( setPlanByTab ) {
+		setPlanByTab( plans => {
+			const next = session.plan && typeof session.plan === 'object' && Array.isArray( session.plan.steps ) && session.plan.steps.length
+				? session.plan
+				: null
+			if ( ! next ) {
+				if ( ! plans[ id ] ) {
+					return plans
+				}
+				const copy = { ...plans }
+				delete copy[ id ]
+				return copy
+			}
+			return {
+				...plans,
+				[ id ]: next,
+			}
+		} )
+	}
 }
 
 export default function Sidebar() {
@@ -343,9 +561,17 @@ export default function Sidebar() {
 	const [ statusByTab, setStatusByTab ] = useState( {} )
 	const [ progressByTab, setProgressByTab ] = useState( {} )
 	const [ pendingToolByTab, setPendingToolByTab ] = useState( {} )
+	const [ planByTab, setPlanByTab ] = useState( {} )
 	const [ traceByTab, setTraceByTab ] = useState( {} )
+	/** @type {[{[id: string]: string}, Function]} HITL decision in flight per tab (survives debugger toggle). */
+	const [ approvingByTab, setApprovingByTab ] = useState( {} )
 	const [ debugOpen, setDebugOpen ] = useState( false )
 	const [ sending, setSending ] = useState( false )
+	const [ stopping, setStopping ] = useState( false )
+	/** Session ids the user asked to stop while a send/run was still landing. */
+	const stopRequestedRef = useRef( {} )
+	/** Transient send failure (not part of session messages — polls must not own this). */
+	const [ sendError, setSendError ] = useState( '' )
 	const [ focusSignal, setFocusSignal ] = useState( 0 )
 	const [ isMobile, setIsMobile ] = useState(
 		() => typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
@@ -373,7 +599,15 @@ export default function Sidebar() {
 	const hydratedRef = useRef( new Set() )
 	const sessionStampRef = useRef( {} )
 	const sessionMetaRef = useRef( {} )
+	/** @type {React.MutableRefObject<{[sessionId: string]: {[localId: string]: string}}>} */
+	const pendingLocalRef = useRef( {} )
 	const syncInflightRef = useRef( new Map() )
+	const approvingRef = useRef( {} )
+	approvingRef.current = approvingByTab
+	const pendingToolByTabRef = useRef( pendingToolByTab )
+	pendingToolByTabRef.current = pendingToolByTab
+	const statusByTabRef = useRef( statusByTab )
+	statusByTabRef.current = statusByTab
 	const tabsRef = useRef( tabs )
 	tabsRef.current = tabs
 
@@ -404,6 +638,18 @@ export default function Sidebar() {
 		const known = sessionMetaRef.current[ id ]
 
 		if ( ! force ) {
+			// Quiet poll/focus-sync must not clobber an in-flight send (restores old
+			// plan/idle and can duplicate the optimistic user bubble).
+			if ( hasPendingLocalTurns( pendingLocalRef.current, id ) ) {
+				const mapped = mapEntriesToMessages(
+					Array.isArray( session.messages ) ? session.messages : []
+				)
+				if ( ! pendingLocalsConfirmedOnServer( mapped, pendingLocalRef.current[ id ] ) ) {
+					return false
+				}
+				// Server already has the turn(s); clear pending so merge won't duplicate.
+				delete pendingLocalRef.current[ id ]
+			}
 			if ( sessionStampRef.current[ id ] === fp ) {
 				return false
 			}
@@ -421,7 +667,9 @@ export default function Sidebar() {
 			setStatusByTab,
 			setTraceByTab,
 			setProgressByTab,
-			setPendingToolByTab
+			setPendingToolByTab,
+			setPlanByTab,
+			pendingLocalRef.current
 		)
 		return true
 	}, [] )
@@ -506,6 +754,10 @@ export default function Sidebar() {
 		const run = ( async () => {
 			try {
 				const session = await getSession( tabId )
+				// Send started after this GET was issued — drop the stale snapshot.
+				if ( ! cold && hasPendingLocalTurns( pendingLocalRef.current, tabId ) ) {
+					return
+				}
 				const fp = sessionFingerprint( session )
 				const alreadyHydrated = hydratedRef.current.has( tabId )
 				if ( alreadyHydrated && sessionStampRef.current[ tabId ] === fp ) {
@@ -614,6 +866,86 @@ export default function Sidebar() {
 		}
 	}, [ open, activeTabId, syncSession ] )
 
+	// Keep session page context fresh when the user navigates (URL / open editor post).
+	useEffect( () => {
+		if ( ! open || ! isSessionId( activeTabId ) ) {
+			return undefined
+		}
+
+		const sessionId = activeTabId
+		let lastKey = ''
+		let cancelled = false
+		let inflight = false
+
+		const contextKey = ctx => [
+			ctx?.url || '',
+			ctx?.is_block_editor ? '1' : '0',
+			ctx?.post_id === null || ctx?.post_id === undefined ? '' : String( ctx.post_id ),
+		].join( '|' )
+
+		const syncContext = async ( { force = false } = {} ) => {
+			if ( cancelled || inflight ) {
+				return
+			}
+			const ctx = collectPageContext()
+			const key = contextKey( ctx )
+			if ( ! force && key === lastKey ) {
+				return
+			}
+			const previous = lastKey
+			lastKey = key
+			// First observation after mount/tab change — baseline only (message send already posts context).
+			if ( ! force && ! previous ) {
+				return
+			}
+			inflight = true
+			try {
+				await patchSession( sessionId, { pageContext: ctx } )
+			} catch {
+				// Best-effort; next send still attaches fresh context.
+				lastKey = previous
+			} finally {
+				inflight = false
+			}
+		}
+
+		// Establish baseline without a PATCH, then watch for navigations.
+		lastKey = contextKey( collectPageContext() )
+		const intervalId = window.setInterval( () => {
+			syncContext()
+		}, 2000 )
+
+		const onPopState = () => {
+			syncContext( { force: true } )
+		}
+		window.addEventListener( 'popstate', onPopState )
+
+		let unsubscribeEditor = null
+		try {
+			const wpData = window.wp?.data
+			if ( wpData?.subscribe && wpData?.select ) {
+				unsubscribeEditor = wpData.subscribe( () => {
+					const editor = wpData.select( 'core/editor' )
+					if ( ! editor?.getCurrentPostId ) {
+						return
+					}
+					syncContext()
+				} )
+			}
+		} catch {
+			unsubscribeEditor = null
+		}
+
+		return () => {
+			cancelled = true
+			window.clearInterval( intervalId )
+			window.removeEventListener( 'popstate', onPopState )
+			if ( typeof unsubscribeEditor === 'function' ) {
+				unsubscribeEditor()
+			}
+		}
+	}, [ open, activeTabId ] )
+
 	// Global Cmd/Ctrl+I toggle.
 	useEffect( () => {
 		const onKeyDown = event => {
@@ -716,9 +1048,17 @@ export default function Sidebar() {
 	const activeTrace = traceByTab[ activeTabId ] || []
 	const activeStatus = statusByTab[ activeTabId ] || 'idle'
 	const activeProgress = progressByTab[ activeTabId ]
-	const activePendingTool = pendingToolByTab[ activeTabId ] || null
+	const activeApproving = approvingByTab[ activeTabId ] || ''
+	const activePendingTool = activeApproving
+		? null
+		: ( pendingToolByTab[ activeTabId ] || null )
+	const activePlan = planByTab[ activeTabId ] || null
 	const activeTab = tabs.find( tab => tab.id === activeTabId )
-	const isBusy = sending || activeStatus === 'running' || activeStatus === 'awaiting_human' || activeStatus === 'awaiting_browser'
+	const isBusy = sending ||
+		Boolean( activeApproving ) ||
+		activeStatus === 'running' ||
+		activeStatus === 'awaiting_human' ||
+		activeStatus === 'awaiting_browser'
 	const progressLabel = resolveLiveStatusLabel(
 		activeProgress?.label || '',
 		activeTrace,
@@ -741,53 +1081,111 @@ export default function Sidebar() {
 			.join( ',' )
 	), [ statusByTab ] )
 
-	const browserHandledRef = useRef( {} )
+	/**
+	 * Tracks browser-tool resume attempts.
+	 * Values: 'inflight' | 'done'. Cleared on failure so another attempt can run.
+	 *
+	 * @type {React.MutableRefObject<{[key: string]: string}>}
+	 */
+	const browserResumeRef = useRef( {} )
+	/** Bumps when a resume attempt exhausts retries so the effect can try again. */
+	const [ browserResumeNudge, setBrowserResumeNudge ] = useState( 0 )
+
+	const activeBrowserPending = pendingToolByTab[ activeTabId ]
+	const activeBrowserCallId = activeBrowserPending?.runtime === 'browser'
+		? ( activeBrowserPending.call_id || activeBrowserPending.callId || activeBrowserPending.name || '' )
+		: ''
+
+	const browserResumeKey = (
+		activeStatus === 'awaiting_browser' &&
+		isSessionId( activeTabId ) &&
+		activeBrowserCallId
+	) ? `${ activeTabId }:${ activeBrowserCallId }` : ''
 
 	// Execute pending browser abilities when the orchestrator pauses for them.
+	// Important: once started, finish the POST even if deps churn — cancelling
+	// mid-flight and leaving a sticky "handled" flag stuck the live status on
+	// labels like "Reading editor blocks…".
 	useEffect( () => {
-		if ( activeStatus !== 'awaiting_browser' || ! activePendingTool ) {
-			return undefined
-		}
-		if ( activePendingTool.runtime !== 'browser' ) {
-			return undefined
-		}
-		if ( ! isSessionId( activeTabId ) ) {
+		if ( ! browserResumeKey ) {
 			return undefined
 		}
 
-		const callId = activePendingTool.call_id || activePendingTool.callId || ''
-		const handledKey = `${ activeTabId }:${ callId || activePendingTool.name }`
-		if ( browserHandledRef.current[ handledKey ] ) {
+		const state = browserResumeRef.current[ browserResumeKey ]
+		if ( state === 'done' || state === 'inflight' ) {
 			return undefined
 		}
-		browserHandledRef.current[ handledKey ] = true
 
-		let cancelled = false
+		const pending = pendingToolByTabRef.current[ activeTabId ]
+		if ( ! pending || pending.runtime !== 'browser' ) {
+			return undefined
+		}
+
+		const callId = pending.call_id || pending.callId || ''
+		const sessionId = activeTabId
+		const resumeKey = browserResumeKey
+		browserResumeRef.current[ resumeKey ] = 'inflight'
+
+		const sleep = ms => new Promise( resolve => {
+			window.setTimeout( resolve, ms )
+		} )
+
+		const isAlreadyResumedError = error => {
+			const code = error?.code || ''
+			const status = error?.status
+			return status === 409 ||
+				code === 'ahentic_not_awaiting' ||
+				code === 'ahentic_no_pending' ||
+				code === 'ahentic_call_mismatch'
+		}
+
 		;( async () => {
-			const outcome = await runBrowserAbility( activePendingTool )
-			if ( cancelled ) {
-				return
-			}
-			try {
-				const session = await postBrowserResult( activeTabId, {
-					call_id: callId,
-					...( outcome.error
-						? { error: outcome.error }
-						: { result: outcome.result }
-					),
-				} )
-				if ( ! cancelled ) {
+			const maxAttempts = 5
+			for ( let attempt = 1; attempt <= maxAttempts; attempt++ ) {
+				try {
+					const outcome = await runBrowserAbility( pending )
+					const session = await postBrowserResult( sessionId, {
+						// REST body uses snake_case (matches server pending tool).
+						// eslint-disable-next-line camelcase
+						call_id: callId,
+						...( outcome.error
+							? { error: outcome.error }
+							: { result: outcome.result }
+						),
+					} )
+					browserResumeRef.current[ resumeKey ] = 'done'
 					applySession( session, { force: true } )
+					return
+				} catch ( error ) {
+					if ( isAlreadyResumedError( error ) ) {
+						browserResumeRef.current[ resumeKey ] = 'done'
+						try {
+							const session = await getSession( sessionId )
+							applySession( session, { force: true } )
+						} catch {
+							// Poller will catch up.
+						}
+						return
+					}
+					if ( attempt < maxAttempts ) {
+						await sleep( 400 * attempt )
+					}
 				}
-			} catch ( error ) {
-				browserHandledRef.current[ handledKey ] = false
+			}
+
+			// Exhausted retries — clear and nudge so the effect can retry.
+			if ( browserResumeRef.current[ resumeKey ] === 'inflight' ) {
+				delete browserResumeRef.current[ resumeKey ]
+				await sleep( 1500 )
+				// Only nudge if this call is still the active browser pause.
+				if ( ! browserResumeRef.current[ resumeKey ] ) {
+					setBrowserResumeNudge( value => value + 1 )
+				}
 			}
 		} )()
 
-		return () => {
-			cancelled = true
-		}
-	}, [ activeStatus, activePendingTool, activeTabId, applySession ] )
+		return undefined
+	}, [ browserResumeKey, browserResumeNudge, activeTabId, applySession ] )
 
 	// Poll running sessions for live progress + final messages.
 	useEffect( () => {
@@ -801,6 +1199,11 @@ export default function Sidebar() {
 		const seenAt = {}
 
 		const apply = session => {
+			const id = session?.id !== undefined && session?.id !== null ? String( session.id ) : ''
+			// While approval POST is in flight, ignore stale awaiting_human polls.
+			if ( id && approvingRef.current[ id ] && session.status === 'awaiting_human' ) {
+				return
+			}
 			applySession( session )
 		}
 
@@ -865,6 +1268,7 @@ export default function Sidebar() {
 	const closeSidebar = useCallback( () => setOpen( false ), [] )
 
 	const selectTab = useCallback( id => {
+		setSendError( '' )
 		setActiveTabId( id )
 	}, [] )
 
@@ -915,6 +1319,7 @@ export default function Sidebar() {
 				sessionMetaRef.current = {
 					[ nextId ]: extractSessionMeta( session ),
 				}
+				pendingLocalRef.current = {}
 				setHydratedVersion( version => version + 1 )
 				setTabs( [ {
 					id: nextId,
@@ -928,6 +1333,7 @@ export default function Sidebar() {
 				setTraceByTab( { [ nextId ]: Array.isArray( session.trace ) ? session.trace : [] } )
 				setProgressByTab( {} )
 				setPendingToolByTab( {} )
+				setPlanByTab( {} )
 			} catch ( error ) {
 				// eslint-disable-next-line no-alert
 				window.alert( error.message || 'Could not start a new session.' )
@@ -973,9 +1379,18 @@ export default function Sidebar() {
 				delete copy[ id ]
 				return copy
 			} )
+			setPlanByTab( plans => {
+				if ( ! plans[ id ] ) {
+					return plans
+				}
+				const copy = { ...plans }
+				delete copy[ id ]
+				return copy
+			} )
 			hydratedRef.current.delete( id )
 			delete sessionStampRef.current[ id ]
 			delete sessionMetaRef.current[ id ]
+			delete pendingLocalRef.current[ id ]
 			setHydratedVersion( version => version + 1 )
 			return next
 		} )
@@ -1052,6 +1467,7 @@ export default function Sidebar() {
 			sessionMetaRef.current = {
 				[ id ]: extractSessionMeta( session ),
 			}
+			pendingLocalRef.current = {}
 			setHydratedVersion( version => version + 1 )
 			setTabs( [ {
 				id,
@@ -1065,6 +1481,7 @@ export default function Sidebar() {
 			setTraceByTab( { [ id ]: Array.isArray( session.trace ) ? session.trace : [] } )
 			setProgressByTab( {} )
 			setPendingToolByTab( {} )
+			setPlanByTab( {} )
 		} catch ( error ) {
 			// eslint-disable-next-line no-alert
 			window.alert( error.message || 'Could not reset sessions.' )
@@ -1073,11 +1490,22 @@ export default function Sidebar() {
 
 	const sendMessage = useCallback( async text => {
 		if ( ! text?.trim() || sending || ! canGenerate ) {
-			return
+			return false
 		}
 		// Wait until an existing session tab has finished loading.
 		if ( isSessionId( activeTabId ) && ! hydratedRef.current.has( activeTabId ) ) {
-			return
+			return false
+		}
+
+		const currentStatus = statusByTabRef.current[ activeTabId ] || 'idle'
+		// Mid-run sends are rejected by the server (409) except during HITL redirect.
+		if (
+			currentStatus === 'running' ||
+			currentStatus === 'awaiting_browser' ||
+			approvingRef.current[ activeTabId ]
+		) {
+			setSendError( __( 'This session is still working. Wait for it to finish.', 'ahentic' ) )
+			return false
 		}
 
 		let sessionId = activeTabId
@@ -1110,7 +1538,7 @@ export default function Sidebar() {
 						},
 					],
 				} ) )
-				return
+				return false
 			}
 		}
 
@@ -1119,21 +1547,20 @@ export default function Sidebar() {
 			role: 'user',
 			content: text.trim(),
 		}
+		const metaBeforeSend = sessionMetaRef.current[ sessionId ]
+			? { ...sessionMetaRef.current[ sessionId ] }
+			: extractSessionMeta( null )
 
-		setMessagesByTab( messages => {
-			const nextList = [ ...( messages[ sessionId ] || [] ), optimisticUser ]
-			// Floor message count so a stale poll GET cannot wipe the optimistic turn.
-			const prevMeta = sessionMetaRef.current[ sessionId ] || extractSessionMeta( null )
-			sessionMetaRef.current[ sessionId ] = {
-				...prevMeta,
-				messageCount: Math.max( prevMeta.messageCount, nextList.length ),
-				status: 'running',
-			}
-			return {
-				...messages,
-				[ sessionId ]: nextList,
-			}
-		} )
+		// Track pending local turns so polls merge instead of wiping them.
+		pendingLocalRef.current[ sessionId ] = {
+			...( pendingLocalRef.current[ sessionId ] || {} ),
+			[ optimisticUser.id ]: optimisticUser.content,
+		}
+
+		setMessagesByTab( messages => ( {
+			...messages,
+			[ sessionId ]: [ ...( messages[ sessionId ] || [] ), optimisticUser ],
+		} ) )
 		setTabs( current => current.map( tab => {
 			if ( tab.id !== sessionId ) {
 				return tab
@@ -1167,8 +1594,17 @@ export default function Sidebar() {
 			delete copy[ sessionId ]
 			return copy
 		} )
+		// New user turn starts a fresh plan (server clears meta; clear UI immediately).
+		setPlanByTab( plans => {
+			if ( ! plans[ sessionId ] ) {
+				return plans
+			}
+			const copy = { ...plans }
+			delete copy[ sessionId ]
+			return copy
+		} )
 		setSending( true )
-		setFocusSignal( value => value + 1 )
+		setSendError( '' )
 
 		try {
 			const session = await postMessage( sessionId, {
@@ -1176,38 +1612,210 @@ export default function Sidebar() {
 				mode,
 				pageContext: collectPageContext(),
 			} )
+			// Clear pending before apply so the server transcript replaces the local bubble.
+			if ( pendingLocalRef.current[ sessionId ] ) {
+				delete pendingLocalRef.current[ sessionId ][ optimisticUser.id ]
+				if ( ! Object.keys( pendingLocalRef.current[ sessionId ] ).length ) {
+					delete pendingLocalRef.current[ sessionId ]
+				}
+			}
 			applySession( session, { force: true } )
+			setSendError( '' )
+			setFocusSignal( value => value + 1 )
+
+			// User hit Stop while this send was in flight — cancel the run that just started.
+			if ( stopRequestedRef.current[ sessionId ] ) {
+				delete stopRequestedRef.current[ sessionId ]
+				try {
+					const cancelled = await cancelSession( sessionId )
+					applySession( cancelled, { force: true } )
+				} catch {
+					// Polling / next Stop click can reconcile.
+				}
+			}
+
+			return true
 		} catch ( error ) {
-			// Drop freshness floors so the next sync can reconcile with the server.
-			delete sessionStampRef.current[ sessionId ]
-			sessionMetaRef.current[ sessionId ] = extractSessionMeta( null )
+			// Drop the optimistic turn — it never landed on the server.
+			if ( pendingLocalRef.current[ sessionId ] ) {
+				delete pendingLocalRef.current[ sessionId ][ optimisticUser.id ]
+				if ( ! Object.keys( pendingLocalRef.current[ sessionId ] ).length ) {
+					delete pendingLocalRef.current[ sessionId ]
+				}
+			}
 			setMessagesByTab( messages => ( {
 				...messages,
-				[ sessionId ]: [
-					...( messages[ sessionId ] || [] ),
-					{
-						id: `err_${ Date.now() }`,
-						role: 'assistant',
-						content: error.message || 'Request failed.',
-						meta: { error: true },
-					},
-				],
+				[ sessionId ]: ( messages[ sessionId ] || [] ).filter(
+					message => message.id !== optimisticUser.id
+				),
 			} ) )
-			setStatusByTab( statuses => ( {
-				...statuses,
-				[ sessionId ]: 'idle',
-			} ) )
+			// Restore pre-send freshness so a poll cannot race ahead of reconcile.
+			sessionMetaRef.current[ sessionId ] = metaBeforeSend
+
+			// Reconcile with the server (keeps real running/awaiting_* status; restores trace).
+			try {
+				const session = await getSession( sessionId )
+				applySession( session, { force: true } )
+			} catch {
+				setStatusByTab( statuses => ( {
+					...statuses,
+					[ sessionId ]: metaBeforeSend.status || 'idle',
+				} ) )
+			}
+
+			// Composer restores the draft when we return false; surface why send failed.
+			setSendError( error.message || __( 'Request failed.', 'ahentic' ) )
+			setFocusSignal( value => value + 1 )
+			return false
 		} finally {
 			setSending( false )
 		}
 	}, [ activeTabId, mode, sending, markHydrated, applySession, canGenerate ] )
 
+	const stopSession = useCallback( async () => {
+		if ( ! isSessionId( activeTabId ) || stopping ) {
+			return
+		}
+
+		const sessionId = activeTabId
+		stopRequestedRef.current[ sessionId ] = true
+		setStopping( true )
+		setSendError( '' )
+
+		// Optimistically unlock the composer while the cancel request lands.
+		setStatusByTab( statuses => ( {
+			...statuses,
+			[ sessionId ]: 'idle',
+		} ) )
+		setProgressByTab( progress => {
+			if ( ! progress[ sessionId ] ) {
+				return progress
+			}
+			const copy = { ...progress }
+			delete copy[ sessionId ]
+			return copy
+		} )
+		setPendingToolByTab( pending => {
+			if ( ! pending[ sessionId ] ) {
+				return pending
+			}
+			const copy = { ...pending }
+			delete copy[ sessionId ]
+			return copy
+		} )
+		setApprovingByTab( current => {
+			if ( ! current[ sessionId ] ) {
+				return current
+			}
+			const copy = { ...current }
+			delete copy[ sessionId ]
+			return copy
+		} )
+		setSending( false )
+
+		// Drop any in-flight browser resume for this tab.
+		Object.keys( browserResumeRef.current ).forEach( key => {
+			if ( key.startsWith( `${ sessionId }:` ) ) {
+				delete browserResumeRef.current[ key ]
+			}
+		} )
+
+		try {
+			const session = await cancelSession( sessionId )
+			applySession( session, { force: true } )
+			setFocusSignal( value => value + 1 )
+		} catch ( error ) {
+			setSendError( error.message || __( 'Could not stop the run.', 'ahentic' ) )
+			try {
+				const session = await getSession( sessionId )
+				applySession( session, { force: true } )
+			} catch {
+				// Leave optimistic idle; user can retry Stop.
+			}
+		} finally {
+			delete stopRequestedRef.current[ sessionId ]
+			setStopping( false )
+		}
+	}, [ activeTabId, stopping, applySession ] )
+
 	const onApproval = useCallback( async decision => {
 		if ( ! isSessionId( activeTabId ) ) {
 			return
 		}
-		const session = await postApproval( activeTabId, { decision } )
-		applySession( session )
+		const sessionId = activeTabId
+		if ( approvingRef.current[ sessionId ] ) {
+			return
+		}
+
+		const pending = pendingToolByTabRef.current[ sessionId ] || null
+		const previousStatus = statusByTabRef.current[ sessionId ] || 'awaiting_human'
+		const optimisticLabel = decision === 'deny'
+			? __( 'Skipping that action…', 'ahentic' )
+			: progressLabelForAbility( pending?.name || '' )
+
+		setApprovingByTab( current => ( {
+			...current,
+			[ sessionId ]: decision,
+		} ) )
+
+		// Optimistic: hide HITL, show live status, start polling via running.
+		setPendingToolByTab( current => {
+			if ( ! current[ sessionId ] ) {
+				return current
+			}
+			const next = { ...current }
+			delete next[ sessionId ]
+			return next
+		} )
+		setStatusByTab( current => ( {
+			...current,
+			[ sessionId ]: 'running',
+		} ) )
+		setProgressByTab( current => ( {
+			...current,
+			[ sessionId ]: {
+				label: optimisticLabel,
+				updatedAt: new Date().toISOString(),
+			},
+		} ) )
+		sessionMetaRef.current[ sessionId ] = {
+			...( sessionMetaRef.current[ sessionId ] || {} ),
+			status: 'running',
+			progressAt: Date.now(),
+		}
+
+		try {
+			const session = await postApproval( sessionId, { decision } )
+			applySession( session, { force: true } )
+		} catch ( error ) {
+			setStatusByTab( current => ( {
+				...current,
+				[ sessionId ]: previousStatus,
+			} ) )
+			if ( pending ) {
+				setPendingToolByTab( current => ( {
+					...current,
+					[ sessionId ]: pending,
+				} ) )
+			}
+			setProgressByTab( current => ( {
+				...current,
+				[ sessionId ]: {
+					label: __( 'Waiting for your approval…', 'ahentic' ),
+					updatedAt: new Date().toISOString(),
+				},
+			} ) )
+			throw error
+		} finally {
+			setApprovingByTab( current => {
+				if ( ! current[ sessionId ] ) {
+					return current
+				}
+				const next = { ...current }
+				delete next[ sessionId ]
+				return next
+			} )
+		}
 	}, [ activeTabId, applySession ] )
 
 	const onSuggestedAction = useCallback( async action => {
@@ -1580,7 +2188,9 @@ export default function Sidebar() {
 						busy={ isBusy }
 						progressLabel={ progressLabel }
 						pendingTool={ activePendingTool }
-						sessionStatus={ activeStatus }
+						plan={ activePlan }
+						sessionStatus={ activeApproving ? 'running' : activeStatus }
+						approvingDecision={ activeApproving }
 						onApproval={ onApproval }
 						onSuggestedAction={ onSuggestedAction }
 					/>
@@ -1592,7 +2202,35 @@ export default function Sidebar() {
 					onSubmit={ sendMessage }
 					focusSignal={ focusSignal }
 					shortcutLabel={ shortcutLabel }
+					error={ sendError }
+					onClearError={ () => setSendError( '' ) }
+					placeholder={
+						activeStatus === 'awaiting_human' && activePendingTool
+							? __( 'Send to change direction (skips this approval)…', 'ahentic' )
+							: __( 'Plan, Build, / for skills, @ for context', 'ahentic' )
+					}
 					disabled={ ! canGenerate }
+					inputDisabled={
+						! canGenerate ||
+						sending ||
+						stopping ||
+						Boolean( activeApproving ) ||
+						activeStatus === 'running' ||
+						activeStatus === 'awaiting_browser'
+					}
+					canStop={
+						isSessionId( activeTabId ) &&
+						(
+							sending ||
+							stopping ||
+							Boolean( activeApproving ) ||
+							activeStatus === 'running' ||
+							activeStatus === 'awaiting_human' ||
+							activeStatus === 'awaiting_browser'
+						)
+					}
+					onStop={ stopSession }
+					stopping={ stopping }
 					disabledHint={
 						canGenerate || activeMessages.length === 0
 							? ''

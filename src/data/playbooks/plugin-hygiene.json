@@ -1,0 +1,44 @@
+{
+  "id": "plugin-hygiene",
+  "title": "Plugin hygiene",
+  "when_to_use": "Installing, activating, deactivating, uninstalling, or choosing plugins; avoiding duplicates and reckless removals.",
+  "triggers": [
+    "install plugin",
+    "activate plugin",
+    "deactivate",
+    "uninstall",
+    "delete plugin",
+    "find a plugin",
+    "recommend a plugin",
+    "plugin for"
+  ],
+  "related_abilities": [
+    "ahentic/list-plugins",
+    "ahentic/search-plugins",
+    "ahentic/install-plugin",
+    "ahentic/activate-plugin",
+    "ahentic/deactivate-plugin",
+    "ahentic/uninstall-plugin",
+    "ahentic/get-site-snapshot"
+  ],
+  "principles": [
+    "Always inspect what is already installed before recommending or installing something new.",
+    "Prefer one well-chosen plugin over stacking overlapping plugins (multiple SEO, cache, form, or security tools).",
+    "Mutating plugin abilities require HITL — put them in tools_planned; do not ask “shall I install?” in chat.",
+    "When the user wants a plugin working (install / set up / turn on), chain install → activate after a successful install with active=false.",
+    "Deactivate before uninstall when removing; uninstall deletes from disk — only when the user clearly wants removal."
+  ],
+  "steps": [
+    "Call ahentic/list-plugins (and/or get-site-snapshot) to see active + inactive plugins.",
+    "If recommending: search with ahentic/search-plugins using a concrete query; pick for THIS site’s stack, not a generic favorite.",
+    "If a suitable plugin is already installed but inactive → activate (HITL). If active and overlapping → explain and ask which to keep only when it is a real choice.",
+    "Install only after confirming no good duplicate exists; then activate when the user wanted it working.",
+    "On user_denied / skipped: do not retry the same install; adapt (core blocks, different plugin, or ask_user with a real choice)."
+  ],
+  "anti_patterns": [
+    "Installing an SEO/cache/form plugin without listing what is already there.",
+    "Stopping at “installed but not active” when the user asked to set it up.",
+    "Uninstalling as the first cleanup step instead of deactivate + report.",
+    "Clicking Install in the browser when ahentic/install-plugin exists."
+  ]
+}

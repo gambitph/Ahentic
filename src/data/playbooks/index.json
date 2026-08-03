@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "note": "Curated Ahentic site-agent playbooks. Distilled for operators using abilities — not raw WordPress/agent-skills. Keep each playbook short; load via ahentic/get-wordpress-guidance.",
+  "playbooks": [
+    {
+      "id": "plugin-hygiene",
+      "title": "Plugin hygiene",
+      "when_to_use": "Installing, activating, deactivating, uninstalling, or choosing plugins; avoiding duplicates and reckless removals.",
+      "file": "plugin-hygiene.json"
+    },
+    {
+      "id": "custom-code-snippets",
+      "title": "Custom code and snippets",
+      "when_to_use": "Adding analytics, pixels, chat widgets, CSS/JS, or anything the user phrases as put in header/footer/functions.php.",
+      "file": "custom-code-snippets.json"
+    },
+    {
+      "id": "pre-launch-gaps",
+      "title": "Pre-launch gaps",
+      "when_to_use": "Site not launched, missing pages, go-live checklist, what am I missing before launch.",
+      "file": "pre-launch-gaps.json"
+    },
+    {
+      "id": "seo-decisioning",
+      "title": "SEO decisioning",
+      "when_to_use": "Do I need an SEO plugin, recommend SEO, install Yoast/Rank Math/AIOSEO, search visibility.",
+      "file": "seo-decisioning.json"
+    },
+    {
+      "id": "safe-cleanup",
+      "title": "Safe cleanup",
+      "when_to_use": "Clean up WordPress, unused plugins, unused media, site feels cluttered or slow from cruft.",
+      "file": "safe-cleanup.json"
+    },
+    {
+      "id": "editor-vs-server",
+      "title": "Editor vs server content",
+      "when_to_use": "Create/edit pages or posts; unsure whether to use block editor tools or server create/update-post.",
+      "file": "editor-vs-server.json"
+    }
+  ]
+}

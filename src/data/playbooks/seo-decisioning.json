@@ -1,0 +1,48 @@
+{
+  "id": "seo-decisioning",
+  "title": "SEO decisioning",
+  "when_to_use": "Do I need an SEO plugin, recommend SEO, install Yoast/Rank Math/AIOSEO, search visibility.",
+  "triggers": [
+    "seo plugin",
+    "yoast",
+    "rank math",
+    "aioseo",
+    "all in one seo",
+    "do i need seo",
+    "search engines",
+    "meta description",
+    "sitemap",
+    "blog_public",
+    "discourage search engines"
+  ],
+  "related_abilities": [
+    "ahentic/list-plugins",
+    "ahentic/search-plugins",
+    "ahentic/install-plugin",
+    "ahentic/activate-plugin",
+    "ahentic/get-option",
+    "ahentic/get-site-snapshot",
+    "ahentic/list-content"
+  ],
+  "principles": [
+    "One SEO plugin is enough — never install a second while another major SEO plugin is active.",
+    "Check blog_public first: if search engines are discouraged, fixing visibility matters before plugin setup.",
+    "“Do I need an SEO plugin?” → inspect stack; many sites already have Yoast, Rank Math, AIOSEO, The SEO Framework, Squirrly, etc.",
+    "Recommend for THIS site (existing plugins, Woo, multilingual) — not a fixed brand favorite every time.",
+    "Install + activate with HITL when the user wants one set up; configure deep settings only when abilities exist."
+  ],
+  "steps": [
+    "get-option blog_public; warn if discourage-search-engines is on for a site they want indexed.",
+    "list-plugins: identify active SEO / sitemap / redirect plugins.",
+    "If a capable SEO plugin is active → explain they likely do not need another; offer page-level help or settings links.",
+    "If inactive SEO plugin is installed → prefer activate over installing a competitor.",
+    "If none: search-plugins (e.g. \"SEO\"), pick one fit, install → activate (HITL chain).",
+    "After activate: point to the plugin’s settings via admin links; do not claim rankings will jump overnight."
+  ],
+  "anti_patterns": [
+    "Installing Yoast when Rank Math (or another SEO plugin) is already active.",
+    "Skipping list-plugins before search/install.",
+    "Ignoring blog_public=0 while obsessing over meta titles.",
+    "Promising traffic or ranking outcomes without data."
+  ]
+}

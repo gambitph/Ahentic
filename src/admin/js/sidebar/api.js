@@ -70,7 +70,7 @@ export function getSession( id ) {
 
 /**
  * @param {number|string} id
- * @param {Object} body
+ * @param {{ title?: string, mode?: string, pageContext?: Object }} body
  * @return {Promise<Object>}
  */
 export function patchSession( id, body ) {

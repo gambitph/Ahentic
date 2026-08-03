@@ -155,6 +155,20 @@ function formatInline( text ) {
 }
 
 /**
+ * Render a list item, including optional nested bullet children.
+ *
+ * @param {{ text: string, children: string[] }} item
+ * @return {string}
+ */
+function renderListItem( item ) {
+	let html = formatInline( item.text )
+	if ( item.children.length ) {
+		html += `<ul>${ item.children.map( child => `<li>${ formatInline( child ) }</li>` ).join( '' ) }</ul>`
+	}
+	return `<li>${ html }</li>`
+}
+
+/**
  * Convert a markdown-ish assistant reply into simple HTML.
  *
  * @param {string} raw
@@ -169,26 +183,33 @@ export function markdownToHtml( raw ) {
 	const lines = text.split( '\n' )
 	const blocks = []
 	let listType = null // 'ul' | 'ol'
-	let listItems = []
+	let listItems = [] // { text, children }[]
+	let listStart = null
 
 	const flushList = () => {
 		if ( ! listType || ! listItems.length ) {
 			listType = null
 			listItems = []
+			listStart = null
 			return
 		}
 		const tag = listType
+		const startAttr = tag === 'ol' && listStart && listStart > 1
+			? ` start="${ listStart }"`
+			: ''
 		blocks.push(
-			`<${ tag }>${ listItems.map( item => `<li>${ formatInline( item ) }</li>` ).join( '' ) }</${ tag }>`
+			`<${ tag }${ startAttr }>${ listItems.map( renderListItem ).join( '' ) }</${ tag }>`
 		)
 		listType = null
 		listItems = []
+		listStart = null
 	}
 
 	for ( const line of lines ) {
 		const trimmed = line.trim()
+		// Keep lists open across blank lines (loose markdown lists). Flush only
+		// when a non-list block starts.
 		if ( ! trimmed ) {
-			flushList()
 			continue
 		}
 
@@ -200,17 +221,26 @@ export function markdownToHtml( raw ) {
 			if ( listType && listType !== 'ol' ) {
 				flushList()
 			}
+			if ( ! listType ) {
+				listStart = Number( ol[ 1 ] ) || 1
+			}
 			listType = 'ol'
-			listItems.push( ol[ 2 ] )
+			listItems.push( { text: ol[ 2 ], children: [] } )
 			continue
 		}
 
 		if ( ul ) {
+			// Nest bullets under the current ordered item instead of splitting
+			// into alternating <ol>/<ul> (which resets every marker to "1.").
+			if ( listType === 'ol' && listItems.length ) {
+				listItems[ listItems.length - 1 ].children.push( ul[ 1 ] )
+				continue
+			}
 			if ( listType && listType !== 'ul' ) {
 				flushList()
 			}
 			listType = 'ul'
-			listItems.push( ul[ 1 ] )
+			listItems.push( { text: ul[ 1 ], children: [] } )
 			continue
 		}
 

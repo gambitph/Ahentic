@@ -58,6 +58,14 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				Ahentic_Abilities_Browser::register_category();
 			}
+
+			if ( class_exists( 'Ahentic_Session_Artifacts' ) ) {
+				Ahentic_Session_Artifacts::register_category();
+			}
+
+			if ( class_exists( 'Ahentic_Playbooks' ) ) {
+				Ahentic_Playbooks::register_category();
+			}
 		}
 
 		/**
@@ -90,6 +98,14 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 
 			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				Ahentic_Abilities_Browser::register();
+			}
+
+			if ( class_exists( 'Ahentic_Session_Artifacts' ) ) {
+				Ahentic_Session_Artifacts::register();
+			}
+
+			if ( class_exists( 'Ahentic_Playbooks' ) ) {
+				Ahentic_Playbooks::register();
 			}
 
 			wp_register_ability(
@@ -161,6 +177,12 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			}
 			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				$names = array_merge( $names, Ahentic_Abilities_Browser::names() );
+			}
+			if ( class_exists( 'Ahentic_Session_Artifacts' ) ) {
+				$names = array_merge( $names, Ahentic_Session_Artifacts::names() );
+			}
+			if ( class_exists( 'Ahentic_Playbooks' ) ) {
+				$names = array_merge( $names, Ahentic_Playbooks::names() );
 			}
 			return $names;
 		}
@@ -264,6 +286,12 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) && ! Ahentic_Abilities_Taxonomy::is_readonly( $name ) ) {
 				return false;
 			}
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) && ! Ahentic_Abilities_Browser::is_readonly( $name ) ) {
+				return false;
+			}
+			if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::is_artifact_ability( $name ) ) {
+				return Ahentic_Session_Artifacts::is_readonly( $name );
+			}
 
 			return in_array( $name, self::available_for_agent(), true );
 		}
@@ -306,6 +334,9 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) && Ahentic_Abilities_Taxonomy::requires_hitl( $name ) ) {
 				return true;
 			}
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::requires_hitl( $name ) ) {
+				return true;
+			}
 			return false;
 		}
 
@@ -325,6 +356,9 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			}
 			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) && Ahentic_Abilities_Taxonomy::requires_hitl( $name ) ) {
 				return Ahentic_Abilities_Taxonomy::hitl_summary( $name, $input );
+			}
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::requires_hitl( $name ) ) {
+				return Ahentic_Abilities_Browser::hitl_summary( $name, $input );
 			}
 			return (string) $name;
 		}
@@ -382,6 +416,14 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 
 			if ( class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::is_browser( $name ) ) {
 				return Ahentic_Abilities_Browser::execute( $name, $input );
+			}
+
+			if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::is_artifact_ability( $name ) ) {
+				return Ahentic_Session_Artifacts::execute( $name, $input );
+			}
+
+			if ( class_exists( 'Ahentic_Playbooks' ) && in_array( $name, Ahentic_Playbooks::names(), true ) ) {
+				return Ahentic_Playbooks::execute( $name, $input );
 			}
 
 			return new WP_Error(

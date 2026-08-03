@@ -174,11 +174,12 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 
 		/**
 		 * When the model only emitted a debug block, still produce chat text.
+		 * Prefers thinking, then intention — the same trail the sidebar showed before plans.
 		 *
 		 * @param array $debug Parsed debug.
 		 * @return string
 		 */
-		private static function fallback_reply_from_debug( array $debug ) {
+		public static function fallback_reply_from_debug( array $debug ) {
 			$next      = isset( $debug['next'] ) ? (string) $debug['next'] : 'reply';
 			$thinking  = isset( $debug['thinking'] ) ? trim( (string) $debug['thinking'] ) : '';
 			$intention = isset( $debug['intention'] ) ? trim( (string) $debug['intention'] ) : '';
@@ -330,13 +331,30 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 				}
 			}
 
+			$raw       = $text;
 			$extracted = self::extract_debug_block( $text );
 			$text      = $extracted['text'];
 			$debug     = $extracted['debug'];
 
 			if ( '' === trim( $text ) ) {
-				// Debug-only replies are converted to fallback prose in extract_debug_block.
-				// If we still have nothing, treat as empty.
+				// Debug-only replies become fallback prose in extract_debug_block.
+				// If the model emitted tokens / markers that stripped to nothing
+				// (malformed AHENTIC_DEBUG), return a soft empty result so the
+				// orchestrator can retry for a usable control block instead of
+				// hard-failing the run with ahentic_ai_empty.
+				$had_raw = '' !== trim( (string) $raw );
+				$had_out = $out > 0;
+				if ( $had_raw || $had_out ) {
+					return array(
+						'text'         => '',
+						'tokens_in'    => $in,
+						'tokens_out'   => $out,
+						'tokens_total' => $total > 0 ? $total : ( $in + $out ),
+						'model'        => $model,
+						'debug'        => is_array( $debug ) ? $debug : null,
+					);
+				}
+
 				return new WP_Error( 'ahentic_ai_empty', __( 'The model returned an empty response.', 'ahentic' ) );
 			}
 

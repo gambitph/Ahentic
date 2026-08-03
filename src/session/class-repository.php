@@ -33,6 +33,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_AUTO_TITLE       = '_ahentic_auto_title';
 		const META_TRACE            = '_ahentic_trace';
 		const META_PROGRESS         = '_ahentic_progress';
+		const META_PLAN             = '_ahentic_plan';
 		const META_CAPABILITY_REQUESTS = '_ahentic_capability_requests';
 		const META_PAGE_CONTEXT        = '_ahentic_page_context';
 
@@ -372,8 +373,161 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 
 			$payload['trace'] = self::get_trace( $session_id );
 			$payload['progress'] = self::get_progress( $session_id );
+			$payload['plan'] = self::get_plan( $session_id );
+			$payload['artifacts'] = class_exists( 'Ahentic_Session_Artifacts' )
+				? Ahentic_Session_Artifacts::list_pointers( $session_id )
+				: array();
 
 			return $payload;
+		}
+
+		/**
+		 * Multi-step plan for the current run (sidebar card).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array|null { title, steps, updatedAt }
+		 */
+		public static function get_plan( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_PLAN, true );
+			if ( empty( $raw ) ) {
+				return null;
+			}
+			if ( is_string( $raw ) ) {
+				$decoded = json_decode( $raw, true );
+			} elseif ( is_array( $raw ) ) {
+				$decoded = $raw;
+			} else {
+				return null;
+			}
+			if ( ! is_array( $decoded ) || empty( $decoded['steps'] ) || ! is_array( $decoded['steps'] ) ) {
+				return null;
+			}
+
+			$steps = array();
+			foreach ( $decoded['steps'] as $step ) {
+				if ( ! is_array( $step ) ) {
+					continue;
+				}
+				$content = isset( $step['content'] ) ? trim( (string) $step['content'] ) : '';
+				if ( '' === $content ) {
+					continue;
+				}
+				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+				if ( ! in_array( $status, array( 'pending', 'in_progress', 'completed', 'cancelled' ), true ) ) {
+					$status = 'pending';
+				}
+				$steps[] = array(
+					'id'      => isset( $step['id'] ) && '' !== (string) $step['id']
+						? (string) $step['id']
+						: (string) ( count( $steps ) + 1 ),
+					'content' => $content,
+					'status'  => $status,
+				);
+			}
+
+			if ( empty( $steps ) ) {
+				return null;
+			}
+
+			return array(
+				'title'     => isset( $decoded['title'] ) ? (string) $decoded['title'] : '',
+				'steps'     => $steps,
+				'updatedAt' => isset( $decoded['updated_at'] )
+					? (string) $decoded['updated_at']
+					: ( isset( $decoded['updatedAt'] ) ? (string) $decoded['updatedAt'] : '' ),
+			);
+		}
+
+		/**
+		 * Persist a multi-step plan (or clear when $plan is null).
+		 *
+		 * @param int        $session_id Session ID.
+		 * @param array|null $plan       { title?, steps: [{ id, content, status }] } or null to clear.
+		 * @return bool True when meta changed.
+		 */
+		public static function set_plan( $session_id, $plan ) {
+			if ( null === $plan ) {
+				return self::clear_plan( $session_id );
+			}
+
+			if ( ! is_array( $plan ) || empty( $plan['steps'] ) || ! is_array( $plan['steps'] ) ) {
+				return false;
+			}
+
+			$steps = array();
+			foreach ( $plan['steps'] as $index => $step ) {
+				if ( ! is_array( $step ) ) {
+					continue;
+				}
+				$content = isset( $step['content'] ) ? trim( wp_strip_all_tags( (string) $step['content'] ) ) : '';
+				if ( '' === $content ) {
+					continue;
+				}
+				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+				if ( ! in_array( $status, array( 'pending', 'in_progress', 'completed', 'cancelled' ), true ) ) {
+					$status = 'pending';
+				}
+				$id = isset( $step['id'] ) ? trim( (string) $step['id'] ) : '';
+				$id = preg_replace( '/\s+/', '-', $id );
+				$id = substr( (string) $id, 0, 64 );
+				if ( '' === $id ) {
+					$id = (string) ( $index + 1 );
+				}
+				$steps[] = array(
+					'id'      => $id,
+					'content' => $content,
+					'status'  => $status,
+				);
+			}
+
+			if ( empty( $steps ) ) {
+				return false;
+			}
+
+			$title = isset( $plan['title'] ) ? sanitize_text_field( (string) $plan['title'] ) : '';
+			$next  = array(
+				'title'      => $title,
+				'steps'      => $steps,
+				'updated_at' => gmdate( 'c' ),
+			);
+
+			$existing = self::get_plan( $session_id );
+			if ( is_array( $existing ) ) {
+				$existing_cmp = array(
+					'title' => isset( $existing['title'] ) ? (string) $existing['title'] : '',
+					'steps' => isset( $existing['steps'] ) ? $existing['steps'] : array(),
+				);
+				$next_cmp = array(
+					'title' => $title,
+					'steps' => $steps,
+				);
+				if ( wp_json_encode( $existing_cmp ) === wp_json_encode( $next_cmp ) ) {
+					return false;
+				}
+			}
+
+			update_post_meta(
+				$session_id,
+				self::META_PLAN,
+				wp_slash( wp_json_encode( $next, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
+			);
+
+			return true;
+		}
+
+		/**
+		 * Clear the multi-step plan.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return bool True when something was cleared.
+		 */
+		public static function clear_plan( $session_id ) {
+			$existing = get_post_meta( $session_id, self::META_PLAN, true );
+			if ( empty( $existing ) ) {
+				return false;
+			}
+			delete_post_meta( $session_id, self::META_PLAN );
+			return true;
 		}
 
 		/**
@@ -692,7 +846,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
-		 * Store lightweight page context from the sidebar (URL/title/body classes).
+		 * Store lightweight page context from the sidebar (URL/title/body classes/editor).
 		 *
 		 * @param int   $session_id Session ID.
 		 * @param array $context    Page context.
@@ -708,16 +862,29 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				$url = esc_url_raw( (string) $context['href'] );
 			}
 
+			$post_id = null;
+			if ( array_key_exists( 'post_id', $context ) && null !== $context['post_id'] && '' !== $context['post_id'] ) {
+				$post_id = (int) $context['post_id'];
+			}
+
 			$payload = array(
-				'url'       => $url,
-				'title'     => isset( $context['title'] ) ? sanitize_text_field( (string) $context['title'] ) : '',
-				'pathname'  => isset( $context['pathname'] ) ? sanitize_text_field( (string) $context['pathname'] ) : '',
-				'search'    => isset( $context['search'] ) ? sanitize_text_field( (string) $context['search'] ) : '',
-				'isAdmin'   => ! empty( $context['isAdmin'] ) || ! empty( $context['is_admin'] ),
-				'bodyClass' => isset( $context['bodyClass'] )
+				'url'            => $url,
+				'title'          => isset( $context['title'] ) ? sanitize_text_field( (string) $context['title'] ) : '',
+				'pathname'       => isset( $context['pathname'] ) ? sanitize_text_field( (string) $context['pathname'] ) : '',
+				'search'         => isset( $context['search'] ) ? sanitize_text_field( (string) $context['search'] ) : '',
+				'isAdmin'        => ! empty( $context['isAdmin'] ) || ! empty( $context['is_admin'] ),
+				'bodyClass'      => isset( $context['bodyClass'] )
 					? substr( sanitize_text_field( (string) $context['bodyClass'] ), 0, 500 )
 					: ( isset( $context['body_class'] ) ? substr( sanitize_text_field( (string) $context['body_class'] ), 0, 500 ) : '' ),
-				'updatedAt' => gmdate( 'c' ),
+				'is_block_editor' => ! empty( $context['is_block_editor'] ),
+				'post_id'        => $post_id,
+				'post_type'      => isset( $context['post_type'] ) ? sanitize_key( (string) $context['post_type'] ) : '',
+				'editor_title'   => isset( $context['editor_title'] ) ? sanitize_text_field( (string) $context['editor_title'] ) : '',
+				'status'         => isset( $context['status'] ) ? sanitize_key( (string) $context['status'] ) : '',
+				'is_dirty'       => ! empty( $context['is_dirty'] ),
+				'is_new'         => ! empty( $context['is_new'] ),
+				'blocks_count'   => isset( $context['blocks_count'] ) ? max( 0, (int) $context['blocks_count'] ) : 0,
+				'updatedAt'      => gmdate( 'c' ),
 			);
 
 			update_post_meta(

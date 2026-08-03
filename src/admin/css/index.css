@@ -1121,6 +1121,11 @@ a.ahentic-empty__ai-install:hover {
 	margin: 0.25em 0;
 }
 
+.ahentic-message__rich li > ul,
+.ahentic-message__rich li > ol {
+	margin: 0.25em 0 0.35em;
+}
+
 .ahentic-message__rich h3,
 .ahentic-message__rich h4,
 .ahentic-message__rich h5 {
@@ -1320,6 +1325,126 @@ a.ahentic-empty__ai-install:hover {
 .ahentic button.ahentic-cap-request__copy:disabled {
 	opacity: 0.5;
 	cursor: default;
+}
+
+/* Multi-step plan card (orchestrator state) */
+.ahentic-plan-wrap {
+	margin-top: 12px;
+}
+
+.ahentic-plan {
+	padding: 12px 14px;
+	border: 1px solid var(--ah-border);
+	border-radius: 10px;
+	background: var(--ah-surface, var(--ah-bg));
+	animation: ahentic-plan-in 0.28s ease-out;
+}
+
+.ahentic-plan.is-complete {
+	border-color: var(--ah-primary);
+}
+
+.ahentic-plan__header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 4px;
+}
+
+.ahentic-plan__eyebrow {
+	margin: 0;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--ah-muted);
+}
+
+.ahentic-plan__count {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--ah-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.ahentic-plan__title {
+	margin: 0 0 8px;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.35;
+	color: var(--ah-fg);
+}
+
+.ahentic-plan__steps {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.ahentic-plan__step {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.4;
+	color: var(--ah-fg);
+}
+
+.ahentic-plan__icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 16px;
+	height: 1.4em;
+	color: var(--ah-muted);
+}
+
+.ahentic-plan__step.is-in_progress .ahentic-plan__icon {
+	color: var(--ah-primary);
+}
+
+.ahentic-plan__step.is-completed .ahentic-plan__icon {
+	color: var(--ah-primary);
+}
+
+.ahentic-plan__step.is-completed .ahentic-plan__text {
+	color: var(--ah-muted);
+	text-decoration: line-through;
+	text-decoration-thickness: 1px;
+}
+
+.ahentic-plan__step.is-cancelled .ahentic-plan__text {
+	color: var(--ah-muted);
+	text-decoration: line-through;
+	opacity: 0.75;
+}
+
+.ahentic-plan__step.is-in_progress .ahentic-plan__text {
+	font-weight: 600;
+}
+
+@keyframes ahentic-plan-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ahentic-plan {
+		animation: none;
+	}
 }
 
 /* HITL approval card */
@@ -1539,6 +1664,25 @@ a.ahentic-empty__ai-install:hover {
 	border-color: transparent;
 }
 
+.ahentic-composer__input:disabled,
+.ahentic-composer__input[disabled] {
+	/* Beat WP admin / UA disabled textarea greys. */
+	background: transparent !important;
+	background-color: transparent !important;
+	color: var(--ah-muted) !important;
+	-webkit-text-fill-color: var(--ah-muted);
+	caret-color: transparent;
+	opacity: 1;
+	box-shadow: none !important;
+}
+
+.ahentic-composer__input:disabled::placeholder,
+.ahentic-composer__input[disabled]::placeholder {
+	color: var(--ah-muted) !important;
+	-webkit-text-fill-color: var(--ah-muted);
+	opacity: 0.75;
+}
+
 .ahentic-composer__input::placeholder {
 	color: var(--ah-muted) !important;
 	-webkit-text-fill-color: var(--ah-muted);
@@ -1558,6 +1702,36 @@ a.ahentic-empty__ai-install:hover {
 	align-items: center;
 	gap: 6px;
 	min-width: 0;
+}
+
+.ahentic-composer__stop {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 999px;
+	background: var(--ah-fg);
+	color: var(--ah-bg);
+	border: none;
+	flex-shrink: 0;
+	cursor: pointer;
+	transition: background 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
+}
+
+.ahentic-composer__stop:hover:not(:disabled) {
+	background: var(--ah-primary);
+	color: #fff;
+}
+
+.ahentic-composer__stop:focus-visible {
+	outline: 2px solid var(--ah-primary);
+	outline-offset: 2px;
+}
+
+.ahentic-composer__stop:disabled {
+	opacity: 0.55;
+	cursor: wait;
 }
 
 .ahentic-mode {
@@ -1600,8 +1774,21 @@ a.ahentic-empty__ai-install:hover {
 }
 
 .ahentic-composer.is-disabled .ahentic-composer__box {
-	opacity: 0.55;
+	opacity: 1;
 	pointer-events: none;
+	border-color: var(--ah-border);
+	background: var(--ah-bg-elevated);
+}
+
+.ahentic-composer__error {
+	margin-bottom: 8px;
+	padding: 8px 10px;
+	border: 1px solid color-mix( in srgb, var(--ah-danger) 45%, var(--ah-border) );
+	border-radius: 10px;
+	background: color-mix( in srgb, var(--ah-danger) 12%, var(--ah-bg) );
+	color: var(--ah-danger);
+	font-size: 12px;
+	line-height: 1.45;
 }
 
 .ahentic-composer__blocked {

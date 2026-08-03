@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin abilities: list, search, install, activate, deactivate.
+ * Plugin abilities: list, search, install, activate, deactivate, uninstall.
  */
 
 // Exit if accessed directly.
@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 	/**
-	 * Plugin inspection and HITL install/activate/deactivate for the agent loop.
+	 * Plugin inspection and HITL install/activate/deactivate/uninstall for the agent loop.
 	 */
 	class Ahentic_Abilities_Plugins {
 		const LIST       = 'ahentic/list-plugins';
@@ -18,12 +18,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 		const INSTALL    = 'ahentic/install-plugin';
 		const ACTIVATE   = 'ahentic/activate-plugin';
 		const DEACTIVATE = 'ahentic/deactivate-plugin';
+		const UNINSTALL  = 'ahentic/uninstall-plugin';
 
 		/**
 		 * @return string[]
 		 */
 		public static function names() {
-			return array( self::LIST, self::SEARCH, self::INSTALL, self::ACTIVATE, self::DEACTIVATE );
+			return array( self::LIST, self::SEARCH, self::INSTALL, self::ACTIVATE, self::DEACTIVATE, self::UNINSTALL );
 		}
 
 		/**
@@ -32,7 +33,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 		 * @return string[]
 		 */
 		public static function hitl_names() {
-			return array( self::INSTALL, self::ACTIVATE, self::DEACTIVATE );
+			return array( self::INSTALL, self::ACTIVATE, self::DEACTIVATE, self::UNINSTALL );
 		}
 
 		/**
@@ -54,7 +55,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				'ahentic-plugins',
 				array(
 					'label'       => __( 'Ahentic Plugins', 'ahentic' ),
-					'description' => __( 'List, search, install, activate, and deactivate plugins for Ahentic.', 'ahentic' ),
+					'description' => __( 'List, search, install, activate, deactivate, and uninstall plugins for Ahentic.', 'ahentic' ),
 				)
 			);
 		}
@@ -72,6 +73,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 			};
 			$can_install = static function () {
 				return current_user_can( 'install_plugins' ) || current_user_can( 'manage_options' );
+			};
+			$can_delete = static function () {
+				return current_user_can( 'delete_plugins' ) || current_user_can( 'manage_options' );
 			};
 
 			$readonly_meta = array(
@@ -193,40 +197,58 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				)
 			);
 
+			$plugin_ref_schema = array(
+				'type'       => 'object',
+				'properties' => array(
+					'plugin'      => array(
+						'type'        => 'string',
+						'description' => __( 'Plugin file (folder/file.php) or slug.', 'ahentic' ),
+					),
+					'plugin_file' => array(
+						'type'        => 'string',
+						'description' => __( 'Plugin file (alias of plugin).', 'ahentic' ),
+					),
+					'slug'        => array(
+						'type'        => 'string',
+						'description' => __( 'Plugin slug (alternative to plugin).', 'ahentic' ),
+					),
+				),
+			);
+
+			$destructive_meta = array(
+				'annotations'  => array(
+					'readonly'    => false,
+					'destructive' => true,
+					'idempotent'  => false,
+				),
+				'show_in_rest' => false,
+			);
+
 			wp_register_ability(
 				self::DEACTIVATE,
 				array(
 					'label'               => __( 'Deactivate plugin', 'ahentic' ),
 					'description'         => __( 'Deactivates an active plugin by file or slug. Requires human approval in Ahentic.', 'ahentic' ),
 					'category'            => 'ahentic-plugins',
-					'input_schema'        => array(
-						'type'       => 'object',
-						'properties' => array(
-							'plugin'      => array(
-								'type'        => 'string',
-								'description' => __( 'Plugin file (folder/file.php) or slug.', 'ahentic' ),
-							),
-							'plugin_file' => array(
-								'type'        => 'string',
-								'description' => __( 'Plugin file (alias of plugin).', 'ahentic' ),
-							),
-							'slug'        => array(
-								'type'        => 'string',
-								'description' => __( 'Plugin slug (alternative to plugin).', 'ahentic' ),
-							),
-						),
-					),
+					'input_schema'        => $plugin_ref_schema,
 					'output_schema'       => array( 'type' => 'object' ),
 					'execute_callback'    => array( __CLASS__, 'execute_deactivate_plugin' ),
 					'permission_callback' => $can_manage,
-					'meta'                => array(
-						'annotations'  => array(
-							'readonly'    => false,
-							'destructive' => true,
-							'idempotent'  => false,
-						),
-						'show_in_rest' => false,
-					),
+					'meta'                => $destructive_meta,
+				)
+			);
+
+			wp_register_ability(
+				self::UNINSTALL,
+				array(
+					'label'               => __( 'Uninstall plugin', 'ahentic' ),
+					'description'         => __( 'Deletes an installed plugin from the site (deactivates first if needed). Requires human approval in Ahentic.', 'ahentic' ),
+					'category'            => 'ahentic-plugins',
+					'input_schema'        => $plugin_ref_schema,
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_uninstall_plugin' ),
+					'permission_callback' => $can_delete,
+					'meta'                => $destructive_meta,
 				)
 			);
 		}
@@ -248,6 +270,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 					return self::execute_activate_plugin( $input );
 				case self::DEACTIVATE:
 					return self::execute_deactivate_plugin( $input );
+				case self::UNINSTALL:
+					return self::execute_uninstall_plugin( $input );
 				default:
 					return new WP_Error( 'ahentic_ability_unknown', __( 'Unknown plugin ability.', 'ahentic' ) );
 			}
@@ -283,6 +307,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				return sprintf(
 					/* translators: %s: plugin file or slug */
 					__( 'Deactivate plugin “%s”', 'ahentic' ),
+					$plugin ? $plugin : __( 'unknown', 'ahentic' )
+				);
+			}
+			if ( self::UNINSTALL === $name ) {
+				$plugin = self::plugin_ref_from_input( $input );
+				return sprintf(
+					/* translators: %s: plugin file or slug */
+					__( 'Uninstall (delete) plugin “%s”', 'ahentic' ),
 					$plugin ? $plugin : __( 'unknown', 'ahentic' )
 				);
 			}
@@ -617,6 +649,84 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				'active'      => is_plugin_active( $file ),
 				'message'     => __( 'Plugin deactivated successfully.', 'ahentic' ),
 				'plugins_url' => admin_url( 'plugins.php' ),
+			);
+		}
+
+		/**
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_uninstall_plugin( $input = array() ) {
+			$input  = is_array( $input ) ? $input : array();
+			$plugin = self::plugin_ref_from_input( $input );
+			if ( '' === $plugin ) {
+				return new WP_Error( 'ahentic_missing_plugin', __( 'A plugin file or slug is required.', 'ahentic' ) );
+			}
+
+			if ( ! current_user_can( 'delete_plugins' ) ) {
+				return new WP_Error( 'ahentic_ability_forbidden', __( 'You cannot delete plugins.', 'ahentic' ), array( 'status' => 403 ) );
+			}
+
+			if ( ! function_exists( 'delete_plugins' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/plugin.php';
+			}
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+
+			$file = $plugin;
+			if ( false === strpos( $plugin, '/' ) && false === strpos( $plugin, '.php' ) ) {
+				$file = self::plugin_file_from_slug( sanitize_key( $plugin ) );
+				if ( ! $file ) {
+					return new WP_Error(
+						'ahentic_plugin_not_installed',
+						sprintf(
+							/* translators: %s: plugin slug */
+							__( 'Plugin “%s” is not installed.', 'ahentic' ),
+							$plugin
+						)
+					);
+				}
+			}
+
+			if ( defined( 'AHENTIC_FILE' ) && plugin_basename( AHENTIC_FILE ) === $file ) {
+				return new WP_Error(
+					'ahentic_cannot_uninstall_self',
+					__( 'Ahentic cannot uninstall itself while you are using it.', 'ahentic' )
+				);
+			}
+
+			if ( ! file_exists( WP_PLUGIN_DIR . '/' . $file ) ) {
+				return new WP_Error( 'ahentic_plugin_missing', __( 'Plugin file was not found on disk.', 'ahentic' ) );
+			}
+
+			$was_active = is_plugin_active( $file ) || ( is_multisite() && is_plugin_active_for_network( $file ) );
+			if ( $was_active ) {
+				deactivate_plugins( $file, false, is_multisite() && is_plugin_active_for_network( $file ) );
+			}
+
+			$result = delete_plugins( array( $file ) );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+			if ( false === $result || null === $result ) {
+				return new WP_Error(
+					'ahentic_uninstall_failed',
+					__( 'Plugin uninstall failed. The site may need filesystem credentials.', 'ahentic' )
+				);
+			}
+
+			$still_there = file_exists( WP_PLUGIN_DIR . '/' . $file );
+			if ( $still_there ) {
+				return new WP_Error( 'ahentic_uninstall_failed', __( 'Plugin was not removed from disk.', 'ahentic' ) );
+			}
+
+			return array(
+				'ok'            => true,
+				'plugin_file'   => $file,
+				'slug'          => self::slug_from_plugin_file( $file ),
+				'was_active'    => $was_active,
+				'deleted'       => true,
+				'message'       => __( 'Plugin uninstalled successfully.', 'ahentic' ),
+				'plugins_url'   => admin_url( 'plugins.php' ),
 			);
 		}
 

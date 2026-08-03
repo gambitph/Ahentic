@@ -246,7 +246,7 @@ if ( ! class_exists( 'Ahentic_REST_Sessions' ) ) {
 		}
 
 		/**
-		 * PATCH /sessions/{id} — rename / mode.
+		 * PATCH /sessions/{id} — rename / mode / page context.
 		 *
 		 * @param \WP_REST_Request $request Request.
 		 * @return \WP_REST_Response|\WP_Error
@@ -268,6 +268,9 @@ if ( ! class_exists( 'Ahentic_REST_Sessions' ) ) {
 			}
 			if ( isset( $params['mode'] ) ) {
 				Ahentic_Session_Repository::set_mode( $id, $params['mode'] );
+			}
+			if ( isset( $params['pageContext'] ) && is_array( $params['pageContext'] ) ) {
+				Ahentic_Session_Repository::set_page_context( $id, $params['pageContext'] );
 			}
 
 			return rest_ensure_response( Ahentic_Session_Repository::to_rest( $id ) );
