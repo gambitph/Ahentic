@@ -2,6 +2,9 @@
 
 Protocol between the **LLM** and the **orchestrator**. Ahentic does **not** use native provider tool-calling. The model must emit a structured `AHENTIC_DEBUG` block; the orchestrator parses it and drives tools / reply / HITL.
 
+> **Canonical should:** [Agent runtime PRD](../../pro__premium_only/docs/prd/agent-runtime.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)  
+> **Plan rule (product law):** require a plan in Agent mode when ≥2 tools are planned **or** any write runs. Older “≥3 coarse steps” guidance below describes **current prompt heuristics** and must be aligned to the contract.
+
 **Code:** `Ahentic_Orchestrator::system_prompt()`, debug parse/retry helpers, `build_chat_payload()`  
 **Related:** [orchestrator.md](./orchestrator.md) · [abilities.md](../abilities/abilities.md) · [artifacts.md](../session/artifacts.md)
 

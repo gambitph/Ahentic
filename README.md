@@ -82,16 +82,22 @@ Toggle the sidebar with **Cmd/Ctrl+I** (users with `manage_options`).
 
 | Doc | Description |
 | --- | --- |
-| [docs/architecture.md](docs/architecture.md) | End-to-end architecture |
+| [CONTEXT.md](CONTEXT.md) | Glossary / ubiquitous language |
+| [pro__premium_only/docs/prd/README.md](pro__premium_only/docs/prd/README.md) | Product PRDs (should) — requires Premium checkout |
+| [docs/architecture.md](docs/architecture.md) | End-to-end architecture map |
 | [docs/development.md](docs/development.md) | Local setup, AI, debugging |
+| [docs/adr/](docs/adr/) | Architectural decisions |
+
+When code disagrees with a PRD or `CONTRACT.md`, the **PRD/contract wins**.
 
 ### By area (next to code)
 
 | Doc | Description |
 | --- | --- |
-| [src/orchestrator/orchestrator.md](src/orchestrator/orchestrator.md) | Agent loop, statuses, queue |
-| [src/orchestrator/control-block.md](src/orchestrator/control-block.md) | `AHENTIC_DEBUG` / prompt contract |
-| [src/admin/js/sidebar/sidebar.md](src/admin/js/sidebar/sidebar.md) | React sidebar |
+| `src/**/CONTRACT.md` | Must-guarantee interfaces (session, orchestrator, REST, abilities) |
+| [src/orchestrator/orchestrator.md](src/orchestrator/orchestrator.md) | Agent loop how-it-works |
+| [src/orchestrator/control-block.md](src/orchestrator/control-block.md) | `AHENTIC_DEBUG` wire format |
+| [src/admin/js/sidebar/sidebar.md](src/admin/js/sidebar/sidebar.md) | React sidebar how-it-works |
 | [src/admin/rest.md](src/admin/rest.md) | REST API map |
 | [src/session/session.md](src/session/session.md) | Session CPT + meta |
 | [src/session/artifacts.md](src/session/artifacts.md) | Session-scoped artifacts |
@@ -106,7 +112,7 @@ Cursor rules under `.cursor/rules/` encode project conventions (Abilities, AI Cl
 - **Free** ([gambitph/Ahentic](https://github.com/gambitph/Ahentic)) — Directory-bound plugin; must pass [Plugin Check](https://github.com/wordpress/plugin-check).
 - **Premium** ([bfintal/Ahentic-Premium](https://github.com/bfintal/Ahentic-Premium)) — checked out into `pro__premium_only/`. Do not put premium logic in the free tree.
 
-Private product/design docs may live under `pro__premium_only/docs/`. **Implementation truth for the free agent runtime is the colocated `src/**/*.md` docs above.**
+Private product docs (Premium checkout): [`pro__premium_only/docs/README.md`](pro__premium_only/docs/README.md) → start at [`prd/`](pro__premium_only/docs/prd/README.md). Colocated `src/**/*.md` files are how-it-works maps, not product law.
 
 ## License
 

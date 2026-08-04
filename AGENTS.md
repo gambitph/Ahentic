@@ -1,5 +1,17 @@
 # Ahentic agent notes
 
+## Product & architecture docs
+
+| Kind | Where |
+| --- | --- |
+| Glossary | [`CONTEXT.md`](./CONTEXT.md) |
+| Product PRDs (should) | [`pro__premium_only/docs/prd/README.md`](./pro__premium_only/docs/prd/README.md) |
+| Subsystem contracts | `src/**/CONTRACT.md` |
+| Architecture map | [`docs/architecture.md`](./docs/architecture.md) |
+| ADRs | [`docs/adr/`](./docs/adr/) |
+
+When code and docs disagree: **PRD/contract win**. How-it-works files under `src/**` map current implementation.
+
 ## Agent skills
 
 ### Issue tracker

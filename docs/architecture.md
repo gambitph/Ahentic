@@ -1,18 +1,25 @@
 # Architecture
 
-High-level map of Ahentic for engineers. Implementation details live next to code (links below).
+High-level map of Ahentic for engineers.
+
+**Canonical product should:** [`pro__premium_only/docs/prd/README.md`](../pro__premium_only/docs/prd/README.md)  
+**Glossary:** [`CONTEXT.md`](../CONTEXT.md) · **ADRs:** [`docs/adr/`](./adr/)  
+**Subsystem contracts:** `src/**/CONTRACT.md`  
+**How-it-works:** colocated `src/**/*.md` (implementation map — must not invent product law)
 
 ---
 
 ## Product surface
 
-Ahentic is a **Cursor-like AI workspace** embedded in WordPress:
+Ahentic is a **website developer** workspace in WordPress (Ask + Agent under that north star):
 
-- Primary UI: **React sidebar** on wp-admin and the front-end (`manage_options`)
+- Primary UI: **React sidebar** on wp-admin and the front-end (default `manage_options`)
 - Primary runtime: **PHP orchestrator** over **session CPT** state
 - Tools: **WordPress Abilities** (server PHP and browser JS)
 
 Users do not call model vendors from the browser. The sidebar talks to Ahentic REST; the orchestrator talks to the WordPress AI Client / php-ai-client.
+
+Free = interactive (human present). Premium = Agents / automation / snippets — see [Free vs premium PRD](../pro__premium_only/docs/prd/free-vs-premium.md).
 
 ---
 
@@ -58,23 +65,23 @@ Users do not call model vendors from the browser. The sidebar talks to Ahentic R
 5. If a tool needs the browser: `awaiting_browser` → sidebar runs JS → `POST …/browser-results`.
 6. If a tool needs approval: `awaiting_human` → sidebar Allow/Deny → `POST …/approvals`.
 
-Details: [orchestrator.md](../src/orchestrator/orchestrator.md), [rest.md](../src/admin/rest.md), [sidebar.md](../src/admin/js/sidebar/sidebar.md).
+Runtime laws (completion, plan, verify, HITL, browser preflight): [Agent runtime PRD](../pro__premium_only/docs/prd/agent-runtime.md).
 
 ---
 
 ## Major subsystems
 
-| Subsystem | Responsibility | Doc |
-| --- | --- | --- |
-| Sidebar | UX, poll, HITL UI, browser ability runtime | [sidebar.md](../src/admin/js/sidebar/sidebar.md) |
-| REST | Session CRUD + run control | [rest.md](../src/admin/rest.md) |
-| Session | Persist conversation + run state | [session.md](../src/session/session.md) |
-| Orchestrator | Agent loop, prompts, pauses | [orchestrator.md](../src/orchestrator/orchestrator.md) |
-| Control block | Model ↔ orchestrator protocol | [control-block.md](../src/orchestrator/control-block.md) |
-| Abilities | Tool surface | [abilities.md](../src/abilities/abilities.md) |
-| Artifacts | Stage large payloads by key | [artifacts.md](../src/session/artifacts.md) |
-| AI | Provider-agnostic generation | `src/orchestrator/class-ai.php` |
-| Queue | Async steps after HTTP response | `src/orchestrator/class-queue.php` |
+| Subsystem | Responsibility | Contract | How-it-works |
+| --- | --- | --- | --- |
+| Sidebar | UX, poll, HITL UI, browser ability runtime | — | [sidebar.md](../src/admin/js/sidebar/sidebar.md) · [PRD](../pro__premium_only/docs/prd/sidebar.md) |
+| REST | Session CRUD + run control | [CONTRACT](../src/admin/CONTRACT.md) | [rest.md](../src/admin/rest.md) |
+| Session | Persist conversation + run state | [CONTRACT](../src/session/CONTRACT.md) | [session.md](../src/session/session.md) |
+| Orchestrator | Agent loop, prompts, pauses | [CONTRACT](../src/orchestrator/CONTRACT.md) | [orchestrator.md](../src/orchestrator/orchestrator.md) |
+| Control block | Model ↔ orchestrator protocol | (orchestrator contract) | [control-block.md](../src/orchestrator/control-block.md) |
+| Abilities | Tool surface | [CONTRACT](../src/abilities/CONTRACT.md) | [abilities.md](../src/abilities/abilities.md) |
+| Artifacts | Stage large payloads by key | (session contract) | [artifacts.md](../src/session/artifacts.md) |
+| AI | Provider-agnostic generation | — | `src/orchestrator/class-ai.php` |
+| Queue | Async steps after HTTP response | — | `src/orchestrator/class-queue.php` |
 
 ---
 
@@ -85,7 +92,7 @@ Details: [orchestrator.md](../src/orchestrator/orchestrator.md), [rest.md](../sr
 | **Server** | WP APIs, public HTTP, session meta | `Ahentic_Abilities::execute` in the step worker |
 | **Browser** | Gutenberg, DOM, logged-in same-site fetch | Orchestrator pauses → sidebar `runBrowserAbility` → result POST |
 
-Same tool-result shape in the session transcript either way. See [server-abilities.md](../src/abilities/server-abilities.md) and [client-abilities.md](../src/abilities/client-abilities.md).
+Content routing: editor open for post P → browser; else server — [Content & editor PRD](../pro__premium_only/docs/prd/content-and-editor.md).
 
 ---
 
@@ -95,16 +102,16 @@ Same tool-result shape in the session transcript either way. See [server-abiliti
 | --- | --- |
 | Open/closed, width, theme, mode, placement, open tab ids | Browser `localStorage` (`ahentic.sidebar.v1`) |
 | Messages, tool results, status, plan, pending tool, page context, artifacts, trace | `ahentic-session` CPT post meta |
-| Site-wide knowledge (future / premium) | Not session chrome — separate concern |
+| Site knowledge | Option `ahentic_site_knowledge` — [PRD](../pro__premium_only/docs/prd/site-knowledge.md) |
 
 ---
 
 ## Modes
 
-| Mode | Tools |
+| Mode | Tools / completion |
 | --- | --- |
-| **Agent** | Full ability list (writes may HITL) |
-| **Ask** | Readonly abilities only |
+| **Agent** | Full ability list; plan+verify for multi-step/writes; HITL for risk tiers |
+| **Ask** | Readonly abilities only; done when answer delivered |
 
 ---
 
@@ -112,9 +119,7 @@ Same tool-result shape in the session transcript either way. See [server-abiliti
 
 - Free plugin code must remain Directory-safe (Plugin Check).
 - Premium features load from `pro__premium_only/` when `AHENTIC_BUILD === 'premium'`.
-- Do not implement premium-only product logic in the free tree.
-
-Private roadmap / product docs may exist under `pro__premium_only/docs/`. Prefer **`src/**` colocated docs** for how the current free agent runtime works.
+- Product packaging: [free-vs-premium PRD](../pro__premium_only/docs/prd/free-vs-premium.md).
 
 ---
 
@@ -122,9 +127,10 @@ Private roadmap / product docs may exist under `pro__premium_only/docs/`. Prefer
 
 | Goal | Where to start |
 | --- | --- |
-| New server tool | [abilities.md](../src/abilities/abilities.md) + [server-abilities.md](../src/abilities/server-abilities.md) |
+| Change product behavior | Relevant [PRD](../pro__premium_only/docs/prd/README.md) first |
+| New server tool | [abilities CONTRACT](../src/abilities/CONTRACT.md) + [server-abilities.md](../src/abilities/server-abilities.md) |
 | New editor/browser tool | [client-abilities.md](../src/abilities/client-abilities.md) |
-| Change agent routing / caps | [orchestrator.md](../src/orchestrator/orchestrator.md), [control-block.md](../src/orchestrator/control-block.md) |
+| Change agent routing / caps | [orchestrator CONTRACT](../src/orchestrator/CONTRACT.md) · [Agent runtime PRD](../pro__premium_only/docs/prd/agent-runtime.md) |
 | Stage large content | [artifacts.md](../src/session/artifacts.md) |
-| New REST surface | [rest.md](../src/admin/rest.md) + sidebar `api.js` |
+| New REST surface | [admin CONTRACT](../src/admin/CONTRACT.md) + sidebar `api.js` |
 | Local debugging | [development.md](./development.md) |

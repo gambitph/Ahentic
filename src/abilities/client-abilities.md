@@ -87,7 +87,7 @@ Talk to `window.wp` (block editor). Conventions:
 
 ### Registry lifetime
 
-`block-ref-registry` is **in-tab memory**. Refresh / new document → remint refs; tool errors tell the model to re-call `get-blocks` / `get-selection`. (Session artifacts store draft payloads, not the live ref map — see artifacts doc for future working-memory ideas.)
+`block-ref-registry` resolves refs in the tab. Product law: session **working memory** `editor.refs` is session-backed and **validated on every use**; miss → wipe + re-get-blocks (see [Working memory PRD](../../pro__premium_only/docs/prd/working-memory.md)). Payload drafts stay in the `artifacts` namespace, not the ref map.
 
 ---
 

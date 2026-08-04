@@ -2,6 +2,8 @@
 
 An Ahentic **session** is one agent conversation / run workspace. It is stored as a private custom post (`ahentic-session`) owned by the current user. The sidebar tabs map to session ids; message bodies are **not** kept in `localStorage`.
 
+> **Contract:** [CONTRACT.md](./CONTRACT.md) · **Glossary:** [CONTEXT.md](../../CONTEXT.md)
+
 **Code:** `class-cpt.php`, `class-repository.php`, `class-artifacts.php`
 
 **Related:** [artifacts.md](./artifacts.md) · [orchestrator.md](../orchestrator/orchestrator.md) · [rest.md](../admin/rest.md) · [sidebar.md](../admin/js/sidebar/sidebar.md)

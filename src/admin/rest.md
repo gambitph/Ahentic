@@ -2,6 +2,8 @@
 
 Session and run-control endpoints used by the sidebar. All routes require a logged-in user with **`manage_options`**. Session-scoped routes also require **ownership** of that session.
 
+> **Contract:** [CONTRACT.md](./CONTRACT.md) · **Sidebar should:** [Sidebar PRD](../../pro__premium_only/docs/prd/sidebar.md)
+
 **Code:** `class-rest-sessions.php`, `class-rest.php`  
 **Client:** `src/admin/js/sidebar/api.js`  
 **Localized:** `window.ahentic.restUrl` + `window.ahentic.restNonce` (from `Ahentic_Script_Loader`)

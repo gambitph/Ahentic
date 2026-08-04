@@ -1,8 +1,11 @@
-# Session-scoped artifacts
+# Session-scoped artifacts (payload namespace)
 
 Working files for the **current Ahentic session** (the open agent tab / `ahentic-session` CPT). Artifacts let the orchestrator and abilities stage large payloads once (drafts, block trees, HTML) and apply them later **by key**, without re-reading or re-emitting huge content from the chat transcript.
 
-**Implementation:** `src/session/class-artifacts.php` (storage + stage/list/delete abilities). Orchestrator expands `from_memory` before execute / browser pause. This doc is the contract.
+> **Canonical should:** [Working memory PRD](../../pro__premium_only/docs/prd/working-memory.md) — “artifacts” are the **payload** namespace; `editor.refs` is a sibling.  
+> **Session contract:** [CONTRACT.md](./CONTRACT.md). This file is **how-it-works** for payload staging/apply; if it disagrees with the PRD, the PRD wins.
+
+**Implementation:** `src/session/class-artifacts.php` (storage + stage/list/delete abilities). Orchestrator expands `from_memory` before execute / browser pause.
 
 **Related:** [Session](./session.md) · [Orchestrator](../orchestrator/orchestrator.md) · [Abilities](../abilities/abilities.md) · [Server abilities](../abilities/server-abilities.md) · [Client abilities](../abilities/client-abilities.md)
 
@@ -220,7 +223,7 @@ Browser abilities do not need a separate artifacts store. If a browser tool *sta
 | `_ahentic_page_context` | Open tab identity / editor routing — not draft bodies. |
 | `_ahentic_plan` | Checklist for the run — not content payloads. |
 | `_ahentic_pending_tool` | One in-flight tool handoff — may carry *expanded* input after `from_memory`. |
-| Block ref registry (JS) | Editor addressing (`b1` ↔ clientId); separate from article artifacts. May later share a broader working-memory meta key. |
+| `editor.refs` (working memory) | Editor addressing (`b1` ↔ clientId); session-backed + validated per Working memory PRD — sibling namespace to payload artifacts. |
 
 ---
 

@@ -2,6 +2,9 @@
 
 The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next, calls WordPress AI for completions, runs tools via Abilities, handles HITL and browser pauses, and persists session state so runs can resume.
 
+> **Canonical should:** [Agent runtime PRD](../../pro__premium_only/docs/prd/agent-runtime.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)  
+> This file is **how-it-works** (current implementation map). If it disagrees with the PRD/contract, the PRD/contract win — treat gaps as bugs.
+
 **Code:** `class-orchestrator.php`, `class-ai.php`, `class-queue.php`, `class-usage.php`
 
 **Related:** [Control block](./control-block.md) · [Abilities](../abilities/abilities.md) · [Sidebar](../admin/js/sidebar/sidebar.md) · [Session](../session/session.md) · [Artifacts](../session/artifacts.md) · [REST](../admin/rest.md) · [Architecture](../../docs/architecture.md)

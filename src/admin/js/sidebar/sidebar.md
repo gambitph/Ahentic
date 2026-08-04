@@ -2,6 +2,8 @@
 
 The React workspace UI for Ahentic. It is the primary product surface on **wp-admin and the front-end** for users with `manage_options`. It sends user messages, polls the orchestrator, renders progress / plans / HITL, and **runs browser abilities** when the session is `awaiting_browser`.
 
+> **Canonical should:** [Sidebar PRD](../../../../pro__premium_only/docs/prd/sidebar.md) · **REST contract:** [admin CONTRACT](../../CONTRACT.md)
+
 **Code:** `src/admin/js/sidebar/` (mount via `Ahentic_Script_Loader` → `#ahentic-root`)
 
 **Related:** [Orchestrator](../../../orchestrator/orchestrator.md) · [REST](../../rest.md) · [Client abilities](../../../abilities/client-abilities.md) · [Session](../../../session/session.md) · [Architecture](../../../../docs/architecture.md)

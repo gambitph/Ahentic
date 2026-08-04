@@ -2,6 +2,8 @@
 
 Ahentic exposes agent/tools as **WordPress Abilities** — named units with label, description, category, JSON Schema input/output, permission + execute callbacks. The orchestrator treats ability names in `tools_planned` as the tool surface.
 
+> **Canonical should:** [Abilities PRD](../../pro__premium_only/docs/prd/abilities.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)
+
 **Code:** `src/abilities/` (+ session artifact abilities in `src/session/class-artifacts.php`)
 
 **Related:** [Server abilities](./server-abilities.md) · [Client abilities](./client-abilities.md) · [Orchestrator](../orchestrator/orchestrator.md) · [Control block](../orchestrator/control-block.md) · [Artifacts](../session/artifacts.md)
