@@ -1,7 +1,7 @@
 {
   "id": "custom-code-snippets",
   "title": "Custom code and snippets",
-  "when_to_use": "Adding analytics, pixels, chat widgets, CSS/JS, or anything the user phrases as put in header/footer/functions.php.",
+  "when_to_use": "Adding analytics, pixels, chat widgets, site-wide CSS/JS, or anything the user phrases as put in header/footer/functions.php.",
   "triggers": [
     "google analytics",
     "ga4",
@@ -26,22 +26,24 @@
   "principles": [
     "Outcome over file path: “put in header” usually means print in <head> (wp_head), not edit header.php.",
     "Never edit the active theme’s header.php / footer.php / functions.php — theme updates wipe it; block themes often have no usable header.php; edits are hard to undo.",
-    "Prefer an Ahentic code-snippet ability when available; if that ability is missing, say so (missing_ability) and give a safe manual workaround — do not invent file edits.",
+    "Ahentic Code Snippets (site / head / footer / wp_head injection for HTML, CSS, JS, or PHP) are Premium — if the ability is missing, say so (missing_ability) and soft-gate; do not invent file edits.",
+    "Custom HTML blocks (core/html) with HTML inside a specific page/post are Free editor work — not the same as Code Snippets. Use that only when the user wants page-scoped markup, not site chrome.",
     "Before adding analytics/tracking, list plugins — warn if Site Kit, MonsterInsights, ExactMetrics, GA Google Analytics, or similar already injects tags.",
     "Do not default to installing Site Kit when the user pasted a measurement ID or script and wants that snippet on the site.",
-    "Free-tier custom code is HTML/CSS/JS; freeform PHP hooks are Premium / missing until available — do not fake PHP via CSS."
+    "Do not fake site-wide tracking or header scripts as a Custom HTML block on one page unless the user clearly wants page-only."
   ],
   "steps": [
-    "Clarify whether they want a literal snippet/ID or a full analytics plugin setup with Google account flow.",
+    "Clarify whether they want site-wide / head / footer injection, page-scoped HTML, or a full analytics plugin setup with Google account flow.",
     "Call ahentic/list-plugins to detect existing analytics/tag managers.",
-    "If a snippet ability exists: upsert with location head/body_open/footer, HITL preview of exact code, avoid duplicate tags.",
-    "If no snippet ability yet: set missing_ability (e.g. ahentic/upsert-code-snippet), explain not to edit theme files, and offer: paste via a trusted snippets plugin they already have, or Customizer Additional CSS for CSS-only, or wait for Ahentic snippets.",
-    "For PHP/login-rename/server redirects: explain PHP is not free-form on free; offer Premium path or capability request — do not write PHP into the Ahentic plugin."
+    "If a Premium snippet ability exists: upsert with location head/body_open/footer, HITL preview of exact code, avoid duplicate tags.",
+    "If no snippet ability (free / not installed): set missing_ability (e.g. ahentic/upsert-code-snippet), explain Code Snippets are Premium, and offer: Custom HTML block for page-only HTML, Customizer Additional CSS for CSS-only, paste via a trusted snippets plugin they already have, or upgrade.",
+    "For PHP/login-rename/server redirects: explain that needs Premium PHP snippets with probe/arm — do not write PHP into the Ahentic plugin."
   ],
   "anti_patterns": [
     "Editing header.php / functions.php / theme files.",
     "Installing Site Kit every time someone says “add GA”.",
     "Stacking a second analytics injector when one is already active.",
-    "Dumping arbitrary PHP into Ahentic’s plugin files."
+    "Dumping arbitrary PHP into Ahentic’s plugin files.",
+    "Pretending a Custom HTML block on one page is the same as site-wide head/footer injection."
   ]
 }
