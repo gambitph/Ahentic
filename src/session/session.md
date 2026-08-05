@@ -46,7 +46,8 @@ Constants: `Ahentic_Session_Repository::STATUS_*`.
 | `_ahentic_status` | Run status |
 | `_ahentic_mode` | `agent` \| `ask` |
 | `_ahentic_entries` | Conversation + tool JSON entries (capped) |
-| `_ahentic_trace` | Debugger / progress events |
+| `_ahentic_trace` | Debugger / progress events (capped; keeps head + tail) |
+| `_ahentic_run_seq` | Run counter stamped onto every trace event as `run` |
 | `_ahentic_progress` | Live `{ label, updatedAt }` for sidebar |
 | `_ahentic_pending_tool` | In-flight HITL or browser tool payload |
 | `_ahentic_plan` | Multi-step plan card |
@@ -119,6 +120,8 @@ Optional checklist from the model’s control block (`debug.plan`). Stored in `_
 
 Cleared on each new user message (`handle_user_message`). **Artifacts are kept** across new messages by default so “now put that draft in the editor” still works.
 
+Step statuses are settled when the run ends so the card never reads as live on an idle session: a finished run marks the remaining steps `completed`, and a user Stop (`cancel`) marks them `cancelled`.
+
 ---
 
 ## Artifacts
@@ -131,7 +134,11 @@ Large staged payloads (drafts, block trees) live in `_ahentic_artifacts`. Pointe
 
 CamelCase fields for the sidebar, including:
 
-`id`, `title`, `status`, `mode`, `messages`, `hasMore`, `trace`, `progress`, `plan`, `pendingTool`, `artifacts`, `tokensIn` / `tokensOut` / `tokensUsed`, `stepCount`, `lastError`, `summaryStatus`, timestamps.
+`id`, `title`, `status`, `mode`, `messages`, `hasMore`, `trace`, `traceCount`, `progress`, `plan`, `pendingTool`, `artifacts`, `tokensIn` / `tokensOut` / `tokensUsed`, `stepCount`, `lastError`, `summaryStatus`, timestamps.
+
+`trace` here is a **recent window of event envelopes** (no event `data`) because the sidebar polls
+it every ~650ms. The complete log lives on `to_diagnostics()` / `GET /sessions/{id}/diagnostics`:
+recording stays verbose for everyone, but nobody pays to transfer it until they ask for it.
 
 ---
 
@@ -148,7 +155,8 @@ CamelCase fields for the sidebar, including:
 | Cap | Approx. |
 | --- | --- |
 | Entries retained | 400 |
-| Trace events | 300 |
+| Trace events | 300 (first 60 always kept; middle collapses into one `trace_gap`) |
+| Trace events in the poll payload | 60, envelope only — full events via `/diagnostics` |
 | Artifact items / size | see artifacts.md |
 | Steps per run | orchestrator `MAX_STEPS_PER_RUN` |
 

@@ -1,9 +1,9 @@
 # Contract: Abilities registration
 
 **Kind:** Subsystem must-guarantee (free tree)  
-**Product should:** [Abilities PRD](../../pro__premium_only/docs/prd/abilities.md) · [Content & editor PRD](../../pro__premium_only/docs/prd/content-and-editor.md)  
+**Product should:** [Abilities PRD](../../pro__premium_only/docs/prd/abilities.md) · [Content & editor PRD](../../pro__premium_only/docs/prd/content-and-editor.md) · [Site settings PRD](../../pro__premium_only/docs/prd/site-settings.md)  
 **How-it-works:** [abilities.md](./abilities.md) · [server-abilities.md](./server-abilities.md) · [client-abilities.md](./client-abilities.md)  
-**ADR:** [0004](../../docs/adr/0004-editor-first-content-writes.md)
+**ADR:** [0004](../../docs/adr/0004-editor-first-content-writes.md) · [0007](../../docs/adr/0007-settings-writes-require-snapshot-undo.md)
 
 ---
 
@@ -29,6 +29,7 @@ Browser abilities must not perform real work in PHP stubs beyond registration/me
 | Ask mode | Non-readonly abilities are not executable |
 | HITL | `requires_hitl()` + human summary for mutating/dangerous tools |
 | Destructive / site-wide | Always HITL per Agent runtime PRD tiers |
+| Non-preallowable | Some abilities (e.g. user writes) must reject `allow_session` / `always_allow` and always pause for a fresh Allow/Deny — see [site-settings PRD](../../pro__premium_only/docs/prd/site-settings.md) |
 
 ## Content routing
 
@@ -43,6 +44,11 @@ Browser abilities must not perform real work in PHP stubs beyond registration/me
 ## Artifacts
 
 - Abilities that accept large content should support `from_memory` where documented; orchestrator expands before execute.
+
+## Settings snapshot + undo
+
+- Any ability writing a surface with no WordPress-native revision system (theme settings, options, global styles, template parts, media) must snapshot the prior value — or its absence — keyed to the session before executing, so `ahentic/undo-last-actions` can restore it. See ADR-0007.
+- An absent prior value (e.g. a template part with no database row yet) must be recorded distinctly from an empty one, so undo can delete an override instead of writing back blank.
 
 ## Premium headless
 

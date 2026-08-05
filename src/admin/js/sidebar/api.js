@@ -69,6 +69,17 @@ export function getSession( id ) {
 }
 
 /**
+ * Full trace + host details for a bug report. Not part of the polled session
+ * payload, so it is only fetched when the debugger is open or a log is exported.
+ *
+ * @param {number|string} id
+ * @return {Promise<Object>}
+ */
+export function getDiagnostics( id ) {
+	return apiRequest( `/sessions/${ id }/diagnostics` )
+}
+
+/**
  * @param {number|string} id
  * @param {{ title?: string, mode?: string, pageContext?: Object }} body
  * @return {Promise<Object>}

@@ -7,6 +7,9 @@ dist/
 node_modules/
 vendor/
 
+# Test artifacts
+.phpunit.result.cache
+
 # WordPress build files
 src/**/*.map
 

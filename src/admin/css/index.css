@@ -640,6 +640,20 @@ a.ahentic-icon-btn {
 	white-space: nowrap;
 }
 
+.ahentic-debugger__meta {
+	flex-shrink: 0;
+	padding: 6px 12px;
+	border-bottom: 1px solid var(--ah-border);
+	font-size: 11px;
+	line-height: 1.4;
+	color: var(--ah-muted);
+	overflow-wrap: anywhere;
+}
+
+.ahentic-debugger__meta-error {
+	color: var(--ah-danger);
+}
+
 .ahentic-debugger__body {
 	flex: 1;
 	min-height: 0;
@@ -1376,6 +1390,10 @@ a.ahentic-empty__ai-install:hover {
 	color: var(--ah-fg);
 }
 
+.ahentic-plan.is-stopped .ahentic-plan__title {
+	color: var(--ah-muted);
+}
+
 .ahentic-plan__steps {
 	margin: 0;
 	padding: 0;
@@ -1593,7 +1611,7 @@ a.ahentic-empty__ai-install:hover {
 	align-items: center;
 	gap: 6px 10px;
 	min-height: 1.5em;
-	padding: 2px 2px 4px;
+	padding: 2px 12px 4px;
 	margin-top: 2px;
 }
 

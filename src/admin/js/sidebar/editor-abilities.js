@@ -391,6 +391,21 @@ function collectBlockTextSamples( raw ) {
 }
 
 /**
+ * Plain-text character count of a block tree, tags stripped.
+ *
+ * Mirrors the PHP side so one threshold governs both server and editor writes.
+ *
+ * @param {*} raw
+ * @return {number}
+ */
+function blockTextChars( raw ) {
+	return collectBlockTextSamples( raw ).reduce(
+		( total, sample ) => total + String( sample ).replace( /<[^>]*>/gu, '' ).trim().length,
+		0
+	)
+}
+
+/**
  * Reject bracket/shorthand stubs in insert/replace payloads.
  *
  * @param {*} raw
@@ -1167,6 +1182,7 @@ export function replaceBlocks( input = {} ) {
 		inserted_count: blocks.length,
 		inserted_names: blocks.map( block => block.name ),
 		inserted_refs: refsForClientIds( blocks.map( block => block.clientId ).filter( Boolean ) ),
+		text_chars: blockTextChars( blockSelect.getBlocks?.() || [] ),
 	}
 }
 
@@ -1229,6 +1245,7 @@ export function setBlocks( input = {} ) {
 		inserted_count: live.length,
 		inserted_names: live.map( block => block.name ),
 		inserted_refs: refsForClientIds( live.map( block => block.clientId ) ),
+		text_chars: blockTextChars( live ),
 	}
 }
 
@@ -1311,6 +1328,7 @@ export function insertBlocks( input = {} ) {
 		inserted_refs: refsForClientIds( blocks.map( block => block.clientId ).filter( Boolean ) ),
 		index,
 		root_ref: rootClientId ? refForClientId( rootClientId ) : null,
+		text_chars: blockTextChars( blockSelect.getBlocks?.() || [] ),
 	}
 }
 

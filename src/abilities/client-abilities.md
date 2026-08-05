@@ -121,6 +121,8 @@ If refs are missing/stale, return a structured error (`missing` refs + message t
 
 Full document rewrite: prefer `ahentic-browser/set-blocks` (no target refs). Long drafts: `ahentic/stage-artifact` then `set-blocks` + `from_memory`.
 
+Write abilities must report what they left behind so the orchestrator never spends a turn reading it back. `set-blocks`, `insert-blocks`, and `replace-blocks` return `text_chars`: the plain-text size of the **whole** document after the write, not just the blocks written, so chunked drafting accumulates instead of looking thin on every section.
+
 ---
 
 ## Server vs browser routing (content)

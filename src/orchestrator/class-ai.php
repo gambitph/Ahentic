@@ -216,11 +216,13 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		 * missing user prose). Never leaves the debug markers in returned text.
 		 *
 		 * @param string $text Raw model text.
-		 * @return array{ text: string, debug: ?array }
+		 * @return array{ text: string, debug: ?array, truncated: bool, truncated_key: string }
 		 */
 		public static function extract_debug_block( $text ) {
-			$text  = (string) $text;
-			$debug = null;
+			$text          = (string) $text;
+			$debug         = null;
+			$truncated     = false;
+			$truncated_key = '';
 
 			// Primary: <<<AHENTIC_DEBUG … AHENTIC_DEBUG>> (2+ greater-thans).
 			$pattern = '/<<<\s*AHENTIC_DEBUG\s*([\s\S]*?)\s*AHENTIC_DEBUG>{2,}/u';
@@ -234,6 +236,23 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 				if ( preg_match( '/<<<\s*AHENTIC_DEBUG\s*(\{[\s\S]*\})/u', $text, $m ) ) {
 					$debug = self::parse_debug_json( $m[1] );
 				}
+
+				// A block cut off at the output limit has no closing brace at all, so the
+				// pattern above cannot match. Rebuild the largest valid prefix instead of
+				// throwing away a whole generation.
+				if ( null === $debug && preg_match( '/<<<\s*AHENTIC_DEBUG\s*(\{[\s\S]*)$/u', $text, $m ) ) {
+					$salvaged = self::salvage_truncated_json( $m[1] );
+					if ( is_array( $salvaged['debug'] ) ) {
+						$debug         = $salvaged['debug'];
+						$truncated     = true;
+						$truncated_key = $salvaged['incomplete_key'];
+					} elseif ( '' !== $salvaged['incomplete_key'] ) {
+						// Nothing recoverable, but we still know where it stopped.
+						$truncated     = true;
+						$truncated_key = $salvaged['incomplete_key'];
+					}
+				}
+
 				// Drop everything from the opener onward so markers never reach the UI.
 				$text = trim( preg_replace( '/<<<\s*AHENTIC_DEBUG[\s\S]*/u', '', $text, 1 ) );
 			}
@@ -242,13 +261,243 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			$text = trim( preg_replace( '/<<<\s*AHENTIC_DEBUG[\s\S]*?(?:AHENTIC_DEBUG>{2,}|$)/u', '', $text ) );
 			$text = trim( preg_replace( '/AHENTIC_DEBUG>{2,}/u', '', $text ) );
 
-			if ( '' === $text && is_array( $debug ) ) {
+			// A salvaged block is a partial thought, not a finished one — synthesizing
+			// prose from it would claim work that was cut off before it ran.
+			if ( '' === $text && is_array( $debug ) && ! $truncated ) {
 				$text = self::fallback_reply_from_debug( $debug );
 			}
 
 			return array(
-				'text'  => $text,
-				'debug' => $debug,
+				'text'          => $text,
+				'debug'         => $debug,
+				'truncated'     => $truncated,
+				'truncated_key' => $truncated_key,
+			);
+		}
+
+		/**
+		 * The four `next` values the agent loop accepts.
+		 *
+		 * @var array
+		 */
+		private static $next_values = array( 'reply', 'ask_user', 'use_tools', 'missing_ability' );
+
+		/**
+		 * Common model spellings of `next`, mapped to the accepted values.
+		 *
+		 * @var array
+		 */
+		private static $next_aliases = array(
+			'use tools'         => 'use_tools',
+			'usetools'          => 'use_tools',
+			'use_tool'          => 'use_tools',
+			'tools'             => 'use_tools',
+			'tool'              => 'use_tools',
+			'tool_use'          => 'use_tools',
+			'tool_calls'        => 'use_tools',
+			'call_tools'        => 'use_tools',
+			'run_tools'         => 'use_tools',
+			'answer'            => 'reply',
+			'respond'           => 'reply',
+			'response'          => 'reply',
+			'final'             => 'reply',
+			'final_reply'       => 'reply',
+			'finish'            => 'reply',
+			'done'              => 'reply',
+			'complete'          => 'reply',
+			'ask'               => 'ask_user',
+			'ask-user'          => 'ask_user',
+			'ask user'          => 'ask_user',
+			'askuser'           => 'ask_user',
+			'question'          => 'ask_user',
+			'clarify'           => 'ask_user',
+			'missing-ability'   => 'missing_ability',
+			'missing ability'   => 'missing_ability',
+			'missingability'    => 'missing_ability',
+			'missing_abilities' => 'missing_ability',
+			'no_ability'        => 'missing_ability',
+		);
+
+		/**
+		 * Repair a parsed control block whose `next` is missing or misspelled.
+		 *
+		 * A round trip to the model is the most expensive way to recover a value we can
+		 * derive from the block already paid for, so map known spellings or infer from
+		 * the rest of the block.
+		 *
+		 * Truncated blocks are deliberately left alone: one cut off at the output limit
+		 * is missing `tools_planned` because of where it stopped, not because the model
+		 * intended no tools, so inferring `reply` there would silently drop the work and
+		 * inferring `use_tools` could run a half-recovered write. Those stay unusable and
+		 * fall through to the caller's retry.
+		 *
+		 * @param mixed  $debug         Parsed debug payload.
+		 * @param bool   $truncated     Whether the block was cut off mid-JSON.
+		 * @param string $truncated_key Top-level key whose value was lost.
+		 * @return array{ debug: mixed, changed: bool, from: string, to: string, reason: string }
+		 */
+		public static function normalize_debug_next( $debug, $truncated = false, $truncated_key = '' ) {
+			$unchanged = array(
+				'debug'   => $debug,
+				'changed' => false,
+				'from'    => '',
+				'to'      => '',
+				'reason'  => '',
+			);
+
+			if ( ! is_array( $debug ) || empty( $debug ) ) {
+				return $unchanged;
+			}
+
+			$raw = isset( $debug['next'] ) && is_scalar( $debug['next'] ) ? (string) $debug['next'] : '';
+			if ( in_array( $raw, self::$next_values, true ) ) {
+				return $unchanged;
+			}
+
+			$key    = preg_replace( '/[^a-z_ -]/', '', strtolower( trim( $raw ) ) );
+			$next   = '';
+			$reason = '';
+
+			if ( in_array( $key, self::$next_values, true ) ) {
+				// Right value, wrong casing or padding.
+				$next   = $key;
+				$reason = 'alias';
+			} elseif ( isset( self::$next_aliases[ $key ] ) ) {
+				$next   = self::$next_aliases[ $key ];
+				$reason = 'alias';
+			} else {
+				$tools = isset( $debug['tools_planned'] ) && is_array( $debug['tools_planned'] )
+					? $debug['tools_planned']
+					: array();
+
+				if ( ! empty( $debug['ability_needed'] ) ) {
+					$next   = 'missing_ability';
+					$reason = 'inferred_ability_needed';
+				} elseif ( ! empty( $tools ) && 'tools_planned' !== $truncated_key ) {
+					$next   = 'use_tools';
+					$reason = 'inferred_tools_planned';
+				} elseif ( ! $truncated ) {
+					$next   = 'reply';
+					$reason = 'inferred_no_tools';
+				}
+			}
+
+			if ( '' === $next ) {
+				return $unchanged;
+			}
+
+			$debug['next'] = $next;
+
+			return array(
+				'debug'   => $debug,
+				'changed' => true,
+				'from'    => $raw,
+				'to'      => $next,
+				'reason'  => $reason,
+			);
+		}
+
+		/**
+		 * Rebuild a parseable object from a control block cut off mid-JSON.
+		 *
+		 * Walks the partial JSON tracking string / escape state and container depth,
+		 * rewinds to the last complete top-level member, and closes the object. The
+		 * member that was interrupted is dropped rather than half-recovered, so a
+		 * salvaged block never carries a partial tool call — callers get
+		 * `incomplete_key` to tell what was lost.
+		 *
+		 * @param string $raw Partial JSON starting at `{`.
+		 * @return array{ debug: ?array, incomplete_key: string }
+		 */
+		private static function salvage_truncated_json( $raw ) {
+			$none = array(
+				'debug'          => null,
+				'incomplete_key' => '',
+			);
+
+			$raw = trim( (string) $raw );
+			$len = strlen( $raw );
+			if ( 0 === $len || '{' !== $raw[0] ) {
+				return $none;
+			}
+
+			$stack         = array();
+			$in_string     = false;
+			$escaped       = false;
+			$string_start  = -1;
+			$expect_key    = false;
+			$current_key   = '';
+			$last_complete = -1;
+
+			for ( $i = 0; $i < $len; $i++ ) {
+				$ch = $raw[ $i ];
+
+				if ( $in_string ) {
+					if ( $escaped ) {
+						$escaped = false;
+					} elseif ( '\\' === $ch ) {
+						$escaped = true;
+					} elseif ( '"' === $ch ) {
+						$in_string = false;
+						if ( 1 === count( $stack ) && $expect_key ) {
+							$current_key = substr( $raw, $string_start + 1, $i - $string_start - 1 );
+							$expect_key  = false;
+						}
+					}
+					continue;
+				}
+
+				if ( '"' === $ch ) {
+					$in_string    = true;
+					$string_start = $i;
+					continue;
+				}
+
+				if ( '{' === $ch || '[' === $ch ) {
+					$stack[] = $ch;
+					if ( 1 === count( $stack ) ) {
+						$expect_key = '{' === $ch;
+					}
+					continue;
+				}
+
+				if ( '}' === $ch || ']' === $ch ) {
+					array_pop( $stack );
+					// A nested value belonging to a top-level key just closed.
+					if ( 1 === count( $stack ) ) {
+						$last_complete = $i + 1;
+						$current_key   = '';
+					}
+					continue;
+				}
+
+				// Top-level separator: everything before it is a complete member.
+				if ( ',' === $ch && 1 === count( $stack ) ) {
+					$last_complete = $i;
+					$current_key   = '';
+					$expect_key    = true;
+				}
+			}
+
+			// Balanced input is not truncated — nothing for this path to repair.
+			if ( empty( $stack ) ) {
+				return $none;
+			}
+
+			if ( $last_complete < 1 ) {
+				// Truncated before any member finished; the key name is still useful.
+				return array(
+					'debug'          => null,
+					'incomplete_key' => $current_key,
+				);
+			}
+
+			$closer = ( '[' === $stack[0] ) ? ']' : '}';
+			$parsed = json_decode( substr( $raw, 0, $last_complete ) . $closer, true );
+
+			return array(
+				'debug'          => is_array( $parsed ) ? $parsed : null,
+				'incomplete_key' => $current_key,
 			);
 		}
 
@@ -487,10 +736,22 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 				}
 			}
 
-			$raw       = $text;
-			$extracted = self::extract_debug_block( $text );
-			$text      = $extracted['text'];
-			$debug     = $extracted['debug'];
+			$raw           = $text;
+			$extracted     = self::extract_debug_block( $text );
+			$text          = $extracted['text'];
+			$debug         = $extracted['debug'];
+			$truncated     = ! empty( $extracted['truncated'] );
+			$truncated_key = isset( $extracted['truncated_key'] ) ? (string) $extracted['truncated_key'] : '';
+
+			$normalized       = self::normalize_debug_next( $debug, $truncated, $truncated_key );
+			$debug            = $normalized['debug'];
+			$debug_normalized = $normalized['changed']
+				? array(
+					'from'   => $normalized['from'],
+					'to'     => $normalized['to'],
+					'reason' => $normalized['reason'],
+				)
+				: null;
 
 			if ( '' === trim( $text ) ) {
 				// Debug-only replies become fallback prose in extract_debug_block.
@@ -502,12 +763,15 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 				$had_out = $out > 0;
 				if ( $had_raw || $had_out ) {
 					return array(
-						'text'         => '',
-						'tokens_in'    => $in,
-						'tokens_out'   => $out,
-						'tokens_total' => $total > 0 ? $total : ( $in + $out ),
-						'model'        => $model,
-						'debug'        => is_array( $debug ) ? $debug : null,
+						'text'             => '',
+						'tokens_in'        => $in,
+						'tokens_out'       => $out,
+						'tokens_total'     => $total > 0 ? $total : ( $in + $out ),
+						'model'            => $model,
+						'debug'            => is_array( $debug ) ? $debug : null,
+						'truncated'        => $truncated,
+						'truncated_key'    => $truncated_key,
+						'debug_normalized' => $debug_normalized,
 					);
 				}
 
@@ -515,12 +779,15 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			}
 
 			return array(
-				'text'         => $text,
-				'tokens_in'    => $in,
-				'tokens_out'   => $out,
-				'tokens_total' => $total > 0 ? $total : ( $in + $out ),
-				'model'        => $model,
-				'debug'        => $debug,
+				'text'             => $text,
+				'tokens_in'        => $in,
+				'tokens_out'       => $out,
+				'tokens_total'     => $total > 0 ? $total : ( $in + $out ),
+				'model'            => $model,
+				'debug'            => $debug,
+				'truncated'        => $truncated,
+				'truncated_key'    => $truncated_key,
+				'debug_normalized' => $debug_normalized,
 			);
 		}
 	}

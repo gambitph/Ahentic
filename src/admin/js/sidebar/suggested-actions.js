@@ -4,6 +4,7 @@
 
 import { useCallback, useState } from '@wordpress/element'
 import { __ } from '@wordpress/i18n'
+import { openLink } from './links'
 
 /**
  * @param {Object}   props
@@ -28,7 +29,7 @@ export default function SuggestedActions( {
 			return
 		}
 		if ( action.type === 'link' && action.url ) {
-			window.open( action.url, '_blank', 'noopener,noreferrer' )
+			openLink( action.url )
 			return
 		}
 		if ( action.type === 'ability' && typeof onAbilityAction === 'function' ) {

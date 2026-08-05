@@ -40,8 +40,10 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		const MAX_TOOL_RESULT_CHARS = 8000;
 		/** Cap for the newest live-editor snapshot; superseded copies are collapsed so one full read fits. */
 		const MAX_TOOL_RESULT_CHARS_SNAPSHOT = 24000;
-		/** Max verify-continue cycles before an honest partial finish. */
-		const MAX_VERIFY_ATTEMPTS = 2;
+		/** Max repair-think cycles for a thin body before an honest partial finish. */
+		const MAX_VERIFY_ATTEMPTS = 1;
+		/** Plain-text characters a long-form body must reach before the agent may finish. */
+		const LONG_FORM_MIN_CHARS = 2000;
 
 		/**
 		 * Session currently being processed (for abilities that need page context).
@@ -138,6 +140,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				array(
 					'mode'    => $mode_now,
 					'message' => self::excerpt( $content, 160 ),
+					// Recorded per run so a log read months later still says which
+					// plugin, WordPress, PHP, and AI client produced it.
+					'env'     => Ahentic_Session_Repository::environment_snapshot(),
 				)
 			);
 
@@ -693,7 +698,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
 				}
 
-				self::track_tool_for_verify( $session_id, $name, $payload, $ok );
+				$payload = self::assess_write_payload( $session_id, $name, $payload, $ok );
 
 				$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 				if ( ! is_string( $content ) ) {
@@ -831,10 +836,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @return array|\WP_Error
 		 */
 		private static function run_llm_with_debug( $session_id, $progress, $system ) {
-			$result       = null;
-			$prior_text   = '';
-			$last_error   = null;
-			$max_attempts = self::MAX_DEBUG_ATTEMPTS;
+			$result              = null;
+			$prior_text          = '';
+			$last_error          = null;
+			$prior_truncated     = false;
+			$prior_truncated_key = '';
+			$max_attempts        = self::MAX_DEBUG_ATTEMPTS;
 
 			for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
 				$steps_so_far = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
@@ -863,6 +870,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 							'attempt'       => $attempt,
 							'max'           => $max_attempts,
 							'prior_excerpt' => self::excerpt( $prior_text, 160 ),
+							// Which failure is actually burning attempts.
+							'reason'        => $prior_truncated ? 'truncated' : 'no_usable_block',
+							'truncated_key' => $prior_truncated_key,
 						),
 						$steps_so_far
 					);
@@ -949,7 +959,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				if ( '' !== trim( $text ) ) {
 					$prior_text = $text;
 				}
-				$last_error = null;
+				$prior_truncated     = ! empty( $result['truncated'] );
+				$prior_truncated_key = isset( $result['truncated_key'] ) ? (string) $result['truncated_key'] : '';
+				$last_error          = null;
 			}
 
 			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
@@ -958,7 +970,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'debug_retries_exhausted',
 				sprintf( 'AHENTIC_DEBUG still missing after %d attempts', $max_attempts ),
 				array(
-					'attempts' => $max_attempts,
+					'attempts'      => $max_attempts,
+					'reason'        => $prior_truncated ? 'truncated' : 'no_usable_block',
+					'truncated_key' => $prior_truncated_key,
 				),
 				$step
 			);
@@ -1249,32 +1263,68 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					'history_turns' => count( $history ),
 					'debug_retry'   => ! $bump_step,
 					'compacted'     => ! empty( $built['compacted'] ),
+					'superseded'    => isset( $built['superseded'] ) ? (int) $built['superseded'] : 0,
 				),
 				$step
 			);
 
+			if ( ! empty( $built['clipped'] ) ) {
+				$clip_names = array();
+				foreach ( $built['clipped'] as $clip ) {
+					$clip_names[] = $clip['ability'] . ' ' . $clip['len'] . '/' . $clip['cap'];
+				}
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'prompt_clipped',
+					sprintf( 'Tool results clipped for the prompt: %s', implode( ', ', $clip_names ) ),
+					array( 'clipped' => $built['clipped'] ),
+					$step
+				);
+			}
+
+			$max_output = self::max_output_tokens_for_session( $session_id );
+
+			// Prompt sizes, not prompt text: a runaway context is the single most
+			// common cause of slow runs and is invisible from excerpts alone.
 			Ahentic_Session_Repository::append_trace(
 				$session_id,
 				'llm_request',
-				'LLM request',
+				sprintf( 'LLM request — prompt %dc', strlen( $system ) + strlen( $user ) ),
 				array(
-					'progress'     => $progress,
-					'user_excerpt' => self::excerpt( $user, 120 ),
-					'debug_retry'  => ! $bump_step,
+					'progress'      => $progress,
+					'user_excerpt'  => self::excerpt( $user, 120 ),
+					'debug_retry'   => ! $bump_step,
+					'system_len'    => strlen( $system ),
+					'user_len'      => strlen( $user ),
+					'history_turns' => count( $history ),
+					'max_output'    => $max_output,
+					'content_work'  => Ahentic_Session_Repository::get_content_work( $session_id ),
 				),
 				$step
 			);
 
-			$result = Ahentic_AI::complete_chat(
+			$started_ms = (int) round( microtime( true ) * 1000 );
+			$result     = Ahentic_AI::complete_chat(
 				$system,
 				$history,
 				$user,
 				array(
-					'max_output_tokens' => self::max_output_tokens_for_session( $session_id ),
+					'max_output_tokens' => $max_output,
 					'session_id'        => $session_id,
 				)
 			);
+			$elapsed_ms = (int) round( microtime( true ) * 1000 ) - $started_ms;
 			if ( is_wp_error( $result ) ) {
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'llm_error',
+					sprintf( 'LLM failed after %dms', $elapsed_ms ),
+					array(
+						'code'        => $result->get_error_code(),
+						'duration_ms' => $elapsed_ms,
+					),
+					$step
+				);
 				return $result;
 			}
 
@@ -1286,6 +1336,31 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			);
 
 			$debug = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : null;
+
+			// The parse layer repairs a derivable `next` so a misspelling does not cost a
+			// whole round trip; record it so the debugger still shows what was recovered.
+			if ( ! empty( $result['debug_normalized'] ) ) {
+				$normalized = $result['debug_normalized'];
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'debug_normalized',
+					sprintf(
+						/* translators: 1: recovered next value, 2: how the value was derived */
+						__( 'Recovered next=%1$s (%2$s) — retry avoided', 'ahentic' ),
+						$normalized['to'],
+						$normalized['reason']
+					),
+					array_merge(
+						$normalized,
+						array(
+							'truncated'     => ! empty( $result['truncated'] ),
+							'truncated_key' => isset( $result['truncated_key'] ) ? (string) $result['truncated_key'] : '',
+						)
+					),
+					$step
+				);
+			}
+
 			self::trace_debug( $session_id, $debug, $step );
 
 			// Prefer the model's intention/thinking over the generic phase label while tools/reply follow.
@@ -1300,12 +1375,13 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			Ahentic_Session_Repository::append_trace(
 				$session_id,
 				'llm_response',
-				'LLM response',
+				sprintf( 'LLM response — %dms, %d out', $elapsed_ms, (int) $result['tokens_out'] ),
 				array(
 					'model'         => $result['model'],
 					'tokens_in'     => $result['tokens_in'],
 					'tokens_out'    => $result['tokens_out'],
 					'tokens_total'  => $result['tokens_total'],
+					'duration_ms'   => $elapsed_ms,
 					'reply_excerpt' => self::excerpt( $result['text'], 200 ),
 					'progress'      => $progress,
 				),
@@ -2447,6 +2523,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
 			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_CANCELLED );
 			Ahentic_Step_Queue::release_run( $session_id );
+			self::cancel_plan_on_stop( $session_id );
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(
@@ -2691,7 +2768,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
 			}
 
-			self::track_tool_for_verify( $session_id, $name, $payload, $ok );
+			$payload = self::assess_write_payload( $session_id, $name, $payload, $ok );
 
 			$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			if ( ! is_string( $content ) ) {
@@ -2787,7 +2864,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
 			}
 
-			self::track_tool_for_verify( $session_id, $name, $tool_payload, $ok );
+			$tool_payload = self::assess_write_payload( $session_id, $name, $tool_payload, $ok );
 
 			$content = wp_json_encode( $tool_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			if ( ! is_string( $content ) ) {
@@ -3105,10 +3182,12 @@ Rules:
 		 * so the next think can observe them.
 		 *
 		 * @param array $entries Session entries.
-		 * @return array{history: array, user: string}
+		 * @return array{history: array, user: string, clipped: array, superseded: int}
 		 */
 		private static function build_chat_payload( array $entries ) {
 			$latest_snapshot = self::latest_live_editor_snapshots( $entries );
+			$clipped         = array();
+			$superseded      = 0;
 
 			$normalized = array();
 			foreach ( $entries as $i => $entry ) {
@@ -3130,11 +3209,20 @@ Rules:
 
 					if ( $snapshot && $latest_snapshot[ $ability ] !== $i ) {
 						$body = '[Superseded — a newer ' . $ability . ' result appears below.]';
+						++$superseded;
 					} else {
-						$body = self::truncate_tool_result_for_prompt(
-							(string) $entry['content'],
-							$snapshot ? self::MAX_TOOL_RESULT_CHARS_SNAPSHOT : self::MAX_TOOL_RESULT_CHARS
-						);
+						$raw_len = strlen( (string) $entry['content'] );
+						$cap     = $snapshot ? self::MAX_TOOL_RESULT_CHARS_SNAPSHOT : self::MAX_TOOL_RESULT_CHARS;
+						$body    = self::truncate_tool_result_for_prompt( (string) $entry['content'], $cap );
+						if ( $raw_len > $cap ) {
+							// A clipped read-back makes the model re-read what it can never see,
+							// so record it: this was invisible and cost a full debugging round.
+							$clipped[] = array(
+								'ability' => $ability,
+								'len'     => $raw_len,
+								'cap'     => $cap,
+							);
+						}
 					}
 
 					$normalized[] = array(
@@ -3153,8 +3241,10 @@ Rules:
 
 			if ( $last_user_i < 0 ) {
 				return array(
-					'history' => array(),
-					'user'    => '',
+					'history'    => array(),
+					'user'       => '',
+					'clipped'    => $clipped,
+					'superseded' => $superseded,
 				);
 			}
 
@@ -3192,9 +3282,11 @@ Rules:
 			}
 
 			return array(
-				'history'   => $history,
-				'user'      => $user,
-				'compacted' => false,
+				'history'    => $history,
+				'user'       => $user,
+				'compacted'  => false,
+				'clipped'    => $clipped,
+				'superseded' => $superseded,
 			);
 		}
 
@@ -3208,6 +3300,11 @@ Rules:
 		private static function apply_context_compaction( $session_id, array $payload ) {
 			$history = isset( $payload['history'] ) && is_array( $payload['history'] ) ? $payload['history'] : array();
 			$user    = isset( $payload['user'] ) ? (string) $payload['user'] : '';
+			// Prompt-shaping notes are diagnostics about the build, so they survive compaction.
+			$notes   = array(
+				'clipped'    => isset( $payload['clipped'] ) && is_array( $payload['clipped'] ) ? $payload['clipped'] : array(),
+				'superseded' => isset( $payload['superseded'] ) ? (int) $payload['superseded'] : 0,
+			);
 
 			$chars = strlen( $user );
 			foreach ( $history as $turn ) {
@@ -3216,10 +3313,13 @@ Rules:
 
 			$needs = count( $history ) > self::COMPACT_HISTORY_THRESHOLD || $chars > self::COMPACT_CHAR_THRESHOLD;
 			if ( ! $needs ) {
-				return array(
-					'history'   => $history,
-					'user'      => $user,
-					'compacted' => false,
+				return array_merge(
+					$notes,
+					array(
+						'history'   => $history,
+						'user'      => $user,
+						'compacted' => false,
+					)
 				);
 			}
 
@@ -3263,10 +3363,13 @@ Rules:
 				(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
 			);
 
-			return array(
-				'history'   => $compacted_history,
-				'user'      => $user,
-				'compacted' => true,
+			return array_merge(
+				$notes,
+				array(
+					'history'   => $compacted_history,
+					'user'      => $user,
+					'compacted' => true,
+				)
 			);
 		}
 
@@ -3430,10 +3533,15 @@ Rules:
 				. 'CRITICAL — block refs: get-blocks / get-selection return short refs (b1, b2, …). When calling tools that take ref / refs / after_ref / root_ref, '
 				. 'copy those refs EXACTLY from the latest get-blocks / get-selection result. Never invent refs and never send Gutenberg clientId UUID hashes. '
 				. 'If a tool returns missing refs / block_not_found, re-call get-blocks (or get-selection) and use the fresh refs — do not guess. '
-				. 'CRITICAL — verify writes before finishing: after create-post / update-post / set-blocks / insert-blocks / replace-blocks '
-				. '(and other mutates), call a readonly check (get-content or get-blocks — not get-editor-state alone for long-form) '
-				. 'before next="reply". For long-form, the body must be non-trivial (not a stub/placeholder). '
-				. 'Staging (stage-artifact) is not done — still apply with from_memory. '
+				. 'CRITICAL — never re-check your own writes: tool results are authoritative. After a successful create-post / update-post / '
+				. 'set-blocks / insert-blocks / replace-blocks (or any other mutate), do NOT call get-content, get-blocks, or any other readonly '
+				. 'ability to confirm it landed — the write result already reports what was persisted (content_text_chars / text_chars / '
+				. 'inserted_count / before). Go straight to next="reply". '
+				. 'If a write result contains "thin": true, the body is too small for the long-form work requested — keep writing '
+				. '(expand or restage it) instead of replying. Staging (stage-artifact) is not done — still apply with from_memory. '
+				. 'A page snapshot (get-visible-page / get-current-page) shows the page as rendered when it last loaded, so it can never '
+				. 'confirm a change made after that — never use it to verify a write, a plugin activation, or a setting. If a stale notice is '
+				. 'still on screen, say so and tell the user to reload rather than re-reading the screen. '
 				. 'If a tool returns error placeholder_content / ahentic_placeholder_content / ahentic_use_browser_editor, fix the approach '
 				. '(real block objects and/or browser tools) — do not claim the article was written. '
 				. 'Core block cookbook (common attrs): '
@@ -3547,7 +3655,7 @@ Rules:
 						. '(while drafting: chunk with mode=append until complete=true; when revising a ready draft or rewriting the full article: mode=replace or a new key) '
 						. 'then apply with set-blocks/create-post/update-post '
 						. 'using {"from_memory":"…"} — do not finish after a thin one-section set-blocks rewrite. '
-						. 'A finished article needs a full multi-section body; verify with get-blocks/get-content and keep writing if thin.';
+						. 'A finished article needs a full multi-section body; each write result reports its size, so keep writing when it comes back thin.';
 				}
 			}
 
@@ -3583,20 +3691,19 @@ Rules:
 					. '. Set next="use_tools" with set-blocks / create-post / update-post using {"from_memory":"<key>"} before next="reply".';
 			}
 
-			$pending = Ahentic_Session_Repository::get_verify_pending( $session_id );
-			if ( ! empty( $pending ) ) {
-				$names = array();
-				foreach ( $pending as $item ) {
-					if ( ! empty( $item['ability'] ) ) {
-						$names[] = (string) $item['ability'];
-					}
+			$findings = Ahentic_Session_Repository::get_verify_pending( $session_id );
+			if ( ! empty( $findings ) ) {
+				$chars = 0;
+				foreach ( $findings as $item ) {
+					$chars = max( $chars, isset( $item['chars'] ) ? (int) $item['chars'] : 0 );
 				}
-				$names   = array_values( array_unique( $names ) );
-				$notes[] = 'Pending write verification (required before finishing): '
-					. implode( ', ', $names )
-					. '. Set next="use_tools" with ahentic/get-content (server) or ahentic-browser/get-blocks (editor open). '
-					. 'Do not rely on get-editor-state alone for long-form — it has no body. '
-					. 'Do not set next="reply" until a readonly check proves a non-trivial body for long-form work.';
+				$notes[] = sprintf(
+					'The body you have written so far is too thin for this long-form request (%1$d characters of text, minimum %2$d). '
+						. 'Keep writing: expand it with real sections via set-blocks / insert-blocks / update-post. '
+						. 'Do not set next="reply" until the body is complete. Do not call a readonly ability to re-check it — the write result reports the size.',
+					$chars,
+					self::LONG_FORM_MIN_CHARS
+				);
 			}
 
 			if ( empty( $notes ) ) {
@@ -3619,189 +3726,177 @@ Rules:
 		}
 
 		/**
-		 * Track successful writes for tiered verification; clear on matching readonly reads.
+		 * Judge a successful write from its own return payload and mark the verdict on it.
+		 *
+		 * Writes already report what they persisted — server abilities reload the post and
+		 * measure it, editor abilities read the live store back — so no readonly ability is
+		 * called to confirm a write. Only long-form runs are judged: a short body is
+		 * legitimate everywhere else.
 		 *
 		 * @param int    $session_id Session ID.
 		 * @param string $name       Ability.
 		 * @param mixed  $payload    Tool payload.
 		 * @param bool   $ok         Success.
+		 * @return mixed Payload, marked with thin/thin_reason when the body is too small.
 		 */
-		private static function track_tool_for_verify( $session_id, $name, $payload, $ok ) {
+		private static function assess_write_payload( $session_id, $name, $payload, $ok ) {
 			if ( ! $ok || ! class_exists( 'Ahentic_Abilities' ) ) {
-				return;
+				return $payload;
 			}
 			$name = (string) $name;
 			if ( Ahentic_Abilities::is_readonly( $name ) ) {
-				if ( self::ability_is_verify_read( $name ) ) {
-					self::apply_verify_read( $session_id, $name, is_array( $payload ) ? $payload : array() );
-				}
-				return;
+				return $payload;
 			}
 			if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::is_artifact_ability( $name ) ) {
-				return;
+				return $payload;
 			}
 
-			$item = array(
-				'ability' => $name,
-				'at'      => gmdate( 'c' ),
-				'tier'    => self::verify_tier_for_ability( $name ),
-			);
-			if ( is_array( $payload ) ) {
-				if ( ! empty( $payload['id'] ) ) {
-					$item['post_id'] = (int) $payload['id'];
-				} elseif ( ! empty( $payload['post_id'] ) ) {
-					$item['post_id'] = (int) $payload['post_id'];
-				}
-				$count = 0;
-				if ( ! empty( $payload['block_count'] ) ) {
-					$count = (int) $payload['block_count'];
-				} elseif ( ! empty( $payload['inserted_count'] ) ) {
-					$count = (int) $payload['inserted_count'];
-				} elseif ( ! empty( $payload['blocks'] ) && is_array( $payload['blocks'] ) ) {
-					$count = count( $payload['blocks'] );
-				}
-				if ( $count > 0 ) {
-					$item['block_count'] = $count;
-				}
-			}
-
-			// Site-tier mutates (plugins, etc.): tool success is enough. Meta-tier writes
-			// (title) return the stored value, so a body read-back proves nothing about them.
-			if ( 'site' === $item['tier'] || 'meta' === $item['tier'] ) {
-				self::advance_plan_after_tool( $session_id, $name );
-				return;
-			}
-
-			$pending   = Ahentic_Session_Repository::get_verify_pending( $session_id );
-			$pending[] = $item;
-			Ahentic_Session_Repository::set_verify_pending( $session_id, $pending );
 			self::advance_plan_after_tool( $session_id, $name );
+
+			if ( ! is_array( $payload ) || ! self::ability_writes_body( $name ) ) {
+				return $payload;
+			}
+			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) || ! Ahentic_Session_Artifacts::session_has_content_work( $session_id ) ) {
+				return $payload;
+			}
+
+			$chars  = self::body_chars_from_write_payload( $payload );
+			$target = self::write_target_key( $name, $payload );
+
+			// A later write to the same document supersedes what an earlier one reported.
+			$findings = array();
+			foreach ( Ahentic_Session_Repository::get_verify_pending( $session_id ) as $item ) {
+				if ( isset( $item['target'] ) && (string) $item['target'] === $target ) {
+					continue;
+				}
+				$findings[] = $item;
+			}
+
+			$thin = ( $chars >= 0 && $chars < self::LONG_FORM_MIN_CHARS )
+				|| self::write_payload_looks_like_placeholder( $payload );
+
+			if ( $thin ) {
+				$payload['thin']        = true;
+				$payload['thin_reason'] = sprintf(
+					/* translators: 1: measured characters, 2: required characters */
+					__( 'This document holds %1$d characters of text; the long-form work requested needs at least %2$d. Keep writing — expand it with real sections instead of replying.', 'ahentic' ),
+					max( 0, $chars ),
+					self::LONG_FORM_MIN_CHARS
+				);
+				$findings[] = array(
+					'ability' => $name,
+					'target'  => $target,
+					'at'      => gmdate( 'c' ),
+					'chars'   => max( 0, $chars ),
+				);
+			}
+
+			Ahentic_Session_Repository::set_verify_pending( $session_id, $findings );
+
+			if ( $thin ) {
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'verify_thin',
+					sprintf( 'Thin body after %s', $name ),
+					array(
+						'ability' => $name,
+						'target'  => $target,
+						'chars'   => max( 0, $chars ),
+						'minimum' => self::LONG_FORM_MIN_CHARS,
+					),
+					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+				);
+			}
+
+			return $payload;
 		}
 
 		/**
+		 * Writes whose payload reports a body worth measuring.
+		 *
 		 * @param string $name Ability.
 		 * @return bool
 		 */
-		private static function ability_is_verify_read( $name ) {
+		private static function ability_writes_body( $name ) {
 			return in_array(
 				(string) $name,
 				array(
-					'ahentic/get-content',
-					'ahentic-browser/get-blocks',
-					'ahentic-browser/get-selection',
+					'ahentic/create-post',
+					'ahentic/update-post',
+					'ahentic-browser/set-blocks',
+					'ahentic-browser/insert-blocks',
+					'ahentic-browser/replace-blocks',
 				),
 				true
 			);
 		}
 
 		/**
-		 * @param string $name Ability.
+		 * Which document a write landed on, so a later write can supersede its finding.
+		 *
+		 * @param string $name    Ability.
+		 * @param array  $payload Payload.
 		 * @return string
 		 */
-		private static function verify_tier_for_ability( $name ) {
-			if ( in_array( (string) $name, array( 'ahentic/set-post-status', 'ahentic-browser/save-post' ), true ) ) {
-				return 'publish';
+		private static function write_target_key( $name, array $payload ) {
+			if ( 0 === strpos( (string) $name, 'ahentic-browser/' ) ) {
+				// Editor writes all land on the one open document.
+				return 'editor';
 			}
-			if ( false !== strpos( (string) $name, 'plugin' ) ) {
-				return 'site';
+			$post_id = 0;
+			if ( ! empty( $payload['id'] ) ) {
+				$post_id = (int) $payload['id'];
+			} elseif ( ! empty( $payload['post_id'] ) ) {
+				$post_id = (int) $payload['post_id'];
 			}
-			if ( in_array( (string) $name, array( 'ahentic-browser/update-post-title' ), true ) ) {
-				return 'meta';
-			}
-			return 'content';
+			return 'post:' . $post_id;
 		}
 
 		/**
-		 * @param int    $session_id Session ID.
-		 * @param string $name       Ability.
-		 * @param array  $payload    Payload.
-		 */
-		private static function apply_verify_read( $session_id, $name, array $payload ) {
-			$pending = Ahentic_Session_Repository::get_verify_pending( $session_id );
-			if ( empty( $pending ) ) {
-				return;
-			}
-
-			$long_form = class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id );
-			$body      = self::body_from_verify_payload( $payload );
-			$block_count = isset( $payload['count'] ) ? (int) $payload['count'] : 0;
-
-			// Never clear from counts-only or empty reads (e.g. get-editor-state / empty selection).
-			if ( '' === trim( $body ) ) {
-				return;
-			}
-			unset( $name );
-
-			$kept = array();
-			foreach ( $pending as $item ) {
-				$tier = isset( $item['tier'] ) ? (string) $item['tier'] : 'content';
-				if ( 'content' !== $tier && 'publish' !== $tier ) {
-					continue;
-				}
-				if ( $long_form && ! self::body_is_nontrivial( $body, true ) ) {
-					$kept[] = $item;
-					continue;
-				}
-				// Long-form full-document rewrites need more than a one-section stub.
-				if ( $long_form && $block_count > 0 && $block_count < 6 ) {
-					$kept[] = $item;
-				}
-			}
-			Ahentic_Session_Repository::set_verify_pending( $session_id, $kept );
-		}
-
-		/**
-		 * Extract verifiable body text (no synthetic padding from counts).
+		 * Plain-text size of the document a write left behind, or -1 when it did not report one.
+		 *
+		 * Editor writes report the whole document (text_chars), not just the blocks they wrote,
+		 * so chunked drafting accumulates instead of flagging every section.
 		 *
 		 * @param array $payload Payload.
-		 * @return string
+		 * @return int
 		 */
-		private static function body_from_verify_payload( array $payload ) {
-			if ( isset( $payload['content'] ) ) {
-				return (string) $payload['content'];
+		private static function body_chars_from_write_payload( array $payload ) {
+			$sources = array( $payload );
+			if ( isset( $payload['post'] ) && is_array( $payload['post'] ) ) {
+				$sources[] = $payload['post'];
 			}
-			if ( isset( $payload['post_content'] ) ) {
-				return (string) $payload['post_content'];
-			}
-			if ( empty( $payload['blocks'] ) || ! is_array( $payload['blocks'] ) ) {
-				return '';
-			}
-			$chunks = array();
-			$walk   = static function ( $blocks ) use ( &$walk, &$chunks ) {
-				foreach ( $blocks as $block ) {
-					if ( ! is_array( $block ) ) {
-						continue;
-					}
-					$attrs = isset( $block['attributes'] ) && is_array( $block['attributes'] ) ? $block['attributes'] : array();
-					foreach ( array( 'content', 'text', 'caption', 'citation' ) as $key ) {
-						if ( ! empty( $attrs[ $key ] ) ) {
-							$chunks[] = wp_strip_all_tags( (string) $attrs[ $key ] );
-						}
-					}
-					if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
-						$walk( $block['innerBlocks'] );
-					}
+			foreach ( $sources as $source ) {
+				if ( isset( $source['text_chars'] ) ) {
+					return (int) $source['text_chars'];
 				}
-			};
-			$walk( $payload['blocks'] );
-			return implode( ' ', $chunks );
+				if ( isset( $source['content_text_chars'] ) ) {
+					return (int) $source['content_text_chars'];
+				}
+			}
+			return -1;
 		}
 
 		/**
-		 * @param string $html_or_text Body.
-		 * @param bool   $long_form    Use the stricter article bar.
+		 * Leading placeholder prose in the body a write reported back.
+		 *
+		 * @param array $payload Payload.
 		 * @return bool
 		 */
-		private static function body_is_nontrivial( $html_or_text, $long_form = false ) {
-			$text = trim( wp_strip_all_tags( (string) $html_or_text ) );
-			$min  = $long_form ? 1000 : 120;
-			if ( strlen( $text ) < $min ) {
+		private static function write_payload_looks_like_placeholder( array $payload ) {
+			$preview = '';
+			if ( isset( $payload['content_preview'] ) ) {
+				$preview = (string) $payload['content_preview'];
+			} elseif ( isset( $payload['post']['content_preview'] ) ) {
+				$preview = (string) $payload['post']['content_preview'];
+			}
+			if ( '' === trim( $preview ) ) {
 				return false;
 			}
-			if ( preg_match( '/^(lorem ipsum|placeholder|\[full article\]|todo:?\s*write|coming soon)/i', $text ) ) {
-				return false;
-			}
-			return true;
+			return (bool) preg_match(
+				'/^\s*(lorem ipsum|placeholder|\[full article\]|todo:?\s*write|coming soon)/i',
+				wp_strip_all_tags( $preview )
+			);
 		}
 
 		/**
@@ -3915,6 +4010,39 @@ Rules:
 				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
 				if ( 'cancelled' !== $status && 'completed' !== $status ) {
 					$step['status'] = 'completed';
+					$changed        = true;
+				}
+				$steps[] = $step;
+			}
+			if ( ! $changed ) {
+				return;
+			}
+			$plan['steps'] = $steps;
+			Ahentic_Session_Repository::set_plan( $session_id, $plan );
+		}
+
+		/**
+		 * Mark unfinished plan steps cancelled when the user stops the run.
+		 *
+		 * Without this the card keeps a step at in_progress, so the checklist reads
+		 * as still working after Stop.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		private static function cancel_plan_on_stop( $session_id ) {
+			$plan = Ahentic_Session_Repository::get_plan( $session_id );
+			if ( ! is_array( $plan ) || empty( $plan['steps'] ) || ! is_array( $plan['steps'] ) ) {
+				return;
+			}
+			$changed = false;
+			$steps   = array();
+			foreach ( $plan['steps'] as $step ) {
+				if ( ! is_array( $step ) ) {
+					continue;
+				}
+				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+				if ( 'completed' !== $status && 'cancelled' !== $status ) {
+					$step['status'] = 'cancelled';
 					$changed        = true;
 				}
 				$steps[] = $step;
@@ -4048,112 +4176,17 @@ Rules:
 		 * @return string|array 'continue' or { result, debug }
 		 */
 		private static function run_verification_gate( $session_id, array $result, $debug ) {
-			$pending = Ahentic_Session_Repository::get_verify_pending( $session_id );
-			if ( empty( $pending ) ) {
+			$findings = Ahentic_Session_Repository::get_verify_pending( $session_id );
+			if ( empty( $findings ) ) {
 				return array(
 					'result' => $result,
 					'debug'  => $debug,
 				);
 			}
 
-			// Keep the model's closing prose across verify continues.
+			// Keep the model's closing prose so a repair think cannot lose it.
 			self::stash_pending_final( $session_id, $result, $debug );
 
-			Ahentic_Session_Repository::set_progress( $session_id, __( 'Verifying changes…', 'ahentic' ) );
-			$long_form = class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id );
-			$pending   = self::enrich_verify_pending_post_ids( $session_id, $pending );
-			$remaining = array();
-			$stub      = false;
-			$browser_writes = array(
-				'ahentic-browser/set-blocks',
-				'ahentic-browser/insert-blocks',
-				'ahentic-browser/replace-blocks',
-			);
-
-			foreach ( $pending as $item ) {
-				$ability = isset( $item['ability'] ) ? (string) $item['ability'] : '';
-				$post_id = isset( $item['post_id'] ) ? (int) $item['post_id'] : 0;
-				$count   = ! empty( $item['block_count'] ) ? (int) $item['block_count'] : 0;
-
-				if ( $post_id > 0 && in_array( $ability, array( 'ahentic/create-post', 'ahentic/update-post' ), true ) ) {
-					$post = get_post( $post_id );
-					if ( ! $post instanceof WP_Post ) {
-						$remaining[] = $item;
-						continue;
-					}
-					if ( $long_form && ! self::body_is_nontrivial( $post->post_content, true ) ) {
-						$stub        = true;
-						$remaining[] = $item;
-						continue;
-					}
-					continue;
-				}
-
-				if ( in_array( $ability, $browser_writes, true ) && $count > 0 ) {
-					if ( $long_form && $count < 6 ) {
-						$stub        = true;
-						$remaining[] = $item;
-						continue;
-					}
-					// Counts are enough for short edits; long-form still needs a body read.
-					if ( ! $long_form ) {
-						continue;
-					}
-					$remaining[] = $item;
-					continue;
-				}
-
-				$remaining[] = $item;
-			}
-
-			Ahentic_Session_Repository::set_verify_pending( $session_id, $remaining );
-
-			// Server-side read-after-write for non-browser pending (no extra LLM turn).
-			if ( ! empty( $remaining ) && ! $stub ) {
-				self::auto_verify_server_pending( $session_id );
-				$remaining = Ahentic_Session_Repository::get_verify_pending( $session_id );
-			}
-
-			if ( empty( $remaining ) ) {
-				return array(
-					'result' => $result,
-					'debug'  => $debug,
-				);
-			}
-
-			if ( $stub ) {
-				return self::verification_continue_or_partial(
-					$session_id,
-					$result,
-					$debug,
-					$remaining,
-					'stub',
-					__( 'The applied body looks too thin or like a placeholder — expanding or restaging the full draft before finishing.', 'ahentic' )
-				);
-			}
-
-			return self::verification_continue_or_partial(
-				$session_id,
-				$result,
-				$debug,
-				$remaining,
-				'verify',
-				__( 'Checking that the last write landed correctly before finishing.', 'ahentic' )
-			);
-		}
-
-		/**
-		 * Continue the run for verify/repair, or finish with an honest partial after the attempt cap.
-		 *
-		 * @param int    $session_id Session ID.
-		 * @param array  $result     Result.
-		 * @param array  $debug      Debug.
-		 * @param array  $remaining  Remaining pending items.
-		 * @param string $reason     stub|verify.
-		 * @param string $thought    Ephemeral thought.
-		 * @return string|array
-		 */
-		private static function verification_continue_or_partial( $session_id, array $result, $debug, array $remaining, $reason, $thought ) {
 			$attempts = Ahentic_Session_Repository::bump_verify_attempts( $session_id );
 			$step     = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 
@@ -4161,10 +4194,9 @@ Rules:
 				Ahentic_Session_Repository::append_trace(
 					$session_id,
 					'verify_partial',
-					'Verification attempts exhausted — honest partial finish',
+					'Body still thin after a repair attempt — honest partial finish',
 					array(
-						'reason'   => $reason,
-						'pending'  => $remaining,
+						'findings' => $findings,
 						'attempts' => $attempts,
 					),
 					$step
@@ -4173,15 +4205,10 @@ Rules:
 				Ahentic_Session_Repository::clear_forced_tools( $session_id );
 
 				$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
-				$msg     = 'stub' === $reason
-					? __(
-						'I applied a draft, but verification still shows a thin or placeholder body. Send Continue and I’ll expand or restage the full content.',
-						'ahentic'
-					)
-					: __(
-						'I made changes, but could not fully verify them in this run. Send Continue if you want me to re-check or finish the remaining work.',
-						'ahentic'
-					);
+				$msg     = __(
+					'I applied a draft, but the body still looks thin or like a placeholder. Send Continue and I’ll expand it.',
+					'ahentic'
+				);
 				if ( is_array( $stashed ) && ! empty( $stashed['text'] ) && ! self::reply_looks_like_process( (string) $stashed['text'] ) ) {
 					$result['text'] = trim( (string) $stashed['text'] ) . "\n\n" . $msg;
 				} else {
@@ -4194,222 +4221,23 @@ Rules:
 				);
 			}
 
-			$forced = array();
-			if ( 'verify' === $reason ) {
-				$forced = self::build_forced_verify_tools( $session_id, $remaining );
-				if ( ! empty( $forced ) ) {
-					Ahentic_Session_Repository::set_forced_tools( $session_id, $forced );
-				}
-			}
-			// stub: leave forced empty so the next step is a free LLM repair think.
-
+			// No forced tools: the next step is a free repair think, never a read-back.
 			Ahentic_Session_Repository::append_trace(
 				$session_id,
 				'verify_required',
-				'stub' === $reason
-					? 'Stub/placeholder body — continuing to repair'
-					: 'Write verification still pending — continuing run',
+				'Thin body — continuing to expand',
 				array(
-					'reason'   => $reason,
-					'pending'  => $remaining,
+					'findings' => $findings,
 					'attempts' => $attempts,
-					'tools'    => $forced,
 				),
 				$step
 			);
-			Ahentic_Session_Repository::set_progress(
+			Ahentic_Session_Repository::set_progress( $session_id, __( 'Expanding draft…', 'ahentic' ), $step );
+			Ahentic_Session_Repository::set_thought(
 				$session_id,
-				'stub' === $reason
-					? __( 'Expanding draft…', 'ahentic' )
-					: __( 'Verifying changes…', 'ahentic' ),
-				$step
+				__( 'The body written so far is too thin for long-form work — expanding it before finishing.', 'ahentic' )
 			);
-			Ahentic_Session_Repository::set_thought( $session_id, $thought );
 			return 'continue';
-		}
-
-		/**
-		 * Fill missing post_id on verify items from recent tool results / page context.
-		 *
-		 * @param int   $session_id Session ID.
-		 * @param array $pending    Pending items.
-		 * @return array
-		 */
-		private static function enrich_verify_pending_post_ids( $session_id, array $pending ) {
-			$ctx_id = 0;
-			$ctx    = Ahentic_Session_Repository::get_page_context( $session_id );
-			if ( ! empty( $ctx['post_id'] ) ) {
-				$ctx_id = (int) $ctx['post_id'];
-			}
-			$from_tools = self::recent_content_write_post_ids( $session_id );
-
-			$changed = false;
-			foreach ( $pending as $i => $item ) {
-				if ( ! empty( $item['post_id'] ) ) {
-					continue;
-				}
-				$ability = isset( $item['ability'] ) ? (string) $item['ability'] : '';
-				if ( in_array( $ability, array( 'ahentic/create-post', 'ahentic/update-post', 'ahentic/set-post-status' ), true ) ) {
-					if ( ! empty( $from_tools ) ) {
-						$pending[ $i ]['post_id'] = (int) $from_tools[0];
-						$changed                  = true;
-					} elseif ( $ctx_id > 0 ) {
-						$pending[ $i ]['post_id'] = $ctx_id;
-						$changed                  = true;
-					}
-				}
-			}
-			if ( $changed ) {
-				Ahentic_Session_Repository::set_verify_pending( $session_id, $pending );
-			}
-			return $pending;
-		}
-
-		/**
-		 * Recent create/update tool result post IDs (newest first).
-		 *
-		 * @param int $session_id Session ID.
-		 * @return array<int, int>
-		 */
-		private static function recent_content_write_post_ids( $session_id ) {
-			$entries = Ahentic_Session_Repository::get_entries( $session_id );
-			$ids     = array();
-			for ( $i = count( $entries ) - 1; $i >= 0; $i-- ) {
-				$entry = $entries[ $i ];
-				if ( ! is_array( $entry ) || 'tool' !== ( isset( $entry['role'] ) ? $entry['role'] : '' ) ) {
-					continue;
-				}
-				$ability = isset( $entry['meta']['ability'] ) ? (string) $entry['meta']['ability'] : '';
-				if ( ! in_array( $ability, array( 'ahentic/create-post', 'ahentic/update-post' ), true ) ) {
-					continue;
-				}
-				if ( empty( $entry['meta']['ok'] ) ) {
-					continue;
-				}
-				$decoded = json_decode( (string) $entry['content'], true );
-				if ( ! is_array( $decoded ) ) {
-					continue;
-				}
-				$id = 0;
-				if ( ! empty( $decoded['id'] ) ) {
-					$id = (int) $decoded['id'];
-				} elseif ( ! empty( $decoded['post_id'] ) ) {
-					$id = (int) $decoded['post_id'];
-				}
-				if ( $id > 0 && ! in_array( $id, $ids, true ) ) {
-					$ids[] = $id;
-				}
-				if ( count( $ids ) >= 5 ) {
-					break;
-				}
-			}
-			return $ids;
-		}
-
-		/**
-		 * Execute get-content for pending non-browser writes and clear when body checks pass.
-		 *
-		 * @param int $session_id Session ID.
-		 */
-		private static function auto_verify_server_pending( $session_id ) {
-			$pending = Ahentic_Session_Repository::get_verify_pending( $session_id );
-			if ( empty( $pending ) || ! class_exists( 'Ahentic_Abilities_Content' ) ) {
-				return;
-			}
-
-			$browser_prefix = 'ahentic-browser/';
-			$ids            = array();
-			foreach ( $pending as $item ) {
-				$ability = isset( $item['ability'] ) ? (string) $item['ability'] : '';
-				if ( 0 === strpos( $ability, $browser_prefix ) ) {
-					continue;
-				}
-				$post_id = isset( $item['post_id'] ) ? (int) $item['post_id'] : 0;
-				if ( $post_id > 0 ) {
-					$ids[ $post_id ] = true;
-				}
-			}
-			if ( empty( $ids ) ) {
-				return;
-			}
-
-			foreach ( array_keys( $ids ) as $post_id ) {
-				$payload = Ahentic_Abilities::execute(
-					Ahentic_Abilities_Content::GET,
-					array( 'id' => (int) $post_id )
-				);
-				if ( is_wp_error( $payload ) || ! is_array( $payload ) ) {
-					continue;
-				}
-				self::apply_verify_read( $session_id, Ahentic_Abilities_Content::GET, $payload );
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'verify_auto',
-					'Server auto-verify via get-content',
-					array(
-						'post_id' => (int) $post_id,
-						'ok'      => true,
-					),
-					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
-				);
-			}
-		}
-
-		/**
-		 * Forced readonly tools to clear verify_pending.
-		 *
-		 * @param int   $session_id Session ID.
-		 * @param array $remaining  Pending items.
-		 * @return array<int, array{name: string, input: array}>
-		 */
-		private static function build_forced_verify_tools( $session_id, array $remaining ) {
-			$ctx           = Ahentic_Session_Repository::get_page_context( $session_id );
-			$editor_open   = ! empty( $ctx['is_block_editor'] );
-			$ctx_post_id   = ! empty( $ctx['post_id'] ) ? (int) $ctx['post_id'] : 0;
-			$needs_browser = false;
-			$post_ids      = array();
-
-			foreach ( $remaining as $item ) {
-				$ability = isset( $item['ability'] ) ? (string) $item['ability'] : '';
-				if ( 0 === strpos( $ability, 'ahentic-browser/' ) ) {
-					$needs_browser = true;
-				}
-				if ( ! empty( $item['post_id'] ) ) {
-					$post_ids[] = (int) $item['post_id'];
-				}
-			}
-
-			if ( $needs_browser || $editor_open ) {
-				if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
-					return array(
-						array(
-							'name'  => Ahentic_Abilities_Browser::GET_BLOCKS,
-							'input' => array(),
-						),
-					);
-				}
-			}
-
-			$post_id = ! empty( $post_ids ) ? (int) $post_ids[0] : $ctx_post_id;
-			if ( $post_id > 0 && class_exists( 'Ahentic_Abilities_Content' ) ) {
-				return array(
-					array(
-						'name'  => Ahentic_Abilities_Content::GET,
-						'input' => array( 'id' => $post_id ),
-					),
-				);
-			}
-
-			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
-				return array(
-					array(
-						'name'  => Ahentic_Abilities_Browser::GET_BLOCKS,
-						'input' => array(),
-					),
-				);
-			}
-
-			return array();
 		}
 
 		/**

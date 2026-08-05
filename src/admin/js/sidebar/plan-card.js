@@ -18,10 +18,20 @@ export default function PlanCard( { plan } ) {
 	const title = typeof plan.title === 'string' ? plan.title.trim() : ''
 	const done = steps.filter( step => step.status === 'completed' ).length
 	const allDone = done === steps.length && steps.length > 0
+	const stopped = ! allDone &&
+		steps.some( step => step.status === 'cancelled' ) &&
+		! steps.some( step => step.status === 'in_progress' )
+
+	let state = ''
+	if ( allDone ) {
+		state = ' is-complete'
+	} else if ( stopped ) {
+		state = ' is-stopped'
+	}
 
 	return (
 		<div
-			className={ `ahentic-plan${ allDone ? ' is-complete' : '' }` }
+			className={ `ahentic-plan${ state }` }
 			role="status"
 			aria-live="polite"
 			aria-label={ title || __( 'Plan', 'ahentic' ) }
@@ -30,7 +40,9 @@ export default function PlanCard( { plan } ) {
 				<span className="ahentic-plan__eyebrow">
 					{ allDone
 						? __( 'Plan complete', 'ahentic' )
-						: __( 'Plan', 'ahentic' ) }
+						: ( stopped
+							? __( 'Plan stopped', 'ahentic' )
+							: __( 'Plan', 'ahentic' ) ) }
 				</span>
 				<span className="ahentic-plan__count">
 					{ done }/{ steps.length }

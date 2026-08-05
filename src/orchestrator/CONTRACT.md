@@ -32,7 +32,8 @@
 ## Completion & verification
 
 - Ask: `next=reply|ask_user` with no writes → `idle`.
-- Agent writes / multi-step: must not `idle` until verification tiers in the Agent runtime PRD are met (readonly = tool ok; writes = read-after-write; publish/destructive = verify + prior HITL).
+- Agent writes / multi-step: tool success is the verification. Must **not** call a readonly ability to confirm a write, and must not treat a page snapshot as proof of any change.
+- Long-form content runs: must not `idle` while a write payload reports a body under the long-form floor. One repair think, then an honest partial finish.
 - Never summarize as done while `awaiting_human` or `awaiting_browser`.
 
 ## Tool branches

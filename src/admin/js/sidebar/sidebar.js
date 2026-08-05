@@ -30,6 +30,7 @@ import {
 	clampWidth,
 } from './storage'
 import { syncPageInset, clearPageInset } from './page-inset'
+import { openLink } from './links'
 import AhenticLogo from './ahentic-logo'
 import DebuggerPanel from './debugger-panel'
 import {
@@ -273,7 +274,9 @@ function extractSessionMeta( session ) {
 		messageCount: messages.length,
 		lastSeq: Number( last?.seq ) || 0,
 		stepCount: Number( session.stepCount ) || 0,
-		traceLen: trace.length,
+		// Server-side total: the payload's own trace is a recent window, so its
+		// length saturates and cannot order two payloads.
+		traceLen: Number( session.traceCount ) || trace.length,
 		modifiedAt: Date.parse( session.modifiedAt || '' ) || 0,
 		progressAt: Date.parse( session.progress?.updatedAt || '' ) || 0,
 		planAt: Date.parse( session.plan?.updatedAt || '' ) || 0,
@@ -1838,6 +1841,29 @@ export default function Sidebar() {
 			delete copy[ sessionId ]
 			return copy
 		} )
+		// Unfinished plan steps stop looking live right away; the server does the
+		// same when the cancel lands.
+		setPlanByTab( plans => {
+			const plan = plans[ sessionId ]
+			if ( ! plan || ! Array.isArray( plan.steps ) ) {
+				return plans
+			}
+			let changed = false
+			const steps = plan.steps.map( step => {
+				if ( step.status === 'completed' || step.status === 'cancelled' ) {
+					return step
+				}
+				changed = true
+				return { ...step, status: 'cancelled' }
+			} )
+			if ( ! changed ) {
+				return plans
+			}
+			return {
+				...plans,
+				[ sessionId ]: { ...plan, steps },
+			}
+		} )
 		setSending( false )
 
 		// Drop any in-flight browser resume for this tab.
@@ -1950,7 +1976,7 @@ export default function Sidebar() {
 			return
 		}
 		if ( action.type === 'link' && action.url ) {
-			window.open( action.url, '_blank', 'noopener,noreferrer' )
+			openLink( action.url )
 			return
 		}
 		const session = await postSuggestedAction( activeTabId, {
@@ -2297,6 +2323,8 @@ export default function Sidebar() {
 				{ debugOpen ? (
 					<DebuggerPanel
 						trace={ activeTrace }
+						sessionId={ isSessionId( activeTabId ) ? activeTabId : 0 }
+						isBusy={ isBusy }
 						sessionTitle={ activeTab?.title || '' }
 						onClose={ () => setDebugOpen( false ) }
 					/>

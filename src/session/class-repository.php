@@ -32,6 +32,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_ERROR            = '_ahentic_last_error';
 		const META_AUTO_TITLE       = '_ahentic_auto_title';
 		const META_TRACE            = '_ahentic_trace';
+		const META_RUN_SEQ          = '_ahentic_run_seq';
 		const META_PROGRESS         = '_ahentic_progress';
 		const META_HEARTBEAT        = '_ahentic_heartbeat_at';
 		const META_PLAN             = '_ahentic_plan';
@@ -58,6 +59,16 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 
 		const MAX_ENTRIES = 400;
 		const MAX_TRACE   = 300;
+		/**
+		 * Events kept from the START of the trace when the cap is hit.
+		 *
+		 * A stuck or looping run buries its own cause: dropping only the oldest
+		 * events throws away the run_start environment and the first steps, which
+		 * is exactly what a bug report needs. Keep a head window plus the tail.
+		 */
+		const TRACE_HEAD_KEEP = 60;
+		/** Recent trace events included in the polled session payload (envelope only). */
+		const TRACE_PAYLOAD_LIMIT = 60;
 
 		/**
 		 * Create a new session for the current user.
@@ -394,7 +405,11 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				$payload['hasMore']  = $page['has_more'];
 			}
 
-			$payload['trace'] = self::get_trace( $session_id );
+			// Recent envelopes only: the debugger pulls full event payloads from
+			// /diagnostics so a ~650ms poll does not carry the whole log.
+			$full_trace            = self::get_trace( $session_id );
+			$payload['trace']      = self::slim_trace_for_payload( $full_trace, self::TRACE_PAYLOAD_LIMIT );
+			$payload['traceCount'] = count( $full_trace );
 			$payload['progress'] = self::get_progress( $session_id );
 			$payload['heartbeatAt'] = self::get_heartbeat( $session_id );
 			$payload['plan'] = self::get_plan( $session_id );
@@ -731,8 +746,39 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		 * @param array $events     Events.
 		 */
 		public static function save_trace( $session_id, array $events ) {
-			if ( count( $events ) > self::MAX_TRACE ) {
-				$events = array_slice( $events, -1 * self::MAX_TRACE );
+			$total = count( $events );
+			if ( $total > self::MAX_TRACE ) {
+				$head   = array_slice( $events, 0, self::TRACE_HEAD_KEEP );
+				$tail   = array_slice( $events, -1 * ( self::MAX_TRACE - self::TRACE_HEAD_KEEP - 1 ) );
+				$middle = array_slice( $events, count( $head ), $total - count( $head ) - count( $tail ) );
+
+				// The previous marker is itself in the dropped middle, so carry its
+				// count forward — otherwise the gap only ever reports the last prune.
+				$dropped = 0;
+				foreach ( $middle as $event ) {
+					if ( isset( $event['type'] ) && 'trace_gap' === $event['type'] ) {
+						$dropped += isset( $event['data']['dropped'] ) ? (int) $event['data']['dropped'] : 0;
+					} else {
+						++$dropped;
+					}
+				}
+
+				$events = array_merge(
+					$head,
+					array(
+						array(
+							'id'      => 'gap',
+							'at'      => gmdate( 'c' ),
+							'ms'      => (int) round( microtime( true ) * 1000 ),
+							'run'     => 0,
+							'type'    => 'trace_gap',
+							'step'    => 0,
+							'summary' => sprintf( '%d events dropped (trace cap)', $dropped ),
+							'data'    => array( 'dropped' => $dropped ),
+						),
+					),
+					$tail
+				);
 			}
 			$json = wp_json_encode(
 				array_values( $events ),
@@ -753,10 +799,23 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		 */
 		public static function append_trace( $session_id, $type, $summary = '', $data = array(), $step = 0 ) {
 			$events = self::get_trace( $session_id );
-			$event  = array(
+			$type   = (string) $type;
+
+			// Every event carries its run so a multi-run log can be split by the reader.
+			if ( 'run_start' === $type ) {
+				$run = (int) get_post_meta( $session_id, self::META_RUN_SEQ, true ) + 1;
+				update_post_meta( $session_id, self::META_RUN_SEQ, $run );
+			} else {
+				$run = (int) get_post_meta( $session_id, self::META_RUN_SEQ, true );
+			}
+
+			$event = array(
 				'id'      => uniqid( 't_', true ),
 				'at'      => gmdate( 'c' ),
-				'type'    => (string) $type,
+				// Second-precision `at` cannot separate a 90ms resume from a 6s round trip.
+				'ms'      => (int) round( microtime( true ) * 1000 ),
+				'run'     => $run,
+				'type'    => $type,
 				'step'    => (int) $step,
 				'summary' => (string) $summary,
 				'data'    => is_array( $data ) ? $data : array(),
@@ -764,6 +823,124 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			$events[] = $event;
 			self::save_trace( $session_id, $events );
 			return $event;
+		}
+
+		/**
+		 * Full diagnostics bundle for a bug report (not part of the polled payload).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array|\WP_Error
+		 */
+		public static function to_diagnostics( $session_id ) {
+			$post = self::get_post( $session_id );
+			if ( is_wp_error( $post ) ) {
+				return $post;
+			}
+
+			$trace = self::get_trace( $session_id );
+			$model = '';
+			for ( $i = count( $trace ) - 1; $i >= 0; $i-- ) {
+				if ( ! empty( $trace[ $i ]['data']['model'] ) ) {
+					$model = (string) $trace[ $i ]['data']['model'];
+					break;
+				}
+			}
+
+			return array(
+				'id'          => (int) $session_id,
+				'title'       => $post->post_title,
+				'exportedAt'  => gmdate( 'c' ),
+				'environment' => self::environment_snapshot(),
+				'session'     => array(
+					'status'     => self::get_status( $session_id ),
+					'mode'       => self::get_mode( $session_id ),
+					'model'      => $model,
+					'runs'       => (int) get_post_meta( $session_id, self::META_RUN_SEQ, true ),
+					'stepCount'  => (int) get_post_meta( $session_id, self::META_STEP_COUNT, true ),
+					'tokensIn'   => (int) get_post_meta( $session_id, self::META_TOKENS_IN, true ),
+					'tokensOut'  => (int) get_post_meta( $session_id, self::META_TOKENS_OUT, true ),
+					'tokensUsed' => (int) get_post_meta( $session_id, self::META_TOKENS_USED, true ),
+					'lastError'  => (string) get_post_meta( $session_id, self::META_ERROR, true ),
+					'createdAt'  => get_post_time( 'c', true, $post ),
+					'modifiedAt' => get_post_modified_time( 'c', true, $post ),
+				),
+				'state'       => array(
+					'pendingTool'     => self::get_pending_tool( $session_id ),
+					'verifyPending'   => self::get_verify_pending( $session_id ),
+					'verifyAttempts'  => self::get_verify_attempts( $session_id ),
+					'forcedTools'     => self::get_forced_tools( $session_id ),
+					'browserPausedAt' => self::get_browser_paused_at( $session_id ),
+					'heartbeatAt'     => self::get_heartbeat( $session_id ),
+					'progress'        => self::get_progress( $session_id ),
+					'contentWork'     => self::get_content_work( $session_id ),
+				),
+				'trace'       => $trace,
+			);
+		}
+
+		/**
+		 * Host details a maintainer needs before they can read someone else's log.
+		 *
+		 * @return array
+		 */
+		public static function environment_snapshot() {
+			global $wp_version;
+
+			$ai_client = 'none';
+			if ( function_exists( 'wp_ai_client_prompt' ) ) {
+				$ai_client = 'core';
+			} elseif ( class_exists( '\WordPress\AiClient\AiClient' ) ) {
+				$ai_client = 'sdk';
+			}
+
+			return array(
+				'plugin'        => defined( 'AHENTIC_VERSION' ) ? AHENTIC_VERSION : '',
+				'build'         => defined( 'AHENTIC_BUILD' ) ? AHENTIC_BUILD : '',
+				'wp'            => isset( $wp_version ) ? (string) $wp_version : '',
+				'php'           => PHP_VERSION,
+				'aiClient'      => $ai_client,
+				'multisite'     => is_multisite(),
+				'memoryLimit'   => (string) ini_get( 'memory_limit' ),
+				'maxExecution'  => (int) ini_get( 'max_execution_time' ),
+				'objectCache'   => (bool) wp_using_ext_object_cache(),
+				'cronDisabled'  => defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON,
+				'altCron'       => defined( 'ALTERNATE_WP_CRON' ) && ALTERNATE_WP_CRON,
+				'wpDebug'       => defined( 'WP_DEBUG' ) && WP_DEBUG,
+				'activePlugins' => count( (array) get_option( 'active_plugins', array() ) ),
+				'locale'        => get_locale(),
+			);
+		}
+
+		/**
+		 * Envelope-only trace for the polled session payload.
+		 *
+		 * The sidebar polls every ~650ms and only needs recent type/summary pairs for
+		 * the live status line. Event `data` is the bulk of the trace, so it is served
+		 * from the diagnostics route on demand instead of on every poll.
+		 *
+		 * @param array $events Full trace.
+		 * @param int   $limit  Max events to include.
+		 * @return array
+		 */
+		private static function slim_trace_for_payload( array $events, $limit ) {
+			$limit = max( 1, (int) $limit );
+			if ( count( $events ) > $limit ) {
+				$events = array_slice( $events, -1 * $limit );
+			}
+
+			$out = array();
+			foreach ( $events as $event ) {
+				$out[] = array(
+					'id'      => isset( $event['id'] ) ? $event['id'] : '',
+					'at'      => isset( $event['at'] ) ? $event['at'] : '',
+					'ms'      => isset( $event['ms'] ) ? (int) $event['ms'] : 0,
+					'run'     => isset( $event['run'] ) ? (int) $event['run'] : 0,
+					'type'    => isset( $event['type'] ) ? $event['type'] : '',
+					'step'    => isset( $event['step'] ) ? (int) $event['step'] : 0,
+					'summary' => isset( $event['summary'] ) ? $event['summary'] : '',
+				);
+			}
+			return $out;
 		}
 
 		/**
@@ -1137,7 +1314,10 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
-		 * Pending write verifications for the current run.
+		 * Unresolved write problems for the current run, keyed by target document.
+		 *
+		 * Holds findings the orchestrator measured from a write's own payload (a thin
+		 * long-form body), not reads it still owes. Empty whenever writes look healthy.
 		 *
 		 * @param int $session_id Session ID.
 		 * @return array<int, array<string, mixed>>
@@ -1153,7 +1333,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 
 		/**
 		 * @param int   $session_id Session ID.
-		 * @param array $items      Pending verify items.
+		 * @param array $items      Write findings still unresolved.
 		 */
 		public static function set_verify_pending( $session_id, array $items ) {
 			if ( empty( $items ) ) {

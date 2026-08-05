@@ -165,6 +165,16 @@ if ( ! class_exists( 'Ahentic_REST_Sessions' ) ) {
 
 			register_rest_route(
 				'ahentic/v1',
+				'/sessions/(?P<id>\d+)/diagnostics',
+				array(
+					'methods'             => 'GET',
+					'callback'            => array( __CLASS__, 'get_diagnostics' ),
+					'permission_callback' => array( __CLASS__, 'can_manage' ),
+				)
+			);
+
+			register_rest_route(
+				'ahentic/v1',
 				'/stats/tokens',
 				array(
 					'methods'             => 'GET',
@@ -243,6 +253,24 @@ if ( ! class_exists( 'Ahentic_REST_Sessions' ) ) {
 				return $ok;
 			}
 			return rest_ensure_response( Ahentic_Session_Repository::to_rest( $id ) );
+		}
+
+		/**
+		 * GET /sessions/{id}/diagnostics — full trace + host details for a bug report.
+		 *
+		 * Kept off the polled session payload so verbose recording costs nothing
+		 * until someone actually opens the debugger or exports a log.
+		 *
+		 * @param \WP_REST_Request $request Request.
+		 * @return \WP_REST_Response|\WP_Error
+		 */
+		public static function get_diagnostics( $request ) {
+			$id = (int) $request['id'];
+			$ok = self::require_owned_session( $id );
+			if ( is_wp_error( $ok ) ) {
+				return $ok;
+			}
+			return rest_ensure_response( Ahentic_Session_Repository::to_diagnostics( $id ) );
 		}
 
 		/**

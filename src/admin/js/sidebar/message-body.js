@@ -3,6 +3,7 @@
  */
 
 import { createElement, Fragment } from '@wordpress/element'
+import { isSameOriginUrl } from './links'
 
 /**
  * Repair text corrupted when JSON escapes lost their backslash in post meta.
@@ -89,6 +90,19 @@ function sanitizeHref( raw ) {
 }
 
 /**
+ * Attributes for a rendered link: same-site links stay in the current
+ * window, everything else opens in a new tab.
+ *
+ * @param {string} href
+ * @return {string}
+ */
+function linkTargetAttrs( href ) {
+	return isSameOriginUrl( href )
+		? ''
+		: ' target="_blank" rel="noopener noreferrer"'
+}
+
+/**
  * Apply **bold** / *italic* to already-escaped inline text.
  *
  * @param {string} html
@@ -127,7 +141,7 @@ function formatInline( text ) {
 			return full
 		}
 		return hold(
-			`<a href="${ href }" target="_blank" rel="noopener noreferrer">${ applyEmphasis( label ) }</a>`
+			`<a href="${ href }"${ linkTargetAttrs( href ) }>${ applyEmphasis( label ) }</a>`
 		)
 	} )
 
@@ -144,7 +158,7 @@ function formatInline( text ) {
 			return url
 		}
 		return hold(
-			`<a href="${ safe }" target="_blank" rel="noopener noreferrer">${ href }</a>`
+			`<a href="${ safe }"${ linkTargetAttrs( safe ) }>${ href }</a>`
 		) + trailing
 	} )
 

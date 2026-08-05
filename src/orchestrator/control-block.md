@@ -5,7 +5,7 @@ Protocol between the **LLM** and the **orchestrator**. Ahentic does **not** use 
 > **Canonical should:** [Agent runtime PRD](../../pro__premium_only/docs/prd/agent-runtime.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)  
 > **Plan rule (product law):** require a plan in Agent mode when ≥2 tools are planned **or** any write runs. Older “≥3 coarse steps” guidance below describes **current prompt heuristics** and must be aligned to the contract.
 
-**Verification:** Agent writes must be verified (readonly follow-up / non-trivial body for long-form) before idle — see Agent runtime PRD.
+**Verification:** Agent writes verify themselves from their own return payload — never a readonly follow-up. Long-form runs must not idle with a body under the floor — see Agent runtime PRD.
 
 **Code:** `Ahentic_Orchestrator::system_prompt()`, debug parse/retry helpers, `build_chat_payload()`  
 **Related:** [orchestrator.md](./orchestrator.md) · [abilities.md](../abilities/abilities.md) · [artifacts.md](../session/artifacts.md)
@@ -103,7 +103,7 @@ Assembled approximately as:
    - **Artifact pointers** (keys/status only; drafting vs ready)
    - **Ability results from this run** (tool JSON, truncated ~8k each)
 
-Tool results are facts. For Agent writes, prefer a follow-up readonly check (get post / editor snapshot) before treating the goal as done — see the Agent runtime PRD verification tiers.
+Tool results are facts, including for writes: a write result reports what it persisted, so no readonly follow-up is called to confirm it. A long-form write that lands under the floor comes back marked `thin` with a `thin_reason` telling the model to keep writing — see the Agent runtime PRD.
 
 ---
 

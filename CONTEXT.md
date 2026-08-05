@@ -60,6 +60,14 @@ _Avoid_: confirmation dialog (alone), permission_callback (WP caps are separate)
 The persisted Allow once / Allow for this session / Always allow (and deny) rules that gate abilities by risk tier.
 _Avoid_: permissions, capabilities (WP)
 
+**Non-preallowable ability**:
+An ability that always requires a fresh Allow/Deny — it rejects `allow_session` and `always_allow` even if the user has set one, because that policy would otherwise persist silently across future sessions (e.g. user account writes).
+_Avoid_: extra-confirmed (vague), high-risk tool (name the mechanism, not just the vibe)
+
+**Settings snapshot**:
+The prior value (or its absence) recorded before a theme setting / option / global styles / template part / media write, keyed to the session, so `ahentic/undo-last-actions` can restore it. Surfaces with no WordPress-native revision system rely on this instead of post revisions.
+_Avoid_: backup, action log (broader concept not yet built)
+
 **Page context**:
 The sidebar’s snapshot of the active tab (URL, editor open, post id, etc.) used to route tools and prompts.
 _Avoid_: browser state, window context

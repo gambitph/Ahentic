@@ -100,6 +100,12 @@ Requires `status === awaiting_browser`. Mismatched `call_id` → `409`.
 | `POST` | `/sessions/{id}/continue` | Process one step if still `running` (stall fallback) |
 | `POST` | `/sessions/{id}/actions` | Start a suggested ability action (often HITL) |
 
+### Diagnostics
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/sessions/{id}/diagnostics` | Full trace + environment for a bug report |
+
 ### Stats
 
 | Method | Path | Purpose |
@@ -121,12 +127,33 @@ Requires `status === awaiting_browser`. Mismatched `call_id` → `409`.
 | `pendingTool` | HITL / browser pause payload or null |
 | `plan` | Checklist or null |
 | `artifacts` | Pointer list (no bodies) |
-| `trace` | Debugger events |
+| `trace` | Recent debugger events, **envelope only** (`id`, `at`, `ms`, `run`, `type`, `step`, `summary`) — no event `data` |
+| `traceCount` | Total events recorded, so the poll can order payloads even though `trace` is a window |
 | `tokensIn`, `tokensOut`, `tokensUsed`, `stepCount` | Usage |
 | `lastError`, `summaryStatus` | Errors / summary job |
 | `createdAt`, `modifiedAt` | ISO timestamps |
 
 Sidebar merges this carefully to avoid clobbering optimistic UI — see [sidebar.md](./js/sidebar/sidebar.md).
+
+---
+
+## Diagnostics payload
+
+`GET /sessions/{id}/diagnostics` returns the whole log for a bug report. It is deliberately
+**not** part of the poll shape: the trace is always recorded in full, but the bulky event
+`data` is only transferred when the debugger is open or a user exports a log.
+
+| Field | Notes |
+| --- | --- |
+| `environment` | Plugin / build / WP / PHP versions, AI client path, memory + execution limits, cron constants, object cache, plugin count, locale |
+| `session` | Status, mode, last model used, run count, step count, token totals, last error, timestamps |
+| `state` | Pending tool, open write findings + repair attempts, forced tools, browser pause, heartbeat, progress, content-work flag |
+| `trace` | Every recorded event with full `data` |
+
+Each trace event carries `run` (which run produced it) and `ms` (epoch milliseconds), so a
+reader can split a multi-run session and measure real step durations. When the cap is hit the
+log keeps its **head** as well as its tail and inserts one `trace_gap` event carrying the
+cumulative dropped count — a stuck run must not delete its own cause.
 
 ---
 

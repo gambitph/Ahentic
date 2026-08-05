@@ -1,41 +1,130 @@
 /**
  * Session debugger panel — orchestrator / model trace for the active session.
+ *
+ * The polled session payload only carries recent trace envelopes (type/summary),
+ * so this panel pulls the full log with event payloads from the diagnostics route
+ * while it is open. That keeps verbose recording free for everyone who never
+ * opens it, while a bug report still gets the complete log.
  */
 
-import { useCallback, useEffect, useState } from '@wordpress/element'
-import { __ } from '@wordpress/i18n'
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element'
+import { __, sprintf } from '@wordpress/i18n'
 import classnames from 'classnames'
-import { Check, ChevronDown, ChevronRight, Copy, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Copy, Download, X } from 'lucide-react'
+import { getDiagnostics } from './api'
+
+/** Refresh cadence for the full log while a run is active. */
+const REFRESH_MS = 1500
 
 /**
- * Build a paste-friendly debug log from the session trace.
+ * Build a paste-friendly debug log from the diagnostics bundle.
  *
- * @param {Array}  events
+ * @param {Object} bundle     Diagnostics response.
+ * @param {Array}  fallback   Trace to use when diagnostics have not loaded.
  * @param {string} sessionTitle
  * @return {string}
  */
-function formatTraceForCopy( events, sessionTitle ) {
-	const payload = {
-		session: sessionTitle || '',
-		exportedAt: new Date().toISOString(),
-		eventCount: Array.isArray( events ) ? events.length : 0,
-		trace: Array.isArray( events ) ? events : [],
+function formatLogForExport( bundle, fallback, sessionTitle ) {
+	if ( bundle && Array.isArray( bundle.trace ) ) {
+		return JSON.stringify( bundle, null, 2 )
 	}
-	return JSON.stringify( payload, null, 2 )
+	return JSON.stringify(
+		{
+			session: sessionTitle || '',
+			exportedAt: new Date().toISOString(),
+			partial: true,
+			eventCount: Array.isArray( fallback ) ? fallback.length : 0,
+			trace: Array.isArray( fallback ) ? fallback : [],
+		},
+		null,
+		2
+	)
 }
 
 /**
- * @param {Object}   props
- * @param {Array}    props.trace
- * @param {Function} props.onClose
- * @param {string}   props.sessionTitle
+ * One-line host summary so a maintainer can triage before reading events.
+ *
+ * @param {Object} bundle Diagnostics response.
+ * @return {string}
+ */
+function describeEnvironment( bundle ) {
+	const env = bundle?.environment
+	if ( ! env ) {
+		return ''
+	}
+	const parts = [
+		env.plugin ? `Ahentic ${ env.plugin }` : '',
+		env.wp ? `WP ${ env.wp }` : '',
+		env.php ? `PHP ${ env.php }` : '',
+		bundle?.session?.model || '',
+		env.aiClient && env.aiClient !== 'none' ? `client: ${ env.aiClient }` : '',
+	]
+	return parts.filter( Boolean ).join( ' · ' )
+}
+
+/**
+ * @param {Object}        props
+ * @param {Array}         props.trace       Recent envelopes from the session poll.
+ * @param {number|string} props.sessionId
+ * @param {boolean}       props.isBusy      Whether the run is still active.
+ * @param {Function}      props.onClose
+ * @param {string}        props.sessionTitle
  */
 export default function DebuggerPanel( {
-	trace, onClose, sessionTitle,
+	trace, sessionId, isBusy, onClose, sessionTitle,
 } ) {
-	const events = Array.isArray( trace ) ? trace : []
+	const slim = Array.isArray( trace ) ? trace : []
+	const [ bundle, setBundle ] = useState( null )
+	const [ loadError, setLoadError ] = useState( '' )
 	const [ openIds, setOpenIds ] = useState( {} )
 	const [ copied, setCopied ] = useState( false )
+	const inFlightRef = useRef( false )
+
+	const events = bundle && Array.isArray( bundle.trace ) ? bundle.trace : slim
+	const envLine = describeEnvironment( bundle )
+
+	useEffect( () => {
+		if ( ! sessionId ) {
+			return undefined
+		}
+
+		let cancelled = false
+
+		const load = async () => {
+			if ( inFlightRef.current ) {
+				return
+			}
+			inFlightRef.current = true
+			try {
+				const next = await getDiagnostics( sessionId )
+				if ( ! cancelled ) {
+					setBundle( next )
+					setLoadError( '' )
+				}
+			} catch ( error ) {
+				if ( ! cancelled ) {
+					setLoadError( error.message || __( 'Could not load the full log.', 'ahentic' ) )
+				}
+			} finally {
+				inFlightRef.current = false
+			}
+		}
+
+		load()
+
+		// Only keep refreshing while there is something new to see.
+		if ( ! isBusy ) {
+			return () => {
+				cancelled = true
+			}
+		}
+
+		const timer = window.setInterval( load, REFRESH_MS )
+		return () => {
+			cancelled = true
+			window.clearInterval( timer )
+		}
+	}, [ sessionId, isBusy ] )
 
 	useEffect( () => {
 		if ( ! copied ) {
@@ -53,7 +142,7 @@ export default function DebuggerPanel( {
 	}
 
 	const copyLog = useCallback( async () => {
-		const text = formatTraceForCopy( events, sessionTitle )
+		const text = formatLogForExport( bundle, slim, sessionTitle )
 		try {
 			if ( navigator.clipboard?.writeText ) {
 				await navigator.clipboard.writeText( text )
@@ -73,7 +162,23 @@ export default function DebuggerPanel( {
 			// eslint-disable-next-line no-alert
 			window.alert( __( 'Could not copy the debug log.', 'ahentic' ) )
 		}
-	}, [ events, sessionTitle ] )
+	}, [ bundle, slim, sessionTitle ] )
+
+	// A full log is far too large to paste reliably, so offer it as a file.
+	const downloadLog = useCallback( () => {
+		const text = formatLogForExport( bundle, slim, sessionTitle )
+		const stamp = new Date().toISOString().replace( /[:.]/g, '-' )
+		const url = URL.createObjectURL(
+			new Blob( [ text ], { type: 'application/json' } )
+		)
+		const link = document.createElement( 'a' )
+		link.href = url
+		link.download = `ahentic-session-${ sessionId || 'log' }-${ stamp }.json`
+		document.body.appendChild( link )
+		link.click()
+		document.body.removeChild( link )
+		URL.revokeObjectURL( url )
+	}, [ bundle, slim, sessionTitle, sessionId ] )
 
 	return (
 		<div className="ahentic-debugger" role="dialog" aria-label={ __( 'Session debugger', 'ahentic' ) }>
@@ -110,6 +215,16 @@ export default function DebuggerPanel( {
 					<button
 						type="button"
 						className="ahentic-icon-btn"
+						onClick={ downloadLog }
+						disabled={ ! events.length }
+						aria-label={ __( 'Download debug log', 'ahentic' ) }
+						title={ __( 'Download debug log (JSON)', 'ahentic' ) }
+					>
+						<Download size={ 14 } strokeWidth={ 1.75 } />
+					</button>
+					<button
+						type="button"
+						className="ahentic-icon-btn"
 						onClick={ onClose }
 						aria-label={ __( 'Close debugger', 'ahentic' ) }
 						title={ __( 'Close', 'ahentic' ) }
@@ -118,6 +233,25 @@ export default function DebuggerPanel( {
 					</button>
 				</div>
 			</div>
+
+			{ envLine || loadError ? (
+				<div className="ahentic-debugger__meta">
+					{ loadError ? (
+						<span className="ahentic-debugger__meta-error">{ loadError }</span>
+					) : (
+						<span>
+							{ [
+								envLine,
+								events.length ? sprintf(
+									/* translators: %d: number of trace events */
+									__( '%d events', 'ahentic' ),
+									events.length
+								) : '',
+							].filter( Boolean ).join( ' · ' ) }
+						</span>
+					) }
+				</div>
+			) : null }
 
 			<div className="ahentic-debugger__body">
 				{ ! events.length ? (
