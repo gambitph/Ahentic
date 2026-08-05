@@ -92,12 +92,13 @@ Suggested companion namespaces (same meta blob or adjacent keys) can hold small 
 ### Status lifecycle
 
 ```text
-(missing) → ready → applied
-              ↓
-            stale   (document/context changed, or superseded by a newer draft)
+(missing) → drafting → ready → applied
+                 ↓         ↓
+               stale     stale   (document/context changed, or superseded)
 ```
 
-- **ready** — safe to apply via `from_memory`.
+- **drafting** — chunks still landing (`mode=append`, `complete=false`); `from_memory` apply is **rejected**.
+- **ready** — safe to apply via `from_memory` (`complete=true`, default).
 - **applied** — successfully used by a mutate; keep briefly for audit or delete.
 - **stale** — must not apply until restaged (e.g. user switched posts, or a newer draft replaced it).
 
@@ -124,10 +125,13 @@ Ways to stage (implement at least one; prefer ability-authored):
 
 On stage:
 
-- Upsert `items[key]`.
-- Set `status: ready`, refresh `meta`.
+- Upsert `items[key]` (`mode: replace|append`, `complete` → drafting vs ready).
+- **`append` only merges while status is `drafting`.** If the key is already `ready` / `applied` / `stale`, a new `append` is treated as **`replace`** so revisions do not concatenate duplicate sections.
+- Empty `complete=true` finalize (no new payload) is allowed only while **drafting**.
+- Refresh `meta` (bytes, block_count, timestamps).
 - Append a short tool/event note to the session (“Staged artifact `article_draft` (12 blocks)”) — not the full payload in chat.
 - Enforce size caps (reject or truncate with error; do not silently corrupt).
+- Orchestrator may **auto-stage** oversized inline tool bodies and rewrite to `from_memory`.
 
 ### Apply (read + bind)
 
@@ -135,6 +139,8 @@ Supported consumers (minimum):
 
 - `ahentic-browser/set-blocks` — `input.from_memory` → load `payload.blocks` (or convert `html`/`markdown` once if we support that).
 - `ahentic/create-post` / `ahentic/update-post` — `from_memory` → `content` / block serialization as appropriate.
+
+Pending HITL / browser tools keep **key only** on `_ahentic_pending_tool`; REST expands for the browser runner. HITL shows key / title / size / short excerpt.
 
 Expansion happens **in the orchestrator (or ability wrapper) before execute**, so:
 

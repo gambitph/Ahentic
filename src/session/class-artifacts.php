@@ -27,10 +27,11 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		const KIND_POST_CONTENT  = 'post_content';
 		const KIND_JSON          = 'json';
 
-		const STATUS_READY   = 'ready';
-		const STATUS_APPLIED = 'applied';
-		const STATUS_STALE   = 'stale';
-		const STATUS_EMPTY   = 'empty';
+		const STATUS_DRAFTING = 'drafting';
+		const STATUS_READY    = 'ready';
+		const STATUS_APPLIED  = 'applied';
+		const STATUS_STALE    = 'stale';
+		const STATUS_EMPTY    = 'empty';
 
 		const STAGE  = 'ahentic/stage-artifact';
 		const LIST   = 'ahentic/list-artifacts';
@@ -103,27 +104,42 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				self::STAGE,
 				array(
 					'label'               => __( 'Stage artifact', 'ahentic' ),
-					'description'         => __( 'Stores a session-scoped artifact (draft blocks, HTML, etc.) for later apply via from_memory on set-blocks / create-post / update-post. Does not publish or edit the site — only stages for this session. Prefer this for long drafts so later tools can use {"from_memory":"key"} instead of re-pasting the body.', 'ahentic' ),
+					'description'         => __( 'Stores a session-scoped artifact (draft blocks, HTML, etc.) for later apply via from_memory on set-blocks / create-post / update-post. Does not publish or edit the site — only stages for this session. Prefer this for long drafts so later tools can use {"from_memory":"key"} instead of re-pasting the body. While chunking a new draft use mode=append + complete=false, then complete=true. For a full rewrite of an already-ready key, use mode=replace (or a new key) — do not append onto a finished draft.', 'ahentic' ),
 					'category'            => 'ahentic-session',
 					'input_schema'        => array(
 						'type'       => 'object',
-						'required'   => array( 'key', 'kind', 'payload' ),
+						'required'   => array( 'key', 'kind' ),
 						'properties' => array(
-							'key'     => array(
+							'key'      => array(
 								'type'        => 'string',
 								'description' => __( 'Stable id (snake_case), e.g. article_draft. Max 64 chars.', 'ahentic' ),
 							),
-							'kind'    => array(
+							'kind'     => array(
 								'type'        => 'string',
 								'enum'        => array( 'blocks', 'html', 'markdown', 'post_content', 'json' ),
 								'description' => __( 'How payload is interpreted when applied.', 'ahentic' ),
 							),
-							'title'   => array(
+							'title'    => array(
 								'type'        => 'string',
 								'description' => __( 'Short label for prompts / UI.', 'ahentic' ),
 							),
-							'payload' => array(
-								'description' => __( 'For kind=blocks: { "blocks": [ {name, attributes, innerBlocks}, … ] }. For html/markdown/post_content: { "content": "…" } or a string. For json: any object.', 'ahentic' ),
+							'payload'  => array(
+								'description' => __( 'Preferred body. For kind=blocks: { "blocks": [ {name, attributes, innerBlocks}, … ] } or a bare blocks array. For html/markdown/post_content: { "content": "…" } or a string. For json: any object.', 'ahentic' ),
+							),
+							'content'  => array(
+								'description' => __( 'Alias for payload (common model mistake). Same shapes as payload; for kind=blocks a blocks array is accepted.', 'ahentic' ),
+							),
+							'blocks'   => array(
+								'description' => __( 'Alias for payload.blocks when kind=blocks — top-level blocks array without wrapping in payload.', 'ahentic' ),
+							),
+							'mode'     => array(
+								'type'        => 'string',
+								'enum'        => array( 'replace', 'append' ),
+								'description' => __( 'replace (default) overwrites the payload. append merges chunks only while the key is still drafting; append on a ready/applied key is treated as replace so rewrites do not duplicate content.', 'ahentic' ),
+							),
+							'complete' => array(
+								'type'        => 'boolean',
+								'description' => __( 'When false, status stays drafting and from_memory apply is rejected. Default true (ready). With mode=append, complete=true and an empty/omitted body marks an existing drafting artifact ready (not a ready/applied one).', 'ahentic' ),
 							),
 						),
 					),
@@ -187,16 +203,18 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		 * @return array|\WP_Error
 		 */
 		public static function execute_stage( $input = array() ) {
-			$input      = is_array( $input ) ? $input : array();
+			$input      = self::coerce_stage_input( is_array( $input ) ? $input : array() );
 			$session_id = self::current_session_id();
 			if ( $session_id <= 0 ) {
 				return new WP_Error( 'ahentic_no_session', __( 'No active session for staging.', 'ahentic' ) );
 			}
 
-			$key = isset( $input['key'] ) ? (string) $input['key'] : '';
-			$kind = isset( $input['kind'] ) ? (string) $input['kind'] : '';
-			$title = isset( $input['title'] ) ? (string) $input['title'] : '';
-			$payload = array_key_exists( 'payload', $input ) ? $input['payload'] : null;
+			$key      = isset( $input['key'] ) ? (string) $input['key'] : '';
+			$kind     = isset( $input['kind'] ) ? (string) $input['kind'] : '';
+			$title    = isset( $input['title'] ) ? (string) $input['title'] : '';
+			$payload  = array_key_exists( 'payload', $input ) ? $input['payload'] : null;
+			$mode     = isset( $input['mode'] ) ? (string) $input['mode'] : 'replace';
+			$complete = ! array_key_exists( 'complete', $input ) || (bool) $input['complete'];
 
 			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 
@@ -204,10 +222,12 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				$session_id,
 				$key,
 				array(
-					'kind'    => $kind,
-					'title'   => $title,
-					'payload' => $payload,
-					'meta'    => array(
+					'kind'     => $kind,
+					'title'    => $title,
+					'payload'  => $payload,
+					'mode'     => $mode,
+					'complete' => $complete,
+					'meta'     => array(
 						'source' => self::STAGE,
 						'step'   => $step,
 					),
@@ -218,19 +238,28 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				return $result;
 			}
 
-			$item = self::get_item( $session_id, $key );
+			$item   = self::get_item( $session_id, $key );
+			$status = $item && isset( $item['status'] ) ? (string) $item['status'] : ( $complete ? self::STATUS_READY : self::STATUS_DRAFTING );
+			$msg    = self::STATUS_DRAFTING === $status
+				? sprintf(
+					/* translators: %s: artifact key */
+					__( 'Drafting artifact “%s” (not ready). Keep appending chunks, then stage again with complete=true before from_memory.', 'ahentic' ),
+					$key
+				)
+				: sprintf(
+					/* translators: %s: artifact key */
+					__( 'Staged artifact “%s”. Apply later with from_memory on set-blocks / create-post / update-post.', 'ahentic' ),
+					$key
+				);
+
 			return array(
 				'ok'      => true,
 				'key'     => $key,
 				'kind'    => $item ? $item['kind'] : $kind,
-				'status'  => self::STATUS_READY,
+				'status'  => $status,
 				'title'   => $item ? $item['title'] : $title,
 				'meta'    => $item && isset( $item['meta'] ) ? $item['meta'] : array(),
-				'message' => sprintf(
-					/* translators: %s: artifact key */
-					__( 'Staged artifact “%s”. Apply later with from_memory on set-blocks / create-post / update-post.', 'ahentic' ),
-					$key
-				),
+				'message' => $msg,
 			);
 		}
 
@@ -402,7 +431,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				}
 				$lines[] = '- ' . implode( ' · ', $parts );
 			}
-			$lines[] = 'Prefer {"from_memory":"<key>"} when applying a ready artifact. Staging is not publishing — still call the mutate ability.';
+			$lines[] = 'Prefer {"from_memory":"<key>"} when applying a ready artifact. Do not apply while status is drafting — finish with complete=true first. Staging is not publishing — still call the mutate ability.';
 			return implode( "\n", $lines );
 		}
 
@@ -421,11 +450,72 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		}
 
 		/**
-		 * Upsert an artifact (status → ready).
+		 * Coerce common model aliases onto the canonical stage-artifact input shape.
+		 *
+		 * Models often emit top-level `content` or `blocks` instead of required `payload`.
+		 *
+		 * @param array $input Raw tool input.
+		 * @return array
+		 */
+		public static function coerce_stage_input( array $input ) {
+			if ( array_key_exists( 'payload', $input ) && null !== $input['payload'] && '' !== $input['payload'] ) {
+				// Still drop alias keys so schema/validators do not see duplicates.
+				unset( $input['content'], $input['blocks'] );
+				return $input;
+			}
+
+			$kind = isset( $input['kind'] ) ? (string) $input['kind'] : '';
+
+			if ( isset( $input['blocks'] ) && is_array( $input['blocks'] ) ) {
+				$input['payload'] = array( 'blocks' => $input['blocks'] );
+			} elseif ( array_key_exists( 'content', $input ) ) {
+				$content = $input['content'];
+				if ( self::KIND_BLOCKS === $kind && is_array( $content ) ) {
+					$input['payload'] = self::looks_like_block_list( $content )
+						? array( 'blocks' => $content )
+						: $content;
+				} else {
+					$input['payload'] = $content;
+				}
+			}
+
+			unset( $input['content'], $input['blocks'] );
+			return $input;
+		}
+
+		/**
+		 * Whether a stage body is empty (used for complete=true finalize without new chunks).
+		 *
+		 * @param string $kind    Kind.
+		 * @param mixed  $payload Raw payload.
+		 * @return bool
+		 */
+		private static function is_empty_stage_payload( $kind, $payload ) {
+			if ( null === $payload || '' === $payload ) {
+				return true;
+			}
+			if ( is_array( $payload ) ) {
+				if ( empty( $payload ) ) {
+					return true;
+				}
+				if ( self::KIND_BLOCKS === $kind ) {
+					if ( isset( $payload['blocks'] ) && is_array( $payload['blocks'] ) && empty( $payload['blocks'] ) ) {
+						return true;
+					}
+				}
+				if ( isset( $payload['content'] ) && '' === trim( (string) $payload['content'] ) && 1 === count( $payload ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Upsert an artifact (drafting or ready).
 		 *
 		 * @param int    $session_id Session ID.
 		 * @param string $key        Key.
-		 * @param array  $item       kind, title, payload, meta.
+		 * @param array  $item       kind, title, payload, meta, mode, complete|status.
 		 * @return true|\WP_Error
 		 */
 		public static function stage( $session_id, $key, array $item ) {
@@ -446,10 +536,62 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				);
 			}
 
-			$payload = array_key_exists( 'payload', $item ) ? $item['payload'] : null;
-			$payload = self::normalize_payload( $kind, $payload );
-			if ( is_wp_error( $payload ) ) {
-				return $payload;
+			$mode = isset( $item['mode'] ) ? (string) $item['mode'] : 'replace';
+			if ( ! in_array( $mode, array( 'replace', 'append' ), true ) ) {
+				$mode = 'replace';
+			}
+
+			$complete = ! array_key_exists( 'complete', $item ) || (bool) $item['complete'];
+			$payload  = array_key_exists( 'payload', $item ) ? $item['payload'] : null;
+
+			$store           = self::get( $session_id );
+			$existing        = isset( $store['items'][ $key ] ) && is_array( $store['items'][ $key ] ) ? $store['items'][ $key ] : null;
+			$existing_status = $existing && isset( $existing['status'] ) ? (string) $existing['status'] : '';
+
+			// Append only merges while drafting. Once ready/applied/stale, a new append is a
+			// rewrite cycle — replace the base so revisions do not concatenate duplicates.
+			if (
+				'append' === $mode
+				&& $existing
+				&& self::STATUS_DRAFTING !== $existing_status
+			) {
+				$mode = 'replace';
+			}
+
+			// Finalize drafting → ready without a dummy chunk (only while already drafting).
+			if (
+				$complete
+				&& 'append' === $mode
+				&& self::is_empty_stage_payload( $kind, $payload )
+				&& $existing
+				&& self::STATUS_DRAFTING === $existing_status
+				&& ! empty( $existing['payload'] )
+			) {
+				$item['payload']  = $existing['payload'];
+				$item['mode']     = 'replace';
+				$item['complete'] = true;
+				$payload          = $existing['payload'];
+				$mode             = 'replace';
+			} else {
+				$payload = self::normalize_payload( $kind, $payload );
+				if ( is_wp_error( $payload ) ) {
+					return $payload;
+				}
+			}
+
+			if ( 'append' === $mode && $existing ) {
+				$existing_kind = isset( $existing['kind'] ) ? (string) $existing['kind'] : '';
+				if ( $existing_kind && $existing_kind !== $kind ) {
+					return new WP_Error(
+						'ahentic_artifact_kind_mismatch',
+						__( 'Cannot append: artifact kind does not match the existing key.', 'ahentic' )
+					);
+				}
+				$merged = self::merge_payloads( $kind, isset( $existing['payload'] ) ? $existing['payload'] : null, $payload );
+				if ( is_wp_error( $merged ) ) {
+					return $merged;
+				}
+				$payload = $merged;
 			}
 
 			$encoded = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
@@ -468,8 +610,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				);
 			}
 
-			$store = self::get( $session_id );
-			if ( ! isset( $store['items'][ $key ] ) && count( $store['items'] ) >= self::MAX_ITEMS ) {
+			if ( ! $existing && count( $store['items'] ) >= self::MAX_ITEMS ) {
 				return new WP_Error(
 					'ahentic_artifact_limit',
 					sprintf(
@@ -481,13 +622,21 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			}
 
 			$now      = gmdate( 'c' );
-			$existing = isset( $store['items'][ $key ] ) && is_array( $store['items'][ $key ] ) ? $store['items'][ $key ] : null;
 			$old_meta = $existing && isset( $existing['meta'] ) && is_array( $existing['meta'] ) ? $existing['meta'] : array();
 			$in_meta  = isset( $item['meta'] ) && is_array( $item['meta'] ) ? $item['meta'] : array();
 
 			$title = isset( $item['title'] ) ? sanitize_text_field( (string) $item['title'] ) : '';
+			if ( '' === $title && $existing && ! empty( $existing['title'] ) ) {
+				$title = (string) $existing['title'];
+			}
 			if ( '' === $title && self::KIND_BLOCKS === $kind ) {
 				$title = self::guess_title_from_blocks( $payload );
+			}
+
+			$complete = ! array_key_exists( 'complete', $item ) || (bool) $item['complete'];
+			$status   = isset( $item['status'] ) ? (string) $item['status'] : ( $complete ? self::STATUS_READY : self::STATUS_DRAFTING );
+			if ( ! in_array( $status, array( self::STATUS_DRAFTING, self::STATUS_READY ), true ) ) {
+				$status = $complete ? self::STATUS_READY : self::STATUS_DRAFTING;
 			}
 
 			$meta = array(
@@ -502,7 +651,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			$store['items'][ $key ] = array(
 				'kind'    => $kind,
 				'title'   => $title,
-				'status'  => self::STATUS_READY,
+				'status'  => $status,
 				'payload' => $payload,
 				'meta'    => $meta,
 			);
@@ -521,7 +670,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		public static function set_status( $session_id, $key, $status ) {
 			$key    = self::sanitize_key( $key );
 			$status = (string) $status;
-			if ( ! in_array( $status, array( self::STATUS_READY, self::STATUS_APPLIED, self::STATUS_STALE, self::STATUS_EMPTY ), true ) ) {
+			if ( ! in_array( $status, array( self::STATUS_DRAFTING, self::STATUS_READY, self::STATUS_APPLIED, self::STATUS_STALE, self::STATUS_EMPTY ), true ) ) {
 				return new WP_Error( 'ahentic_invalid_artifact_status', __( 'Invalid artifact status.', 'ahentic' ) );
 			}
 			$store = self::get( $session_id );
@@ -611,6 +760,20 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			}
 
 			$status = isset( $item['status'] ) ? (string) $item['status'] : '';
+			if ( self::STATUS_DRAFTING === $status ) {
+				return new WP_Error(
+					'artifact_drafting',
+					sprintf(
+						/* translators: %s: artifact key */
+						__( 'Artifact “%s” is still drafting. Finish staging with complete=true before applying via from_memory.', 'ahentic' ),
+						$key
+					),
+					array(
+						'key'    => $key,
+						'status' => $status,
+					)
+				);
+			}
 			if ( self::STATUS_READY !== $status ) {
 				return new WP_Error(
 					'artifact_not_ready',
@@ -724,6 +887,159 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		 * @param string $key Raw key.
 		 * @return string
 		 */
+		/**
+		 * Public key sanitizer for orchestrator / REST.
+		 *
+		 * @param string $key Raw key.
+		 * @return string
+		 */
+		public static function sanitize_artifact_key( $key ) {
+			return self::sanitize_key( $key );
+		}
+
+		/**
+		 * Whether this session is doing content / long-form work (higher step budget).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return bool
+		 */
+		public static function session_has_content_work( $session_id ) {
+			// Intent gate (e.g. “finish this article”) — before any artifact exists.
+			if ( class_exists( 'Ahentic_Session_Repository' ) && Ahentic_Session_Repository::get_content_work( $session_id ) ) {
+				return true;
+			}
+			$pointers = self::list_pointers( $session_id );
+			$content_kinds = array( self::KIND_BLOCKS, self::KIND_HTML, self::KIND_MARKDOWN, self::KIND_POST_CONTENT );
+			foreach ( $pointers as $p ) {
+				$kind = isset( $p['kind'] ) ? (string) $p['kind'] : '';
+				if ( in_array( $kind, $content_kinds, true ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Pointer + short excerpt for HITL / pending cards (no full body).
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $key        Key.
+		 * @return array|null
+		 */
+		public static function pointer_with_excerpt( $session_id, $key ) {
+			$key  = self::sanitize_key( $key );
+			$item = self::get_item( $session_id, $key );
+			if ( ! $item ) {
+				return null;
+			}
+			$meta = isset( $item['meta'] ) && is_array( $item['meta'] ) ? $item['meta'] : array();
+			return array(
+				'key'     => $key,
+				'title'   => isset( $item['title'] ) ? (string) $item['title'] : '',
+				'kind'    => isset( $item['kind'] ) ? (string) $item['kind'] : '',
+				'status'  => isset( $item['status'] ) ? (string) $item['status'] : '',
+				'bytes'   => isset( $meta['bytes'] ) ? (int) $meta['bytes'] : 0,
+				'excerpt' => self::excerpt_from_payload(
+					isset( $item['kind'] ) ? (string) $item['kind'] : '',
+					isset( $item['payload'] ) ? $item['payload'] : null,
+					160
+				),
+			);
+		}
+
+		/**
+		 * Expand pending tool input for the browser runner (REST response only).
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $pending    Pending tool.
+		 * @return array
+		 */
+		public static function expand_pending_for_browser( $session_id, array $pending ) {
+			$input = isset( $pending['input'] ) && is_array( $pending['input'] ) ? $pending['input'] : array();
+			$name  = isset( $pending['name'] ) ? (string) $pending['name'] : '';
+			if ( empty( $input['from_memory'] ) || ! $name ) {
+				return $pending;
+			}
+			$resolved = self::apply_from_memory( $session_id, $name, $input );
+			if ( is_wp_error( $resolved ) ) {
+				$pending['memory_error'] = $resolved->get_error_message();
+				return $pending;
+			}
+			$pending['input']        = isset( $resolved['input'] ) && is_array( $resolved['input'] ) ? $resolved['input'] : $input;
+			$pending['artifact_key'] = isset( $resolved['artifact_key'] ) ? (string) $resolved['artifact_key'] : '';
+			return $pending;
+		}
+
+		/**
+		 * Merge append chunks into an existing payload.
+		 *
+		 * @param string $kind Existing kind.
+		 * @param mixed  $existing Existing payload.
+		 * @param mixed  $incoming Incoming payload.
+		 * @return array|\WP_Error
+		 */
+		private static function merge_payloads( $kind, $existing, $incoming ) {
+			if ( self::KIND_BLOCKS === $kind ) {
+				$a = self::payload_blocks( $existing );
+				$b = self::payload_blocks( $incoming );
+				if ( is_wp_error( $a ) ) {
+					return $a;
+				}
+				if ( is_wp_error( $b ) ) {
+					return $b;
+				}
+				return array( 'blocks' => array_merge( $a, $b ) );
+			}
+			if ( in_array( $kind, array( self::KIND_HTML, self::KIND_MARKDOWN, self::KIND_POST_CONTENT ), true ) ) {
+				$a = '';
+				$b = '';
+				if ( is_array( $existing ) && isset( $existing['content'] ) ) {
+					$a = (string) $existing['content'];
+				} elseif ( is_string( $existing ) ) {
+					$a = $existing;
+				}
+				if ( is_array( $incoming ) && isset( $incoming['content'] ) ) {
+					$b = (string) $incoming['content'];
+				} elseif ( is_string( $incoming ) ) {
+					$b = $incoming;
+				}
+				$sep = ( '' !== $a && '' !== $b ) ? "\n\n" : '';
+				return array( 'content' => $a . $sep . $b );
+			}
+			return new WP_Error(
+				'ahentic_artifact_append_unsupported',
+				__( 'Append mode is only supported for blocks, html, markdown, and post_content artifacts.', 'ahentic' )
+			);
+		}
+
+		/**
+		 * Short text excerpt from a payload for HITL cards.
+		 *
+		 * @param string $kind    Kind.
+		 * @param mixed  $payload Payload.
+		 * @param int    $max     Max chars.
+		 * @return string
+		 */
+		private static function excerpt_from_payload( $kind, $payload, $max = 160 ) {
+			$text = '';
+			if ( self::KIND_BLOCKS === $kind ) {
+				$blocks = self::payload_blocks( $payload );
+				if ( ! is_wp_error( $blocks ) && ! empty( $blocks[0] ) && is_array( $blocks[0] ) ) {
+					$attrs = isset( $blocks[0]['attributes'] ) && is_array( $blocks[0]['attributes'] ) ? $blocks[0]['attributes'] : array();
+					if ( ! empty( $attrs['content'] ) ) {
+						$text = wp_strip_all_tags( (string) $attrs['content'] );
+					} elseif ( ! empty( $blocks[0]['name'] ) ) {
+						$text = (string) $blocks[0]['name'];
+					}
+				}
+			} elseif ( is_array( $payload ) && isset( $payload['content'] ) ) {
+				$text = wp_strip_all_tags( (string) $payload['content'] );
+			} elseif ( is_string( $payload ) ) {
+				$text = wp_strip_all_tags( $payload );
+			}
+			return self::excerpt( $text, $max );
+		}
+
 		private static function sanitize_key( $key ) {
 			$key = strtolower( trim( (string) $key ) );
 			$key = preg_replace( '/[^a-z0-9_\-]/', '', $key );

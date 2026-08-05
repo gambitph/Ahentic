@@ -13,10 +13,13 @@ if ( ! class_exists( 'Ahentic_Step_Queue' ) ) {
 	 * Enqueue orchestrator steps and summary jobs.
 	 */
 	class Ahentic_Step_Queue {
-		const HOOK_STEP    = 'ahentic_process_step';
-		const HOOK_SUMMARY = 'ahentic_session_summary';
-		const GROUP        = 'ahentic';
-		const META_RUN_LOCK = '_ahentic_run_lock';
+		const HOOK_STEP           = 'ahentic_process_step';
+		const HOOK_SUMMARY        = 'ahentic_session_summary';
+		const HOOK_HEARTBEAT_TICK = 'ahentic_llm_heartbeat_tick';
+		const GROUP               = 'ahentic';
+		const META_RUN_LOCK       = '_ahentic_run_lock';
+		/** Seconds between LLM keepalive heartbeat ticks. */
+		const HEARTBEAT_TICK_INTERVAL = 8;
 
 		/**
 		 * Register cron / AS handlers.
@@ -24,6 +27,7 @@ if ( ! class_exists( 'Ahentic_Step_Queue' ) ) {
 		public static function init() {
 			add_action( self::HOOK_STEP, array( __CLASS__, 'handle_step' ), 10, 1 );
 			add_action( self::HOOK_SUMMARY, array( __CLASS__, 'handle_summary' ), 10, 1 );
+			add_action( self::HOOK_HEARTBEAT_TICK, array( __CLASS__, 'handle_heartbeat_tick' ), 10, 1 );
 		}
 
 		/**
@@ -133,6 +137,102 @@ if ( ! class_exists( 'Ahentic_Step_Queue' ) ) {
 		}
 
 		/**
+		 * Refresh run lock expiry while a long step (e.g. LLM) is still claimed.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function refresh_run_lock( $session_id ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			$lock = get_post_meta( $session_id, self::META_RUN_LOCK, true );
+			if ( ! is_array( $lock ) ) {
+				return;
+			}
+			update_post_meta(
+				$session_id,
+				self::META_RUN_LOCK,
+				array(
+					'until' => time() + 300,
+					'at'    => gmdate( 'c' ),
+				)
+			);
+		}
+
+		/**
+		 * Start periodic heartbeat ticks while an LLM call blocks this process.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function start_llm_keepalive( $session_id ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 || ! class_exists( 'Ahentic_Session_Repository' ) ) {
+				return;
+			}
+			Ahentic_Session_Repository::set_llm_keepalive( $session_id, true );
+			Ahentic_Session_Repository::touch_heartbeat( $session_id );
+			self::schedule_heartbeat_tick( $session_id, self::HEARTBEAT_TICK_INTERVAL );
+		}
+
+		/**
+		 * Stop keepalive ticks after the LLM returns.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function stop_llm_keepalive( $session_id ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 || ! class_exists( 'Ahentic_Session_Repository' ) ) {
+				return;
+			}
+			Ahentic_Session_Repository::set_llm_keepalive( $session_id, false );
+			self::unschedule_heartbeat_tick( $session_id );
+			Ahentic_Session_Repository::touch_heartbeat( $session_id );
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 * @param int $delay      Seconds from now.
+		 */
+		public static function schedule_heartbeat_tick( $session_id, $delay = 8 ) {
+			$session_id = (int) $session_id;
+			$delay      = max( 3, (int) $delay );
+			if ( $session_id <= 0 ) {
+				return;
+			}
+
+			self::unschedule_heartbeat_tick( $session_id );
+
+			if ( function_exists( 'as_schedule_single_action' ) ) {
+				as_schedule_single_action(
+					time() + $delay,
+					self::HOOK_HEARTBEAT_TICK,
+					array( $session_id ),
+					self::GROUP
+				);
+				return;
+			}
+
+			wp_schedule_single_event( time() + $delay, self::HOOK_HEARTBEAT_TICK, array( $session_id ) );
+			self::spawn_cron();
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function unschedule_heartbeat_tick( $session_id ) {
+			$session_id = (int) $session_id;
+			if ( function_exists( 'as_unschedule_all_actions' ) ) {
+				as_unschedule_all_actions( self::HOOK_HEARTBEAT_TICK, array( $session_id ), self::GROUP );
+			}
+			$next = wp_next_scheduled( self::HOOK_HEARTBEAT_TICK, array( $session_id ) );
+			while ( $next ) {
+				wp_unschedule_event( $next, self::HOOK_HEARTBEAT_TICK, array( $session_id ) );
+				$next = wp_next_scheduled( self::HOOK_HEARTBEAT_TICK, array( $session_id ) );
+			}
+		}
+
+		/**
 		 * Enqueue session summary (slight delay to avoid summarizing mid-burst).
 		 *
 		 * @param int $session_id Session ID.
@@ -177,6 +277,39 @@ if ( ! class_exists( 'Ahentic_Step_Queue' ) ) {
 			if ( class_exists( 'Ahentic_Orchestrator' ) ) {
 				Ahentic_Orchestrator::run_summary( (int) $session_id );
 			}
+		}
+
+		/**
+		 * Keep heartbeat fresh while LLM keepalive is set (sidebar polls / cron can run this).
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function handle_heartbeat_tick( $session_id ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 || ! class_exists( 'Ahentic_Session_Repository' ) ) {
+				return;
+			}
+
+			if ( ! Ahentic_Session_Repository::get_llm_keepalive( $session_id ) ) {
+				return;
+			}
+
+			$status = Ahentic_Session_Repository::get_status( $session_id );
+			if ( Ahentic_Session_Repository::STATUS_RUNNING !== $status ) {
+				Ahentic_Session_Repository::set_llm_keepalive( $session_id, false );
+				return;
+			}
+
+			Ahentic_Session_Repository::touch_heartbeat( $session_id );
+			self::refresh_run_lock( $session_id );
+			self::schedule_heartbeat_tick( $session_id, self::HEARTBEAT_TICK_INTERVAL );
+		}
+
+		/**
+		 * Public cron nudge (e.g. while sidebar polls during an LLM wait).
+		 */
+		public static function nudge_cron() {
+			self::spawn_cron();
 		}
 
 		/**

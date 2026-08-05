@@ -13,6 +13,18 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 	 * AI generation helpers for the orchestrator.
 	 */
 	class Ahentic_AI {
+		/** Default max output tokens per completion (PRD). */
+		const MAX_OUTPUT_TOKENS = 8000;
+		/** Max output when staging / long-form content (PRD). */
+		const MAX_OUTPUT_TOKENS_CONTENT = 16000;
+
+		/**
+		 * Session currently wrapping an LLM call (for curl progress heartbeats).
+		 *
+		 * @var int
+		 */
+		private static $heartbeat_session_id = 0;
+
 		/**
 		 * Whether a generation path is available.
 		 *
@@ -35,22 +47,113 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		 * @param string $system  System instruction.
 		 * @param array  $history Prior turns: [ ['role'=>'user|assistant','content'=>'…'], … ] excluding latest user if passed separately.
 		 * @param string $user    Latest user message.
+		 * @param array  $options Optional. max_output_tokens (int), session_id (int) for mid-wait heartbeats.
 		 * @return array|\WP_Error { text, tokens_in, tokens_out, tokens_total, model }
 		 */
-		public static function complete_chat( $system, array $history, $user ) {
-			// Always prefer Core helpers when present — never mix with a Composer SDK copy.
-			if ( function_exists( 'wp_ai_client_prompt' ) ) {
-				return self::complete_via_core( $system, $history, $user );
+		public static function complete_chat( $system, array $history, $user, $options = array() ) {
+			$options    = is_array( $options ) ? $options : array();
+			$session_id = isset( $options['session_id'] ) ? (int) $options['session_id'] : 0;
+
+			self::begin_llm_heartbeat( $session_id );
+			try {
+				// Always prefer Core helpers when present — never mix with a Composer SDK copy.
+				if ( function_exists( 'wp_ai_client_prompt' ) ) {
+					return self::complete_via_core( $system, $history, $user, $options );
+				}
+
+				if ( class_exists( '\WordPress\AiClient\AiClient' ) ) {
+					return self::complete_via_sdk( $system, $history, $user, $options );
+				}
+
+				return new WP_Error(
+					'ahentic_ai_unavailable',
+					__( 'No AI client is available. Install and configure the WordPress AI plugin (Settings → AI / Connectors).', 'ahentic' ),
+					array( 'status' => 503 )
+				);
+			} finally {
+				self::end_llm_heartbeat( $session_id );
+			}
+		}
+
+		/**
+		 * Mark LLM in-flight: scheduled keepalive + WP HTTP curl progress ticks.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		private static function begin_llm_heartbeat( $session_id ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			self::$heartbeat_session_id = $session_id;
+			if ( class_exists( 'Ahentic_Step_Queue' ) ) {
+				Ahentic_Step_Queue::start_llm_keepalive( $session_id );
+			} elseif ( class_exists( 'Ahentic_Session_Repository' ) ) {
+				Ahentic_Session_Repository::touch_heartbeat( $session_id );
+			}
+			add_action( 'http_api_curl', array( __CLASS__, 'attach_curl_heartbeat_progress' ), 10, 3 );
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		private static function end_llm_heartbeat( $session_id ) {
+			remove_action( 'http_api_curl', array( __CLASS__, 'attach_curl_heartbeat_progress' ), 10 );
+			self::$heartbeat_session_id = 0;
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			if ( class_exists( 'Ahentic_Step_Queue' ) ) {
+				Ahentic_Step_Queue::stop_llm_keepalive( $session_id );
+			} elseif ( class_exists( 'Ahentic_Session_Repository' ) ) {
+				Ahentic_Session_Repository::touch_heartbeat( $session_id );
+			}
+		}
+
+		/**
+		 * Bump session heartbeat from in-process curl transfer progress (when AI uses WP HTTP).
+		 *
+		 * @param resource|\CurlHandle $handle      Curl handle.
+		 * @param array                $parsed_args Request args.
+		 * @param string               $url         URL.
+		 */
+		public static function attach_curl_heartbeat_progress( $handle, $parsed_args = array(), $url = '' ) {
+			unset( $parsed_args, $url );
+			$session_id = (int) self::$heartbeat_session_id;
+			if ( $session_id <= 0 || ! function_exists( 'curl_setopt' ) ) {
+				return;
 			}
 
-			if ( class_exists( '\WordPress\AiClient\AiClient' ) ) {
-				return self::complete_via_sdk( $system, $history, $user );
+			$ok_handle = is_resource( $handle );
+			if ( ! $ok_handle && is_object( $handle ) && 'CurlHandle' === get_class( $handle ) ) {
+				$ok_handle = true;
+			}
+			if ( ! $ok_handle ) {
+				return;
 			}
 
-			return new WP_Error(
-				'ahentic_ai_unavailable',
-				__( 'No AI client is available. Install and configure the WordPress AI plugin (Settings → AI / Connectors).', 'ahentic' ),
-				array( 'status' => 503 )
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- intentional progress hook on WP HTTP curl handle.
+			curl_setopt( $handle, CURLOPT_NOPROGRESS, false );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
+			curl_setopt(
+				$handle,
+				CURLOPT_PROGRESSFUNCTION,
+				static function () use ( $session_id ) {
+					static $last = 0;
+					$now         = time();
+					if ( $now - $last < 5 ) {
+						return 0;
+					}
+					$last = $now;
+					if ( class_exists( 'Ahentic_Session_Repository' ) ) {
+						Ahentic_Session_Repository::touch_heartbeat( $session_id );
+					}
+					if ( class_exists( 'Ahentic_Step_Queue' ) ) {
+						Ahentic_Step_Queue::refresh_run_lock( $session_id );
+					}
+					return 0;
+				}
 			);
 		}
 
@@ -74,10 +177,12 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		 * @param string $system  System.
 		 * @param array  $history History.
 		 * @param string $user    User.
+		 * @param array  $options Options.
 		 * @return array|\WP_Error
 		 */
-		private static function complete_via_core( $system, array $history, $user ) {
+		private static function complete_via_core( $system, array $history, $user, $options = array() ) {
 			$prompt_text = self::flatten_prompt( $history, $user );
+			$max_tokens  = self::resolve_max_output_tokens( $options );
 
 			try {
 				$builder = wp_ai_client_prompt( $prompt_text );
@@ -85,9 +190,12 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 					return new WP_Error( 'ahentic_ai_api', __( 'Unexpected AI client API shape.', 'ahentic' ) );
 				}
 
-				$result = $builder
-					->using_system_instruction( (string) $system )
-					->generate_text_result();
+				$builder = $builder->using_system_instruction( (string) $system );
+				if ( $max_tokens > 0 ) {
+					$builder = $builder->using_max_tokens( $max_tokens );
+				}
+
+				$result = $builder->generate_text_result();
 
 				if ( is_wp_error( $result ) ) {
 					return $result;
@@ -184,16 +292,30 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			$thinking  = isset( $debug['thinking'] ) ? trim( (string) $debug['thinking'] ) : '';
 			$intention = isset( $debug['intention'] ) ? trim( (string) $debug['intention'] ) : '';
 
-			if ( $thinking ) {
-				return $thinking;
+			// Final replies should not dump mid-process thinking into chat.
+			if ( in_array( $next, array( 'reply', 'ask_user', 'missing_ability' ), true ) ) {
+				if ( 'ask_user' === $next && $intention ) {
+					return sprintf(
+						/* translators: %s: short intention */
+						__( 'I need a bit more information to continue (%s).', 'ahentic' ),
+						$intention
+					);
+				}
+				if ( $thinking && ! self::text_looks_like_process( $thinking ) ) {
+					return $thinking;
+				}
+				if ( $intention ) {
+					return sprintf(
+						/* translators: %s: short intention / status */
+						__( 'Done — %s.', 'ahentic' ),
+						lcfirst( $intention )
+					);
+				}
+				return __( 'Done.', 'ahentic' );
 			}
 
-			if ( 'ask_user' === $next && $intention ) {
-				return sprintf(
-					/* translators: %s: short intention */
-					__( 'I need a bit more information to continue (%s).', 'ahentic' ),
-					$intention
-				);
+			if ( $thinking ) {
+				return $thinking;
 			}
 
 			if ( $intention ) {
@@ -204,14 +326,33 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		}
 
 		/**
+		 * Whether text reads like an in-progress thought rather than a user-facing answer.
+		 *
+		 * @param string $text Text.
+		 * @return bool
+		 */
+		public static function text_looks_like_process( $text ) {
+			$text = trim( (string) $text );
+			if ( '' === $text ) {
+				return true;
+			}
+			return (bool) preg_match(
+				'/^(i co(?:uld|n)\b|i will\b|i\'ll\b|let me\b|next i\b|checking\b|looking\b|searching\b|planning\b|now i\b|i need to\b|i should\b)/i',
+				$text
+			);
+		}
+
+		/**
 		 * Composer SDK path.
 		 *
 		 * @param string $system  System.
 		 * @param array  $history History.
 		 * @param string $user    User.
+		 * @param array  $options Options.
 		 * @return array|\WP_Error
 		 */
-		private static function complete_via_sdk( $system, array $history, $user ) {
+		private static function complete_via_sdk( $system, array $history, $user, $options = array() ) {
+			$max_tokens = self::resolve_max_output_tokens( $options );
 			try {
 				$messages = array();
 				foreach ( $history as $turn ) {
@@ -230,6 +371,10 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 
 				$builder = \WordPress\AiClient\AiClient::prompt( (string) $user )
 					->usingSystemInstruction( (string) $system );
+
+				if ( $max_tokens > 0 ) {
+					$builder = $builder->usingMaxTokens( $max_tokens );
+				}
 
 				if ( ! empty( $messages ) ) {
 					$builder = $builder->withHistory( ...$messages );
@@ -256,6 +401,17 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 					)
 				);
 			}
+		}
+
+		/**
+		 * @param array $options Options.
+		 * @return int
+		 */
+		private static function resolve_max_output_tokens( array $options ) {
+			if ( isset( $options['max_output_tokens'] ) ) {
+				return max( 256, (int) $options['max_output_tokens'] );
+			}
+			return self::MAX_OUTPUT_TOKENS;
 		}
 
 		/**

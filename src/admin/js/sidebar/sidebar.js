@@ -47,9 +47,18 @@ import {
 } from './api'
 import { collectPageContext } from './page-context'
 import { runBrowserAbility } from './browser-abilities'
+import {
+	exportEditorRefs,
+	hydrateEditorRefs,
+} from './block-ref-registry'
 
 const POLL_MS = 650
-const STALL_MS = 2500
+/** Quiet queue nudge when the worker heartbeat goes quiet (not progress-label based). */
+const HEARTBEAT_STALL_MS = 8000
+/** Show stuck recovery UI when heartbeat is this old while still running. */
+const HEARTBEAT_DEAD_MS = 45000
+/** Recover stale awaiting_browser via continue (server timed fallback). */
+const BROWSER_STALL_MS = 45000
 
 /** Generic phase placeholders — prefer real debugger step summaries instead. */
 const GENERIC_PROGRESS_LABELS = new Set( [
@@ -102,17 +111,55 @@ function progressLabelForAbility( ability ) {
 }
 
 /**
+ * Age of a heartbeat ISO timestamp in ms, or null when unknown.
+ *
+ * @param {string} heartbeatAt ISO timestamp.
+ * @return {number|null}
+ */
+function heartbeatAgeMs( heartbeatAt ) {
+	if ( ! heartbeatAt || typeof heartbeatAt !== 'string' ) {
+		return null
+	}
+	const t = Date.parse( heartbeatAt )
+	if ( Number.isNaN( t ) ) {
+		return null
+	}
+	return Math.max( 0, Date.now() - t )
+}
+
+/**
  * Live status text: prefer a real step label (tool / intention), matching the debugger.
  *
  * @param {string}      progressLabel Server progress.label.
  * @param {Array}       trace         Session trace events.
  * @param {boolean}     isBusy        Whether the session is actively working.
  * @param {Object|null} pendingTool   HITL pending tool, if any.
+ * @param {string}      [sessionStatus] Session status.
  * @return {string} Label for the live-status row.
  */
-function resolveLiveStatusLabel( progressLabel, trace, isBusy, pendingTool ) {
+function resolveLiveStatusLabel( progressLabel, trace, isBusy, pendingTool, sessionStatus = '' ) {
 	if ( ! isBusy ) {
 		return ''
+	}
+
+	if ( sessionStatus === 'awaiting_human' && pendingTool ) {
+		const summary = pendingTool.summary || pendingTool.name || ''
+		return summary
+			? sprintf(
+				/* translators: %s: action summary */
+				__( 'Waiting for your approval: %s', 'ahentic' ),
+				summary
+			)
+			: __( 'Waiting for your approval…', 'ahentic' )
+	}
+
+	if ( sessionStatus === 'awaiting_browser' && pendingTool ) {
+		const summary = pendingTool.summary || progressLabelForAbility( pendingTool.name || '' )
+		return sprintf(
+			/* translators: %s: action summary */
+			__( 'Waiting for this page to run: %s', 'ahentic' ),
+			summary
+		)
 	}
 
 	const label = typeof progressLabel === 'string' ? progressLabel.trim() : ''
@@ -442,9 +489,10 @@ function pendingLocalsConfirmedOnServer( serverMessages, pendingById ) {
  * @param {Function} [setProgressByTab]    Progress state setter.
  * @param {Function} [setPendingToolByTab] Pending tool state setter.
  * @param {Function} [setPlanByTab]        Plan state setter.
+ * @param {Function} [setThoughtByTab]     Ephemeral thought setter.
  * @param {Object}   [pendingLocalByTab]   In-flight optimistic user messages keyed by session id.
  */
-function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab, setPendingToolByTab, setPlanByTab, pendingLocalByTab ) {
+function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab, setPendingToolByTab, setPlanByTab, pendingLocalByTab, setThoughtByTab ) {
 	if ( ! session?.id ) {
 		return
 	}
@@ -483,8 +531,9 @@ function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab
 	}
 	if ( setProgressByTab ) {
 		const label = session.progress?.label || ''
+		const heartbeatAt = typeof session.heartbeatAt === 'string' ? session.heartbeatAt : ''
 		setProgressByTab( progress => {
-			if ( ! label ) {
+			if ( ! label && ! heartbeatAt ) {
 				if ( ! progress[ id ] ) {
 					return progress
 				}
@@ -495,8 +544,10 @@ function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab
 			return {
 				...progress,
 				[ id ]: {
-					label,
-					updatedAt: session.progress?.updatedAt || '',
+					label: label || progress[ id ]?.label || '',
+					updatedAt: session.progress?.updatedAt || progress[ id ]?.updatedAt || '',
+					heartbeatAt: heartbeatAt || progress[ id ]?.heartbeatAt || '',
+					seenAt: progress[ id ]?.seenAt || Date.now(),
 				},
 			}
 		} )
@@ -539,6 +590,30 @@ function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab
 			}
 		} )
 	}
+	if ( setThoughtByTab ) {
+		const thought = session.thoughtProcess?.text || session.thoughtProcess?.Text || ''
+		setThoughtByTab( thoughts => {
+			if ( ! thought || session.status === 'idle' || session.status === 'error' || session.status === 'cancelled' ) {
+				if ( ! thoughts[ id ] ) {
+					return thoughts
+				}
+				const copy = { ...thoughts }
+				delete copy[ id ]
+				return copy
+			}
+			return {
+				...thoughts,
+				[ id ]: {
+					text: thought,
+					updatedAt: session.thoughtProcess?.updatedAt || '',
+				},
+			}
+		} )
+	}
+	if ( session.editorRefs && typeof session.editorRefs === 'object' ) {
+		const livePostId = Number( collectPageContext()?.post_id || 0 )
+		hydrateEditorRefs( session.editorRefs, livePostId )
+	}
 }
 
 export default function Sidebar() {
@@ -562,6 +637,7 @@ export default function Sidebar() {
 	const [ progressByTab, setProgressByTab ] = useState( {} )
 	const [ pendingToolByTab, setPendingToolByTab ] = useState( {} )
 	const [ planByTab, setPlanByTab ] = useState( {} )
+	const [ thoughtByTab, setThoughtByTab ] = useState( {} )
 	const [ traceByTab, setTraceByTab ] = useState( {} )
 	/** @type {[{[id: string]: string}, Function]} HITL decision in flight per tab (survives debugger toggle). */
 	const [ approvingByTab, setApprovingByTab ] = useState( {} )
@@ -669,7 +745,8 @@ export default function Sidebar() {
 			setProgressByTab,
 			setPendingToolByTab,
 			setPlanByTab,
-			pendingLocalRef.current
+			pendingLocalRef.current,
+			setThoughtByTab
 		)
 		return true
 	}, [] )
@@ -900,7 +977,10 @@ export default function Sidebar() {
 			}
 			inflight = true
 			try {
-				await patchSession( sessionId, { pageContext: ctx } )
+				await patchSession( sessionId, {
+					pageContext: ctx,
+					editorRefs: exportEditorRefs(),
+				} )
 			} catch {
 				// Best-effort; next send still attaches fresh context.
 				lastKey = previous
@@ -1053,6 +1133,7 @@ export default function Sidebar() {
 		? null
 		: ( pendingToolByTab[ activeTabId ] || null )
 	const activePlan = planByTab[ activeTabId ] || null
+	const activeThought = thoughtByTab[ activeTabId ] || null
 	const activeTab = tabs.find( tab => tab.id === activeTabId )
 	const isBusy = sending ||
 		Boolean( activeApproving ) ||
@@ -1063,8 +1144,19 @@ export default function Sidebar() {
 		activeProgress?.label || '',
 		activeTrace,
 		isBusy,
-		activePendingTool
+		activePendingTool,
+		activeApproving ? 'running' : activeStatus
 	)
+	const activeHeartbeatAge = heartbeatAgeMs( activeProgress?.heartbeatAt || '' )
+	const runElapsedMs = activeProgress?.seenAt
+		? Math.max( 0, Date.now() - activeProgress.seenAt )
+		: 0
+	const isHeartbeatDead = activeStatus === 'running' &&
+		! activeApproving &&
+		(
+			( activeHeartbeatAge !== null && activeHeartbeatAge >= HEARTBEAT_DEAD_MS ) ||
+			( activeHeartbeatAge === null && runElapsedMs >= HEARTBEAT_DEAD_MS )
+		)
 	// Existing session tabs show a spinner until fetched; only while the sidebar is open.
 	const isSessionLoading = useMemo(
 		() => open && isSessionId( activeTabId ) && ! hydratedRef.current.has( activeTabId ),
@@ -1144,6 +1236,13 @@ export default function Sidebar() {
 			for ( let attempt = 1; attempt <= maxAttempts; attempt++ ) {
 				try {
 					const outcome = await runBrowserAbility( pending )
+					if ( outcome?.result?.wiped ) {
+						try {
+							await patchSession( sessionId, { editorRefs: null } )
+						} catch {
+							// Poller / next sync will catch up.
+						}
+					}
 					const session = await postBrowserResult( sessionId, {
 						// REST body uses snake_case (matches server pending tool).
 						// eslint-disable-next-line camelcase
@@ -1196,7 +1295,6 @@ export default function Sidebar() {
 		const ids = runningSessionKey.split( ',' ).filter( Boolean )
 		let cancelled = false
 		const continueInFlight = new Set()
-		const seenAt = {}
 
 		const apply = session => {
 			const id = session?.id !== undefined && session?.id !== null ? String( session.id ) : ''
@@ -1207,19 +1305,29 @@ export default function Sidebar() {
 			applySession( session )
 		}
 
-		const isStalled = session => {
+		/** Quiet queue recovery when heartbeat is stale — not progress-label based. */
+		const needsHeartbeatNudge = session => {
 			if ( session?.status !== 'running' ) {
 				return false
 			}
-			const label = session.progress?.label || ''
-			const updatedAt = session.progress?.updatedAt || ''
-			const key = `${ label }|${ updatedAt }|${ session.stepCount || 0 }`
-			const now = Date.now()
-			if ( ! seenAt[ session.id ] || seenAt[ session.id ].key !== key ) {
-				seenAt[ session.id ] = { key, since: now }
+			const age = heartbeatAgeMs( session.heartbeatAt || '' )
+			if ( age === null ) {
 				return false
 			}
-			return ( now - seenAt[ session.id ].since ) >= STALL_MS
+			return age >= HEARTBEAT_STALL_MS
+		}
+
+		/** Timed browser recovery (server falls back or errors clearly). */
+		const needsBrowserNudge = session => {
+			if ( session?.status !== 'awaiting_browser' ) {
+				return false
+			}
+			const paused = session.browserPausedAt || session.progress?.updatedAt || ''
+			const age = heartbeatAgeMs( paused )
+			if ( age === null ) {
+				return false
+			}
+			return age >= BROWSER_STALL_MS
 		}
 
 		const pollOne = async id => {
@@ -1230,7 +1338,11 @@ export default function Sidebar() {
 				}
 				apply( session )
 
-				if ( isStalled( session ) && ! continueInFlight.has( id ) ) {
+				const shouldContinue = (
+					( needsHeartbeatNudge( session ) || needsBrowserNudge( session ) ) &&
+					! continueInFlight.has( id )
+				)
+				if ( shouldContinue ) {
 					continueInFlight.add( id )
 					continueSession( id )
 						.then( continued => {
@@ -1671,6 +1783,21 @@ export default function Sidebar() {
 			setSending( false )
 		}
 	}, [ activeTabId, mode, sending, markHydrated, applySession, canGenerate ] )
+
+	const continueStuckSession = useCallback( async () => {
+		if ( ! isSessionId( activeTabId ) ) {
+			return
+		}
+		const sessionId = activeTabId
+		try {
+			const session = await continueSession( sessionId )
+			if ( session ) {
+				applySession( session, { force: true } )
+			}
+		} catch ( error ) {
+			setSendError( error.message || __( 'Could not continue this run.', 'ahentic' ) )
+		}
+	}, [ activeTabId, applySession ] )
 
 	const stopSession = useCallback( async () => {
 		if ( ! isSessionId( activeTabId ) || stopping ) {
@@ -2189,10 +2316,14 @@ export default function Sidebar() {
 						progressLabel={ progressLabel }
 						pendingTool={ activePendingTool }
 						plan={ activePlan }
+						thoughtProcess={ isBusy ? ( activeThought?.text || '' ) : '' }
 						sessionStatus={ activeApproving ? 'running' : activeStatus }
 						approvingDecision={ activeApproving }
 						onApproval={ onApproval }
 						onSuggestedAction={ onSuggestedAction }
+						liveness={ isHeartbeatDead ? 'stuck' : '' }
+						onContinue={ continueStuckSession }
+						onCancelRun={ stopSession }
 					/>
 				) }
 

@@ -33,9 +33,20 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_AUTO_TITLE       = '_ahentic_auto_title';
 		const META_TRACE            = '_ahentic_trace';
 		const META_PROGRESS         = '_ahentic_progress';
+		const META_HEARTBEAT        = '_ahentic_heartbeat_at';
 		const META_PLAN             = '_ahentic_plan';
 		const META_CAPABILITY_REQUESTS = '_ahentic_capability_requests';
 		const META_PAGE_CONTEXT        = '_ahentic_page_context';
+		const META_VERIFY_PENDING      = '_ahentic_verify_pending';
+		const META_VERIFY_ATTEMPTS     = '_ahentic_verify_attempts';
+		const META_PENDING_FINAL       = '_ahentic_pending_final';
+		const META_FORCED_TOOLS        = '_ahentic_forced_tools';
+		const META_LLM_KEEPALIVE       = '_ahentic_llm_keepalive';
+		const META_CONTEXT_SUMMARY    = '_ahentic_context_summary';
+		const META_THOUGHT             = '_ahentic_thought';
+		const META_EDITOR_REFS         = '_ahentic_editor_refs';
+		const META_BROWSER_PAUSED_AT   = '_ahentic_browser_paused_at';
+		const META_CONTENT_WORK        = '_ahentic_content_work';
 
 		const STATUS_IDLE             = 'idle';
 		const STATUS_RUNNING          = 'running';
@@ -347,11 +358,23 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 
 			$pending = get_post_meta( $session_id, self::META_PENDING_TOOL, true );
 			$pending = $pending ? json_decode( (string) $pending, true ) : null;
+			$status  = self::get_status( $session_id );
+
+			// Expand from_memory for the browser runner only (meta stays key-only).
+			if (
+				is_array( $pending )
+				&& self::STATUS_AWAITING_BROWSER === $status
+				&& ! empty( $pending['runtime'] )
+				&& 'browser' === $pending['runtime']
+				&& class_exists( 'Ahentic_Session_Artifacts' )
+			) {
+				$pending = Ahentic_Session_Artifacts::expand_pending_for_browser( $session_id, $pending );
+			}
 
 			$payload = array(
 				'id'           => (int) $session_id,
 				'title'        => $post->post_title,
-				'status'       => self::get_status( $session_id ),
+				'status'       => $status,
 				'mode'         => self::get_mode( $session_id ),
 				'excerpt'      => $post->post_excerpt,
 				'tokensIn'     => (int) get_post_meta( $session_id, self::META_TOKENS_IN, true ),
@@ -373,12 +396,46 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 
 			$payload['trace'] = self::get_trace( $session_id );
 			$payload['progress'] = self::get_progress( $session_id );
+			$payload['heartbeatAt'] = self::get_heartbeat( $session_id );
 			$payload['plan'] = self::get_plan( $session_id );
+			$payload['thoughtProcess'] = self::get_thought( $session_id );
+			$payload['editorRefs'] = self::get_editor_refs( $session_id );
+			$payload['browserPausedAt'] = self::get_browser_paused_at( $session_id );
 			$payload['artifacts'] = class_exists( 'Ahentic_Session_Artifacts' )
 				? Ahentic_Session_Artifacts::list_pointers( $session_id )
 				: array();
 
+			// While an LLM call is in flight, nudge cron so keepalive heartbeat ticks can run
+			// (sidebar polls arrive in other requests while the worker is blocked).
+			if ( self::get_llm_keepalive( $session_id ) && class_exists( 'Ahentic_Step_Queue' ) ) {
+				Ahentic_Step_Queue::nudge_cron();
+			}
+
 			return $payload;
+		}
+
+		/**
+		 * ISO-8601 heartbeat when the orchestrator worker last proved it was alive.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string Empty when none.
+		 */
+		public static function get_heartbeat( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_HEARTBEAT, true );
+			return is_string( $raw ) ? $raw : '';
+		}
+
+		/**
+		 * Bump worker liveness (distinct from the human-readable progress label).
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function touch_heartbeat( $session_id ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			update_post_meta( $session_id, self::META_HEARTBEAT, gmdate( 'c' ) );
 		}
 
 		/**
@@ -580,6 +637,8 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				self::META_PROGRESS,
 				wp_slash( wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
 			);
+
+			self::touch_heartbeat( $session_id );
 
 			self::append_trace(
 				$session_id,
@@ -1025,6 +1084,420 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
+		 * Ephemeral thought process for the sidebar (not a durable chat entry).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array|null { text, updatedAt }
+		 */
+		public static function get_thought( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_THOUGHT, true );
+			if ( empty( $raw ) ) {
+				return null;
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			if ( ! is_array( $decoded ) || empty( $decoded['text'] ) ) {
+				return null;
+			}
+			return array(
+				'text'      => (string) $decoded['text'],
+				'updatedAt' => isset( $decoded['updated_at'] ) ? (string) $decoded['updated_at'] : '',
+			);
+		}
+
+		/**
+		 * @param int    $session_id Session ID.
+		 * @param string $text       Thought text.
+		 */
+		public static function set_thought( $session_id, $text ) {
+			$text = trim( (string) $text );
+			if ( '' === $text ) {
+				self::clear_thought( $session_id );
+				return;
+			}
+			update_post_meta(
+				$session_id,
+				self::META_THOUGHT,
+				wp_slash(
+					wp_json_encode(
+						array(
+							'text'       => $text,
+							'updated_at' => gmdate( 'c' ),
+						),
+						JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+					)
+				)
+			);
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_thought( $session_id ) {
+			delete_post_meta( $session_id, self::META_THOUGHT );
+		}
+
+		/**
+		 * Pending write verifications for the current run.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array<int, array<string, mixed>>
+		 */
+		public static function get_verify_pending( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_VERIFY_PENDING, true );
+			if ( empty( $raw ) ) {
+				return array();
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			return is_array( $decoded ) ? array_values( $decoded ) : array();
+		}
+
+		/**
+		 * @param int   $session_id Session ID.
+		 * @param array $items      Pending verify items.
+		 */
+		public static function set_verify_pending( $session_id, array $items ) {
+			if ( empty( $items ) ) {
+				delete_post_meta( $session_id, self::META_VERIFY_PENDING );
+				return;
+			}
+			update_post_meta(
+				$session_id,
+				self::META_VERIFY_PENDING,
+				wp_slash( wp_json_encode( array_values( $items ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
+			);
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_verify_pending( $session_id ) {
+			delete_post_meta( $session_id, self::META_VERIFY_PENDING );
+		}
+
+		/**
+		 * How many times we deferred finish for verification this run.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return int
+		 */
+		public static function get_verify_attempts( $session_id ) {
+			return max( 0, (int) get_post_meta( $session_id, self::META_VERIFY_ATTEMPTS, true ) );
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 * @return int New count.
+		 */
+		public static function bump_verify_attempts( $session_id ) {
+			$n = self::get_verify_attempts( $session_id ) + 1;
+			update_post_meta( $session_id, self::META_VERIFY_ATTEMPTS, $n );
+			return $n;
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_verify_attempts( $session_id ) {
+			delete_post_meta( $session_id, self::META_VERIFY_ATTEMPTS );
+		}
+
+		/**
+		 * Stashed final reply while verification continues (so prose is not lost).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array|null { text, model, debug }
+		 */
+		public static function get_pending_final( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_PENDING_FINAL, true );
+			if ( empty( $raw ) ) {
+				return null;
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			return is_array( $decoded ) ? $decoded : null;
+		}
+
+		/**
+		 * @param int   $session_id Session ID.
+		 * @param array $payload    { text, model?, debug? }.
+		 */
+		public static function set_pending_final( $session_id, array $payload ) {
+			$text = isset( $payload['text'] ) ? trim( (string) $payload['text'] ) : '';
+			if ( '' === $text ) {
+				self::clear_pending_final( $session_id );
+				return;
+			}
+			$out = array(
+				'text'  => $text,
+				'model' => isset( $payload['model'] ) ? (string) $payload['model'] : '',
+				'debug' => isset( $payload['debug'] ) && is_array( $payload['debug'] ) ? $payload['debug'] : array(),
+			);
+			update_post_meta(
+				$session_id,
+				self::META_PENDING_FINAL,
+				wp_slash( wp_json_encode( $out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
+			);
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_pending_final( $session_id ) {
+			delete_post_meta( $session_id, self::META_PENDING_FINAL );
+		}
+
+		/**
+		 * Tools the orchestrator must run before the next free LLM think (apply / verify).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array<int, array{name: string, input: array}>
+		 */
+		public static function get_forced_tools( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_FORCED_TOOLS, true );
+			if ( empty( $raw ) ) {
+				return array();
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			if ( ! is_array( $decoded ) ) {
+				return array();
+			}
+			$out = array();
+			foreach ( $decoded as $item ) {
+				if ( ! is_array( $item ) || empty( $item['name'] ) ) {
+					continue;
+				}
+				$out[] = array(
+					'name'  => (string) $item['name'],
+					'input' => isset( $item['input'] ) && is_array( $item['input'] ) ? $item['input'] : array(),
+				);
+			}
+			return $out;
+		}
+
+		/**
+		 * @param int   $session_id Session ID.
+		 * @param array $tools      List of { name, input }.
+		 */
+		public static function set_forced_tools( $session_id, array $tools ) {
+			$out = array();
+			foreach ( $tools as $item ) {
+				if ( ! is_array( $item ) || empty( $item['name'] ) ) {
+					continue;
+				}
+				$out[] = array(
+					'name'  => (string) $item['name'],
+					'input' => isset( $item['input'] ) && is_array( $item['input'] ) ? $item['input'] : array(),
+				);
+			}
+			if ( empty( $out ) ) {
+				self::clear_forced_tools( $session_id );
+				return;
+			}
+			update_post_meta(
+				$session_id,
+				self::META_FORCED_TOOLS,
+				wp_slash( wp_json_encode( $out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
+			);
+		}
+
+		/**
+		 * Read and clear forced tools.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array<int, array{name: string, input: array}>
+		 */
+		public static function consume_forced_tools( $session_id ) {
+			$tools = self::get_forced_tools( $session_id );
+			self::clear_forced_tools( $session_id );
+			return $tools;
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_forced_tools( $session_id ) {
+			delete_post_meta( $session_id, self::META_FORCED_TOOLS );
+		}
+
+		/**
+		 * Whether an LLM completion is in flight (external keepalive may bump heartbeat).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return bool
+		 */
+		public static function get_llm_keepalive( $session_id ) {
+			return '1' === (string) get_post_meta( (int) $session_id, self::META_LLM_KEEPALIVE, true );
+		}
+
+		/**
+		 * @param int  $session_id Session ID.
+		 * @param bool $on         Enable or clear.
+		 */
+		public static function set_llm_keepalive( $session_id, $on ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			if ( $on ) {
+				update_post_meta( $session_id, self::META_LLM_KEEPALIVE, '1' );
+				return;
+			}
+			delete_post_meta( $session_id, self::META_LLM_KEEPALIVE );
+		}
+
+		/**
+		 * Mid-run rolling summary of older turns (compaction).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string
+		 */
+		public static function get_context_summary( $session_id ) {
+			$raw = get_post_meta( (int) $session_id, self::META_CONTEXT_SUMMARY, true );
+			return is_string( $raw ) ? $raw : '';
+		}
+
+		/**
+		 * @param int    $session_id Session ID.
+		 * @param string $summary    Summary text (empty clears).
+		 */
+		public static function set_context_summary( $session_id, $summary ) {
+			$session_id = (int) $session_id;
+			$summary    = trim( (string) $summary );
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			if ( '' === $summary ) {
+				delete_post_meta( $session_id, self::META_CONTEXT_SUMMARY );
+				return;
+			}
+			if ( strlen( $summary ) > 8000 ) {
+				$summary = substr( $summary, 0, 8000 );
+			}
+			update_post_meta( $session_id, self::META_CONTEXT_SUMMARY, wp_slash( $summary ) );
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_context_summary( $session_id ) {
+			delete_post_meta( (int) $session_id, self::META_CONTEXT_SUMMARY );
+		}
+
+		/**
+		 * Session-backed editor.refs map (opaque b* → clientId + doc identity).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array|null
+		 */
+		public static function get_editor_refs( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_EDITOR_REFS, true );
+			if ( empty( $raw ) ) {
+				return null;
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			if ( ! is_array( $decoded ) || empty( $decoded['map'] ) || ! is_array( $decoded['map'] ) ) {
+				return null;
+			}
+			return array(
+				'postId'    => isset( $decoded['post_id'] ) ? (int) $decoded['post_id'] : 0,
+				'nextIndex' => isset( $decoded['next_index'] ) ? (int) $decoded['next_index'] : 1,
+				'map'       => $decoded['map'],
+				'updatedAt' => isset( $decoded['updated_at'] ) ? (string) $decoded['updated_at'] : '',
+			);
+		}
+
+		/**
+		 * @param int        $session_id Session ID.
+		 * @param array|null $refs       { postId, nextIndex, map: { b1: clientId } } or null to clear.
+		 */
+		public static function set_editor_refs( $session_id, $refs ) {
+			if ( null === $refs || ( is_array( $refs ) && empty( $refs['map'] ) ) ) {
+				delete_post_meta( $session_id, self::META_EDITOR_REFS );
+				return;
+			}
+			if ( ! is_array( $refs ) ) {
+				return;
+			}
+			$map_in = isset( $refs['map'] ) && is_array( $refs['map'] ) ? $refs['map'] : array();
+			$map    = array();
+			foreach ( $map_in as $ref => $client_id ) {
+				$ref       = preg_replace( '/[^a-z0-9]/', '', strtolower( (string) $ref ) );
+				$client_id = sanitize_text_field( (string) $client_id );
+				if ( '' === $ref || '' === $client_id || ! preg_match( '/^b\d+$/', $ref ) ) {
+					continue;
+				}
+				$map[ $ref ] = $client_id;
+			}
+			if ( empty( $map ) ) {
+				delete_post_meta( $session_id, self::META_EDITOR_REFS );
+				return;
+			}
+			$payload = array(
+				'post_id'    => isset( $refs['postId'] ) ? (int) $refs['postId'] : ( isset( $refs['post_id'] ) ? (int) $refs['post_id'] : 0 ),
+				'next_index' => isset( $refs['nextIndex'] ) ? max( 1, (int) $refs['nextIndex'] ) : ( isset( $refs['next_index'] ) ? max( 1, (int) $refs['next_index'] ) : 1 ),
+				'map'        => $map,
+				'updated_at' => gmdate( 'c' ),
+			);
+			update_post_meta(
+				$session_id,
+				self::META_EDITOR_REFS,
+				wp_slash( wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
+			);
+		}
+
+		/**
+		 * When browser pause started (ISO), for timed recovery.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string
+		 */
+		public static function get_browser_paused_at( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_BROWSER_PAUSED_AT, true );
+			return is_string( $raw ) ? $raw : '';
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function touch_browser_paused_at( $session_id ) {
+			update_post_meta( $session_id, self::META_BROWSER_PAUSED_AT, gmdate( 'c' ) );
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_browser_paused_at( $session_id ) {
+			delete_post_meta( $session_id, self::META_BROWSER_PAUSED_AT );
+		}
+
+		/**
+		 * Whether this run was flagged as long-form / article content work (intent gate).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return bool
+		 */
+		public static function get_content_work( $session_id ) {
+			return '1' === (string) get_post_meta( (int) $session_id, self::META_CONTENT_WORK, true );
+		}
+
+		/**
+		 * Mark or clear the content-work intent flag for budgets / verification.
+		 *
+		 * @param int  $session_id Session ID.
+		 * @param bool $on         True to mark.
+		 */
+		public static function set_content_work( $session_id, $on ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			if ( $on ) {
+				update_post_meta( $session_id, self::META_CONTENT_WORK, '1' );
+				return;
+			}
+			delete_post_meta( $session_id, self::META_CONTENT_WORK );
+		}
+
+		/**
 		 * Transition to idle and optionally enqueue summary.
 		 *
 		 * @param int $session_id Session ID.
@@ -1032,6 +1505,14 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		public static function mark_idle( $session_id ) {
 			$old = self::get_status( $session_id );
 			self::clear_progress( $session_id );
+			self::clear_thought( $session_id );
+			self::clear_verify_pending( $session_id );
+			self::clear_verify_attempts( $session_id );
+			self::clear_pending_final( $session_id );
+			self::clear_forced_tools( $session_id );
+			self::clear_context_summary( $session_id );
+			self::set_llm_keepalive( $session_id, false );
+			self::clear_browser_paused_at( $session_id );
 			self::set_status( $session_id, self::STATUS_IDLE );
 
 			if ( self::STATUS_IDLE !== $old && class_exists( 'Ahentic_Orchestrator' ) ) {

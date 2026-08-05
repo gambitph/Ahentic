@@ -15,6 +15,7 @@ import {
 	resolveToClientIds,
 	syncFromBlocks,
 	collectLiveClientIds,
+	wipeEditorRefs,
 } from './block-ref-registry'
 
 const MAX_BLOCKS_DEFAULT = 80
@@ -512,7 +513,8 @@ function resolveInputRefs( input, select, keys ) {
  */
 function syncRegistryFromEditor( select ) {
 	const blocks = select( 'core/block-editor' ).getBlocks?.() || []
-	syncFromBlocks( blocks )
+	const postId = select( 'core/editor' )?.getCurrentPostId?.() || 0
+	syncFromBlocks( blocks, postId )
 }
 
 /**
@@ -522,11 +524,13 @@ function syncRegistryFromEditor( select ) {
  * @return {Object}
  */
 function missingRefsError( missing ) {
+	wipeEditorRefs()
 	return {
 		ok: false,
 		error: 'block_not_found',
 		missing,
-		message: 'One or more block refs were not found. Re-call get-blocks or get-selection and use the fresh ref strings (b1, b2, …) — do not invent refs or paste clientId hashes.',
+		wiped: true,
+		message: 'One or more block refs were not found. The ref map was cleared — re-call get-blocks or get-selection and use the fresh ref strings (b1, b2, …) — do not invent refs or paste clientId hashes.',
 	}
 }
 
@@ -562,7 +566,7 @@ export function getEditorState() {
 	const editor = ctx.select( 'core/editor' )
 	const blockEditor = ctx.select( 'core/block-editor' )
 	const blocks = blockEditor.getBlocks?.() || []
-	syncFromBlocks( blocks )
+	syncFromBlocks( blocks, editor.getCurrentPostId?.() || 0 )
 	const selected = blockEditor.getSelectedBlockClientIds?.() || []
 	return {
 		ok: true,
@@ -1709,9 +1713,12 @@ export function updatePostTitle( input = {} ) {
 		}
 	}
 	ctx.dispatch( 'core/editor' ).editPost( { title } )
+
+	// Report the stored title, not the input, so the result is proof of the applied state.
+	const applied = ctx.select( 'core/editor' ).getEditedPostAttribute?.( 'title' )
 	return {
 		ok: true,
-		title,
+		title: typeof applied === 'string' ? applied : title,
 		post_id: ctx.select( 'core/editor' ).getCurrentPostId?.() ?? null,
 	}
 }

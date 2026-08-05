@@ -90,7 +90,7 @@ Missing / invalid debug blocks are retried internally (not shown to the user).
 1. **PHP (server abilities)** — `Ahentic_Abilities::execute()` in the step worker; result → `role: tool` entry.
 2. **HITL** — `pending_tool` + `awaiting_human`; sidebar Allow/Deny → `POST …/approvals` → execute or skip → continue.
 3. **Browser** — `pending_tool` with `runtime: browser` + `awaiting_browser`; sidebar runs JS → `POST …/browser-results` → tool entry → continue.
-4. **`from_memory`** — Orchestrator expands session [artifacts](../session/artifacts.md) into tool input before execute / browser pause (kept unexpanded during HITL so pending stays small).
+4. **`from_memory`** — Pending HITL / browser keep **key only**; expand at PHP execute or in REST for the browser runner. May auto-stage oversized inline bodies first.
 
 HITL runs **before** browser pause when both apply (e.g. approve then run browser).
 
@@ -116,6 +116,8 @@ Tool JSON injected into the next think is capped (~8k chars) to avoid blowing co
 - Backup: Action Scheduler (`as_enqueue_async_action`) or `wp_schedule_single_event`.
 - Stall fallback: `POST /sessions/{id}/continue` (Local / no cron).
 - Run lock (`_ahentic_run_lock`) prevents overlapping steps on the same session.
+- **LLM liveness:** while `complete_chat` runs, keepalive ticks + optional WP HTTP curl progress bump `heartbeatAt` (and refresh the run lock). Sidebar polls nudge cron so ticks can fire in other requests.
+- **Context compaction:** when history is large, older turns become an extractive rolling summary; pinned goal + plan (+ artifact pointers) stay on the user prompt.
 
 ---
 

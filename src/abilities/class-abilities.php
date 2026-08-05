@@ -382,6 +382,14 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 				);
 			}
 
+			// Models often emit content/blocks instead of payload — coerce before schema validate.
+			if (
+				class_exists( 'Ahentic_Session_Artifacts' )
+				&& Ahentic_Session_Artifacts::STAGE === $name
+			) {
+				$input = Ahentic_Session_Artifacts::coerce_stage_input( $input );
+			}
+
 			if ( function_exists( 'wp_get_ability' ) ) {
 				$ability = wp_get_ability( $name );
 				if ( $ability && is_object( $ability ) && method_exists( $ability, 'execute' ) ) {

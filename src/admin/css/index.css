@@ -1589,7 +1589,9 @@ a.ahentic-empty__ai-install:hover {
 
 .ahentic-live-status {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
+	gap: 6px 10px;
 	min-height: 1.5em;
 	padding: 2px 2px 4px;
 	margin-top: 2px;
@@ -1600,6 +1602,81 @@ a.ahentic-empty__ai-install:hover {
 	line-height: 1.45;
 	color: var(--ah-muted);
 	animation: ahentic-live-pulse 1.6s ease-in-out infinite;
+}
+
+.ahentic-live-status.is-stuck .ahentic-live-status__text {
+	animation: none;
+	opacity: 1;
+	color: var(--ah-fg);
+}
+
+.ahentic-live-status__hint {
+	font-size: 12px;
+	line-height: 1.4;
+	color: var(--ah-muted);
+	opacity: 0.85;
+}
+
+.ahentic-live-status__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	width: 100%;
+}
+
+.ahentic-live-status__continue,
+.ahentic-live-status__cancel {
+	appearance: none;
+	border: 1px solid var(--ah-border);
+	background: transparent;
+	color: var(--ah-fg);
+	border-radius: 6px;
+	padding: 4px 10px;
+	font-size: 12px;
+	line-height: 1.3;
+	cursor: pointer;
+}
+
+.ahentic-live-status__continue {
+	background: var(--ah-primary);
+	border-color: var(--ah-primary);
+	color: #fff;
+}
+
+.ahentic-live-status__continue:hover {
+	background: var(--ah-primary-hover);
+	border-color: var(--ah-primary-hover);
+}
+
+.ahentic-hitl__memory {
+	margin: 0 0 8px;
+	font-size: 12px;
+	line-height: 1.4;
+	color: var(--ah-muted);
+}
+
+.ahentic-thought {
+	margin: 8px 2px 4px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	background: transparent;
+	opacity: 0.55;
+}
+
+.ahentic-thought__label {
+	font-size: 11px;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--ah-muted);
+	margin-bottom: 4px;
+}
+
+.ahentic-thought__text {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.45;
+	color: var(--ah-muted);
+	font-style: italic;
 }
 
 @keyframes ahentic-live-pulse {

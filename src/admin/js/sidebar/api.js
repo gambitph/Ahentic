@@ -169,7 +169,16 @@ export function mapEntriesToMessages( entries ) {
 		return []
 	}
 	return entries
-		.filter( entry => entry && ( entry.role === 'user' || entry.role === 'assistant' || entry.role === 'event' ) )
+		.filter( entry => {
+			if ( ! entry || ! ( entry.role === 'user' || entry.role === 'assistant' || entry.role === 'event' ) ) {
+				return false
+			}
+			// Legacy thought_process entries — ephemeral UX uses thoughtProcess from REST now.
+			if ( entry.meta?.thought_process || entry.meta?.intermediate ) {
+				return false
+			}
+			return true
+		} )
 		.map( entry => ( {
 			id: entry.id || `seq_${ entry.seq }`,
 			role: entry.role === 'assistant' ? 'assistant' : ( entry.role === 'user' ? 'user' : 'system' ),

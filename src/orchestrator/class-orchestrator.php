@@ -15,15 +15,33 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 	class Ahentic_Orchestrator {
 		const MAX_HISTORY_TURNS = 40;
 		const MAX_TOOL_PROGRESS = 5;
-		const MAX_STEPS_PER_RUN = 12;
-		/** Show a plan card only when the model proposes at least this many steps. */
-		const MIN_PLAN_STEPS = 3;
+		/** When history exceeds this many turns, compact older ones (PRD). */
+		const COMPACT_HISTORY_THRESHOLD = 16;
+		/** Keep this many recent history turns verbatim after compaction. */
+		const COMPACT_KEEP_RECENT = 10;
+		/** Soft char budget for history before compacting. */
+		const COMPACT_CHAR_THRESHOLD = 24000;
+		/** Max chars for the rolling earlier-context summary. */
+		const COMPACT_SUMMARY_MAX_CHARS = 4000;
+		/** Default Agent run step budget (PRD). */
+		const MAX_STEPS_PER_RUN = 24;
+		/** Content / long-form run step budget when session has content artifacts (PRD). */
+		const MAX_STEPS_CONTENT_RUN = 48;
+		/**
+		 * Minimum plan steps for a new plan card when the run needs a plan
+		 * (≥2 tools or any write). Single-step write plans are allowed.
+		 */
+		const MIN_PLAN_STEPS = 1;
 		/** Cap plan length so it cannot outgrow a single run. */
 		const MAX_PLAN_STEPS = 12;
 		/** Max LLM attempts to obtain a valid AHENTIC_DEBUG block per think phase. */
 		const MAX_DEBUG_ATTEMPTS = 3;
 		/** Cap each tool-result payload injected into the next think prompt. */
 		const MAX_TOOL_RESULT_CHARS = 8000;
+		/** Cap for the newest live-editor snapshot; superseded copies are collapsed so one full read fits. */
+		const MAX_TOOL_RESULT_CHARS_SNAPSHOT = 24000;
+		/** Max verify-continue cycles before an honest partial finish. */
+		const MAX_VERIFY_ATTEMPTS = 2;
 
 		/**
 		 * Session currently being processed (for abilities that need page context).
@@ -83,6 +101,20 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			}
 
 			Ahentic_Session_Repository::clear_error( $session_id );
+			Ahentic_Session_Repository::clear_verify_pending( $session_id );
+			Ahentic_Session_Repository::clear_verify_attempts( $session_id );
+			Ahentic_Session_Repository::clear_pending_final( $session_id );
+			Ahentic_Session_Repository::clear_forced_tools( $session_id );
+			Ahentic_Session_Repository::clear_thought( $session_id );
+			Ahentic_Session_Repository::clear_browser_paused_at( $session_id );
+			Ahentic_Session_Repository::clear_context_summary( $session_id );
+			Ahentic_Session_Repository::set_llm_keepalive( $session_id, false );
+
+			// Intent gate: long-form / article jobs get content budgets + stricter verify
+			// even before any artifact is staged (PRD content-and-editor).
+			$content_intent = self::message_looks_like_content_work( $content );
+			Ahentic_Session_Repository::set_content_work( $session_id, $content_intent );
+
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(
@@ -129,6 +161,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			}
 
 			$status = Ahentic_Session_Repository::get_status( $session_id );
+			if ( Ahentic_Session_Repository::STATUS_AWAITING_BROWSER === $status ) {
+				self::recover_stale_browser( $session_id );
+				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
+			}
+
 			if ( Ahentic_Session_Repository::STATUS_RUNNING !== $status ) {
 				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 			}
@@ -157,6 +194,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return;
 			}
 
+			Ahentic_Session_Repository::touch_heartbeat( $session_id );
+
 			$should_continue = false;
 
 			try {
@@ -184,102 +223,175 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return false;
 			}
 
-			$steps = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
-			if ( $steps >= self::MAX_STEPS_PER_RUN ) {
+			Ahentic_Session_Repository::touch_heartbeat( $session_id );
+
+			$steps     = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+			$max_steps = self::max_steps_for_session( $session_id );
+			if ( $steps >= $max_steps ) {
 				self::fail_run(
 					$session_id,
 					new WP_Error(
 						'ahentic_max_steps',
-						__( 'This run hit the maximum number of steps. Try a simpler request or start a new message.', 'ahentic' )
+						__( 'This run hit the step limit before finishing. Artifacts are kept — send Continue or another message to resume (e.g. finish applying the draft).', 'ahentic' )
 					)
 				);
 				return false;
 			}
 
-			$mode = Ahentic_Session_Repository::get_mode( $session_id );
+			$mode         = Ahentic_Session_Repository::get_mode( $session_id );
+			$forced_tools = Ahentic_Session_Repository::consume_forced_tools( $session_id );
+			$from_forced  = ! empty( $forced_tools );
 
-			// Keep the last meaningful step label (tool / intention) while the model thinks.
-			$think_label = self::progress_label_for_think( $session_id );
-
-			$result = self::run_llm_with_debug(
-				$session_id,
-				$think_label,
-				self::system_prompt( $mode, $session_id )
-			);
-
-			// User may have hit Stop during the LLM call — do not continue the run.
-			if ( Ahentic_Session_Repository::STATUS_RUNNING !== Ahentic_Session_Repository::get_status( $session_id ) ) {
-				return false;
-			}
-
-			if ( is_wp_error( $result ) ) {
-				self::fail_run( $session_id, $result );
-				return false;
-			}
-
-			$debug = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
-			// Surface the same intention the debugger shows under llm_thinking.
-			Ahentic_Session_Repository::set_progress(
-				$session_id,
-				self::progress_label_from_debug( $debug, $think_label )
-			);
-
-			// Persist multi-step plan from the control block (orchestrator state, not a tool).
-			self::apply_plan_from_debug( $session_id, $debug );
-
-			// Fill empty final-reply text from thinking/intention when needed.
-			$result = self::ensure_thought_process_text( $result, $debug );
-
-			// Missing / unusable control block after retries → stop with last prose (do not ask the user).
-			if ( ! self::debug_is_usable( $debug ) ) {
-				self::finish_with_reply( $session_id, $result, $debug );
-				return false;
-			}
-
-			$next    = (string) $debug['next'];
-			$planned = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
-
-			// Explicit missing-ability signal (or reply that still names ability_needed).
-			if ( self::debug_signals_missing_ability( $debug ) ) {
-				self::queue_missing_abilities_from_debug( $session_id, $debug );
-				self::finish_with_reply( $session_id, $result, $debug );
-				return false;
-			}
-
-			$wants_tools = ( 'use_tools' === $next );
-
-			if ( ! $wants_tools ) {
-				self::finish_with_reply( $session_id, $result, $debug );
-				return false;
-			}
-
-			if ( empty( $planned ) ) {
-				$planned = array(
-					array(
-						'name'  => Ahentic_Abilities::SNAPSHOT,
-						'input' => array(),
-					),
+			if ( $from_forced ) {
+				Ahentic_Session_Repository::bump_step( $session_id );
+				$debug = array(
+					'next'          => 'use_tools',
+					'intention'     => __( 'Finishing pending apply/verify', 'ahentic' ),
+					'thinking'      => __( 'Running required apply or verification tools before the final reply.', 'ahentic' ),
+					'tools_planned' => $forced_tools,
 				);
-			}
-
-			$planned   = array_slice( $planned, 0, self::MAX_TOOL_PROGRESS );
-			$available = Ahentic_Abilities::available_for_mode( $mode );
-
-			// Show the first tool step immediately (same label the debugger will log).
-			$first_tool = isset( $planned[0]['name'] ) ? (string) $planned[0]['name'] : '';
-			if ( '' !== $first_tool ) {
+				$result = array(
+					'text'  => '',
+					'model' => '',
+					'debug' => $debug,
+				);
+				$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
+				if ( is_array( $stashed ) && ! empty( $stashed['text'] ) ) {
+					$result['text'] = (string) $stashed['text'];
+					if ( ! empty( $stashed['model'] ) ) {
+						$result['model'] = (string) $stashed['model'];
+					}
+					if ( ! empty( $stashed['debug'] ) && is_array( $stashed['debug'] ) ) {
+						$debug = array_merge( $stashed['debug'], $debug );
+						$result['debug'] = $debug;
+					}
+				}
+				$first = isset( $forced_tools[0]['name'] ) ? (string) $forced_tools[0]['name'] : '';
 				Ahentic_Session_Repository::set_progress(
 					$session_id,
-					self::progress_label_for_tool( $first_tool, $debug )
+					'' !== $first
+						? self::progress_label_for_tool( $first, $debug )
+						: __( 'Finishing pending work…', 'ahentic' )
+				);
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'forced_tools',
+					'Running orchestrator-forced tools',
+					array( 'tools' => $forced_tools ),
+					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+				);
+				$planned = self::normalize_tool_calls( $forced_tools );
+			} else {
+				// Keep the last meaningful step label (tool / intention) while the model thinks.
+				$think_label = self::progress_label_for_think( $session_id );
+
+				$result = self::run_llm_with_debug(
+					$session_id,
+					$think_label,
+					self::system_prompt( $mode, $session_id )
+				);
+
+				// User may have hit Stop during the LLM call — do not continue the run.
+				if ( Ahentic_Session_Repository::STATUS_RUNNING !== Ahentic_Session_Repository::get_status( $session_id ) ) {
+					return false;
+				}
+
+				if ( is_wp_error( $result ) ) {
+					self::fail_run( $session_id, $result );
+					return false;
+				}
+
+				$debug = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
+				// Surface the same intention the debugger shows under llm_thinking.
+				Ahentic_Session_Repository::set_progress(
+					$session_id,
+					self::progress_label_from_debug( $debug, $think_label )
+				);
+
+				// Persist multi-step plan from the control block (orchestrator state, not a tool).
+				self::apply_plan_from_debug( $session_id, $debug );
+
+				// Agent write / multi-tool work must have a plan (PRD).
+				if ( self::debug_requires_plan( $debug, $mode ) && ! Ahentic_Session_Repository::get_plan( $session_id ) ) {
+					$plan_retry = self::run_llm_phase(
+						$session_id,
+						__( 'Planning the work…', 'ahentic' ),
+						self::system_prompt( $mode, $session_id ),
+						null,
+						'[Internal — not shown to the user] Your previous control block used tools or a write without a plan. '
+						. 'Respond again from scratch with a full <<<AHENTIC_DEBUG … AHENTIC_DEBUG>>> block that includes a non-empty '
+						. 'plan.steps list covering the work (at least one step), then tools_planned / next as needed. '
+						. 'Do not mention this note.',
+						false
+					);
+					if ( ! is_wp_error( $plan_retry ) && is_array( $plan_retry ) ) {
+						$result = $plan_retry;
+						$debug  = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
+						self::apply_plan_from_debug( $session_id, $debug );
+					}
+					if ( ! Ahentic_Session_Repository::get_plan( $session_id ) ) {
+						self::ensure_synthetic_plan( $session_id, $debug );
+					}
+				}
+
+				// Fill empty final-reply text from thinking/intention when needed.
+				$result = self::ensure_thought_process_text( $result, $debug );
+
+				// Missing / unusable control block after retries → stop with last prose (do not ask the user).
+				if ( ! self::debug_is_usable( $debug ) ) {
+					return self::try_finish_with_reply( $session_id, $result, $debug );
+				}
+
+				$next    = (string) $debug['next'];
+				$planned = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
+
+				// Explicit missing-ability signal (or reply that still names ability_needed).
+				if ( self::debug_signals_missing_ability( $debug ) ) {
+					self::queue_missing_abilities_from_debug( $session_id, $debug );
+					return self::try_finish_with_reply( $session_id, $result, $debug );
+				}
+
+				$wants_tools = ( 'use_tools' === $next );
+
+				if ( ! $wants_tools ) {
+					return self::try_finish_with_reply( $session_id, $result, $debug );
+				}
+
+				if ( empty( $planned ) ) {
+					$planned = array(
+						array(
+							'name'  => Ahentic_Abilities::SNAPSHOT,
+							'input' => array(),
+						),
+					);
+				}
+
+				$planned = array_slice( $planned, 0, self::MAX_TOOL_PROGRESS );
+
+				// Show the first tool step immediately (same label the debugger will log).
+				$first_tool = isset( $planned[0]['name'] ) ? (string) $planned[0]['name'] : '';
+				if ( '' !== $first_tool ) {
+					Ahentic_Session_Repository::set_progress(
+						$session_id,
+						self::progress_label_for_tool( $first_tool, $debug )
+					);
+				}
+
+				// Ephemeral thought for the sidebar (not a durable chat entry).
+				self::publish_thought_process( $session_id, $result, $debug );
+			}
+
+			$available = Ahentic_Abilities::available_for_mode( $mode );
+			if ( $from_forced ) {
+				$planned = array_slice( $planned, 0, self::MAX_TOOL_PROGRESS );
+				Ahentic_Session_Repository::set_thought(
+					$session_id,
+					isset( $debug['thinking'] ) ? (string) $debug['thinking'] : ''
 				);
 			}
 
-			// Always surface this think step's thought process in the sidebar message list
-			// (debug.thinking → chat). Plan checklist is separate and must not replace this.
-			self::append_thought_process_to_chat( $session_id, $result, $debug, $first_tool );
-
 			$ran_any = false;
-			foreach ( $planned as $call ) {
+			foreach ( $planned as $call_index => $call ) {
 				if ( Ahentic_Session_Repository::STATUS_RUNNING !== Ahentic_Session_Repository::get_status( $session_id ) ) {
 					return false;
 				}
@@ -381,12 +493,19 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 				$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 
-				// Session artifacts: validate from_memory early; expand before execute/browser
-				// (keep from_memory unexpanded during HITL so pending_tool stays small).
+				// Oversized inline bodies → auto-stage + from_memory (pending stays key-only).
+				if ( class_exists( 'Ahentic_Session_Artifacts' ) ) {
+					$input = self::maybe_auto_stage_tool_input( $session_id, $name, $input, $step );
+				}
+
+				// Session artifacts: validate from_memory early; expand only for PHP execute.
+				// Pending HITL / browser keep key only (PRD); REST expands for the browser runner.
 				$artifact_key = '';
 				$needs_hitl   = Ahentic_Abilities::requires_hitl( $name ) && ! Ahentic_Session_Repository::hitl_is_preallowed( $session_id, $name );
+				$needs_browser = Ahentic_Abilities::requires_browser_runtime( $name, $input );
 				if ( class_exists( 'Ahentic_Session_Artifacts' ) && ! empty( $input['from_memory'] ) ) {
-					if ( $needs_hitl ) {
+					$artifact_key = Ahentic_Session_Artifacts::sanitize_artifact_key( (string) $input['from_memory'] );
+					if ( $needs_hitl || $needs_browser ) {
 						$valid = Ahentic_Session_Artifacts::validate_from_memory( $session_id, $name, $input );
 						if ( is_wp_error( $valid ) ) {
 							self::append_tool_failure( $session_id, $name, $valid, $step );
@@ -408,18 +527,29 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				// Mutating abilities pause for human approval unless already allowed.
 				// HITL must run before browser pause so save-post / convert-blocks can be approved first.
 				if ( $needs_hitl ) {
-					$summary = Ahentic_Abilities::hitl_summary( $name, $input );
+					$summary = self::hitl_summary_for_pending( $session_id, $name, $input );
 					$pending = array(
 						'name'    => $name,
 						'input'   => $input,
 						'summary' => $summary,
 						'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
 					);
+					if ( $artifact_key ) {
+						$pending['artifact_key'] = $artifact_key;
+						$mem                    = self::memory_pointer_for_pending( $session_id, $artifact_key );
+						if ( $mem ) {
+							$pending['memory'] = $mem;
+						}
+					}
 					Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
 					Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_HUMAN );
 					Ahentic_Session_Repository::set_progress(
 						$session_id,
-						__( 'Waiting for your approval…', 'ahentic' ),
+						sprintf(
+							/* translators: %s: short action summary */
+							__( 'Waiting for your approval: %s', 'ahentic' ),
+							$summary
+						),
 						$step
 					);
 					Ahentic_Session_Repository::append_trace(
@@ -436,37 +566,97 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				}
 
 				// Browser abilities (and http-fetch as_user) pause for the sidebar to run JS and POST the result.
-				if ( Ahentic_Abilities::requires_browser_runtime( $name, $input ) ) {
-					$summary = Ahentic_Abilities::browser_summary( $name, $input );
-					$pending = array(
-						'name'    => $name,
-						'input'   => $input,
-						'summary' => $summary,
-						'runtime' => 'browser',
-						'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
-					);
-					if ( $artifact_key ) {
-						$pending['artifact_key'] = $artifact_key;
+				if ( $needs_browser ) {
+					$preflight = self::browser_preflight( $session_id, $name, $input );
+					if ( is_wp_error( $preflight ) ) {
+						self::append_tool_failure( $session_id, $name, $preflight, $step );
+						$ran_any = true;
+						continue;
 					}
-					Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
-					Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_BROWSER );
-					Ahentic_Session_Repository::set_progress(
-						$session_id,
-						self::progress_label_for_tool( $name, $debug ),
-						$step
-					);
-					Ahentic_Session_Repository::append_trace(
-						$session_id,
-						'browser_pause',
-						$summary,
-						array(
-							'ability'      => $name,
-							'input'        => self::trace_tool_input( $input ),
-							'artifact_key' => $artifact_key,
-						),
-						$step
-					);
-					return false;
+					if ( is_array( $preflight ) && ! empty( $preflight['fallback'] ) ) {
+						$name         = (string) $preflight['fallback']['name'];
+						$input        = isset( $preflight['fallback']['input'] ) && is_array( $preflight['fallback']['input'] ) ? $preflight['fallback']['input'] : $input;
+						$needs_browser = false;
+						$needs_hitl   = Ahentic_Abilities::requires_hitl( $name ) && ! Ahentic_Session_Repository::hitl_is_preallowed( $session_id, $name );
+						if ( $needs_hitl ) {
+							// Re-enter HITL path for the server fallback ability.
+							$summary = self::hitl_summary_for_pending( $session_id, $name, $input );
+							$pending = array(
+								'name'    => $name,
+								'input'   => $input,
+								'summary' => $summary,
+								'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
+							);
+							if ( $artifact_key ) {
+								$pending['artifact_key'] = $artifact_key;
+							}
+							Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
+							Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_HUMAN );
+							Ahentic_Session_Repository::set_progress(
+								$session_id,
+								sprintf(
+									/* translators: %s: short action summary */
+									__( 'Waiting for your approval: %s', 'ahentic' ),
+									$summary
+								),
+								$step
+							);
+							Ahentic_Session_Repository::append_trace(
+								$session_id,
+								'hitl_pause',
+								$summary,
+								array(
+									'ability'  => $name,
+									'fallback' => true,
+									'input'    => self::trace_tool_input( $input ),
+								),
+								$step
+							);
+							return false;
+						}
+						// Fall through to PHP execute with rewritten ability.
+					} else {
+						$summary = Ahentic_Abilities::browser_summary( $name, $input );
+						$pending = array(
+							'name'    => $name,
+							'input'   => $input,
+							'summary' => $summary,
+							'runtime' => 'browser',
+							'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
+						);
+						if ( $artifact_key ) {
+							$pending['artifact_key'] = $artifact_key;
+							$mem                    = self::memory_pointer_for_pending( $session_id, $artifact_key );
+							if ( $mem ) {
+								$pending['memory'] = $mem;
+							}
+						}
+						Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
+						Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_BROWSER );
+						Ahentic_Session_Repository::touch_browser_paused_at( $session_id );
+						Ahentic_Session_Repository::set_progress(
+							$session_id,
+							sprintf(
+								/* translators: %s: tool / action label */
+								__( 'Waiting for this page to run: %s', 'ahentic' ),
+								self::progress_label_for_tool( $name, $debug )
+							),
+							$step
+						);
+						self::preserve_browser_batch_remainder( $session_id, $planned, $call_index, $step );
+						Ahentic_Session_Repository::append_trace(
+							$session_id,
+							'browser_pause',
+							$summary,
+							array(
+								'ability'      => $name,
+								'input'        => self::trace_tool_input( $input ),
+								'artifact_key' => $artifact_key,
+							),
+							$step
+						);
+						return false;
+					}
 				}
 
 				$label = self::progress_label_for_tool( $name, $debug );
@@ -483,13 +673,27 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					$step
 				);
 
+				if ( class_exists( 'Ahentic_Session_Artifacts' ) && ! empty( $input['from_memory'] ) ) {
+					$resolved = self::expand_from_memory( $session_id, $name, $input );
+					if ( is_wp_error( $resolved ) ) {
+						self::append_tool_failure( $session_id, $name, $resolved, $step );
+						$ran_any = true;
+						continue;
+					}
+					$input        = $resolved['input'];
+					$artifact_key = $resolved['artifact_key'] ? $resolved['artifact_key'] : $artifact_key;
+				}
+
 				$tool_result = Ahentic_Abilities::execute( $name, $input );
+				Ahentic_Session_Repository::touch_heartbeat( $session_id );
 				$ok          = ! is_wp_error( $tool_result );
 				$payload     = $ok ? $tool_result : self::tool_error_payload( $tool_result );
 
 				if ( $ok && $artifact_key && class_exists( 'Ahentic_Session_Artifacts' ) ) {
 					Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
 				}
+
+				self::track_tool_for_verify( $session_id, $name, $payload, $ok );
 
 				$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 				if ( ! is_string( $content ) ) {
@@ -523,8 +727,34 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			}
 
 			if ( ! $ran_any ) {
-				self::finish_with_reply( $session_id, $result, $debug );
-				return false;
+				return self::try_finish_with_reply( $session_id, $result, $debug );
+			}
+
+			// Forced apply/verify tools: try to finish with the stashed reply instead of another free think.
+			if ( $from_forced ) {
+				return self::try_finish_with_reply( $session_id, $result, $debug );
+			}
+
+			// After staging a ready draft without applying it in this batch, skip the next free
+			// LLM think and force from_memory apply (saves a full debug-retry cycle).
+			if ( 'agent' === $mode && class_exists( 'Ahentic_Session_Artifacts' ) ) {
+				$unapplied = self::ready_unapplied_content_artifacts( $session_id );
+				if ( ! empty( $unapplied ) && ! self::planned_includes_artifact_apply( $planned, $unapplied ) ) {
+					$apply_tools = self::build_forced_apply_tools( $session_id, $unapplied );
+					if ( ! empty( $apply_tools ) ) {
+						Ahentic_Session_Repository::set_forced_tools( $session_id, $apply_tools );
+						Ahentic_Session_Repository::append_trace(
+							$session_id,
+							'apply_required',
+							'Ready artifacts staged — forcing apply',
+							array(
+								'keys'  => $unapplied,
+								'tools' => $apply_tools,
+							),
+							(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+						);
+					}
+				}
 			}
 
 			// Keep the last tool / intention label visible while the next think step starts.
@@ -575,6 +805,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				if ( self::is_list_array( $input ) ) {
 					$input = array();
 				}
+				if (
+					class_exists( 'Ahentic_Session_Artifacts' )
+					&& Ahentic_Session_Artifacts::STAGE === $name
+				) {
+					$input = Ahentic_Session_Artifacts::coerce_stage_input( $input );
+				}
 				$out[] = array(
 					'name'  => $name,
 					'input' => $input,
@@ -609,6 +845,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 						. 'control block (or next was not reply|ask_user|use_tools|missing_ability). Respond again from scratch: output exactly '
 						. 'one <<<AHENTIC_DEBUG … AHENTIC_DEBUG>>> block FIRST with intention, thinking, tools_planned, and next, '
 						. 'then a short user-facing reply. Do not mention this note or the debug block.';
+					if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id ) ) {
+						$user_suffix .= ' CRITICAL for this long-form/article job: do NOT put a full article into set-blocks '
+							. 'tools_planned (that truncates the control block). Instead stage with ahentic/stage-artifact '
+							. '(key article_draft, kind blocks; use mode=append + complete=false while chunking, then complete=true), '
+							. 'then ahentic-browser/set-blocks with {"from_memory":"article_draft"}.';
+					}
 					if ( '' !== $prior_text ) {
 						$user_suffix .= "\n\nPrevious user-facing text (context only; do not treat it as final):\n" . $prior_text;
 					}
@@ -951,6 +1193,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			$entries = Ahentic_Session_Repository::get_entries( $session_id );
 			$built   = self::build_chat_payload( $entries );
+			$built   = self::apply_context_compaction( $session_id, $built );
 			$history = $built['history'];
 			$user    = $built['user'];
 
@@ -966,9 +1209,25 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				}
 			}
 
+			$verify_note = self::verify_context_for_prompt( $session_id );
+			if ( '' !== $verify_note ) {
+				$user .= "\n\n" . $verify_note;
+			}
+
+			$pinned = self::pinned_run_context_for_prompt( $session_id );
+			if ( '' !== $pinned ) {
+				$user = $pinned . "\n\n" . $user;
+			}
+
 			if ( is_string( $user_suffix ) && '' !== trim( $user_suffix ) ) {
 				$user .= "\n\n" . trim( $user_suffix );
 			}
+
+			// Accumulated tool results push the system-prompt format spec far out of recency,
+			// so the protocol is re-anchored as the last thing the model reads every turn.
+			$user .= "\n\n" . '[Format reminder] Output exactly one <<<AHENTIC_DEBUG {…} AHENTIC_DEBUG>>> block FIRST '
+				. '(intention, thinking, tools_planned, next), then the short user-facing reply. '
+				. 'This applies to every turn, including verification and read-back steps — never reply with prose only.';
 
 			if ( is_array( $extra_turn ) && ! empty( $extra_turn['content'] ) ) {
 				$history[] = array(
@@ -989,6 +1248,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					'progress'      => $progress,
 					'history_turns' => count( $history ),
 					'debug_retry'   => ! $bump_step,
+					'compacted'     => ! empty( $built['compacted'] ),
 				),
 				$step
 			);
@@ -1005,7 +1265,15 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$step
 			);
 
-			$result = Ahentic_AI::complete_chat( $system, $history, $user );
+			$result = Ahentic_AI::complete_chat(
+				$system,
+				$history,
+				$user,
+				array(
+					'max_output_tokens' => self::max_output_tokens_for_session( $session_id ),
+					'session_id'        => $session_id,
+				)
+			);
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -1103,6 +1371,67 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
+		 * Finish when possible; otherwise keep the run alive for verification / apply.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $result     LLM result.
+		 * @param array $debug      Debug meta.
+		 * @return bool True when the run should continue (another step); false when finished.
+		 */
+		private static function try_finish_with_reply( $session_id, array $result, $debug = array() ) {
+			$mode = Ahentic_Session_Repository::get_mode( $session_id );
+
+			if ( 'agent' === $mode ) {
+				$unapplied = self::ready_unapplied_content_artifacts( $session_id );
+				if ( ! empty( $unapplied ) ) {
+					self::stash_pending_final( $session_id, $result, $debug );
+					$apply_tools = self::build_forced_apply_tools( $session_id, $unapplied );
+					if ( ! empty( $apply_tools ) ) {
+						Ahentic_Session_Repository::set_forced_tools( $session_id, $apply_tools );
+					}
+					$keys = implode( ', ', $unapplied );
+					Ahentic_Session_Repository::set_progress(
+						$session_id,
+						__( 'Applying staged draft…', 'ahentic' )
+					);
+					Ahentic_Session_Repository::set_thought(
+						$session_id,
+						sprintf(
+							/* translators: %s: artifact keys */
+							__( 'A draft is staged (%s) but not applied yet — applying via from_memory before finishing.', 'ahentic' ),
+							$keys
+						)
+					);
+					Ahentic_Session_Repository::append_trace(
+						$session_id,
+						'apply_required',
+						'Ready artifacts not applied — continuing',
+						array(
+							'keys'  => $unapplied,
+							'tools' => $apply_tools,
+						),
+						(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+					);
+					return true;
+				}
+
+				if ( ! empty( Ahentic_Session_Repository::get_verify_pending( $session_id ) ) ) {
+					$gate = self::run_verification_gate( $session_id, $result, $debug );
+					if ( 'continue' === $gate ) {
+						return true;
+					}
+					if ( is_array( $gate ) && isset( $gate['result'] ) ) {
+						$result = $gate['result'];
+						$debug  = isset( $gate['debug'] ) ? $gate['debug'] : $debug;
+					}
+				}
+			}
+
+			self::finish_with_reply( $session_id, $result, $debug );
+			return false;
+		}
+
+		/**
 		 * Append assistant reply and idle the session.
 		 *
 		 * @param int   $session_id Session ID.
@@ -1111,6 +1440,24 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 */
 		private static function finish_with_reply( $session_id, array $result, $debug = array() ) {
 			Ahentic_Session_Repository::set_progress( $session_id, __( 'Finishing…', 'ahentic' ) );
+			Ahentic_Session_Repository::clear_thought( $session_id );
+
+			$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
+			if ( is_array( $stashed ) && ! empty( $stashed['text'] ) ) {
+				$current = isset( $result['text'] ) ? trim( (string) $result['text'] ) : '';
+				// Prefer a real stashed closing reply over empty / process-y / repair boilerplate.
+				if ( '' === $current || self::reply_looks_like_process( $current ) ) {
+					$result['text'] = (string) $stashed['text'];
+					if ( empty( $result['model'] ) && ! empty( $stashed['model'] ) ) {
+						$result['model'] = $stashed['model'];
+					}
+					if ( ( ! is_array( $debug ) || empty( $debug ) ) && ! empty( $stashed['debug'] ) && is_array( $stashed['debug'] ) ) {
+						$debug = $stashed['debug'];
+					}
+				}
+			}
+			Ahentic_Session_Repository::clear_pending_final( $session_id );
+			Ahentic_Session_Repository::clear_verify_attempts( $session_id );
 
 			$meta = array(
 				'model' => isset( $result['model'] ) ? $result['model'] : '',
@@ -1133,8 +1480,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			if ( '' === $content && is_array( $debug ) ) {
 				$content = trim( (string) Ahentic_AI::fallback_reply_from_debug( $debug ) );
 			}
-			if ( '' === $content ) {
-				$content = __( 'I could not complete that step cleanly. Please try again, or rephrase the request.', 'ahentic' );
+			if ( '' === $content || self::reply_looks_like_process( $content ) ) {
+				$content = self::user_facing_finish_fallback( $debug, $content );
 			}
 
 			Ahentic_Session_Repository::append_entry(
@@ -1145,6 +1492,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					'meta'    => $meta,
 				)
 			);
+
+			self::complete_plan_on_finish( $session_id );
 
 			Ahentic_Session_Repository::mark_idle( $session_id );
 			Ahentic_Session_Repository::append_trace(
@@ -1585,8 +1934,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		/**
 		 * Apply a multi-step plan from the AHENTIC_DEBUG control block.
 		 *
-		 * Plans are orchestrator state (not abilities). A new plan is shown only
-		 * when it has at least MIN_PLAN_STEPS; later thinks may update statuses.
+		 * Plans are orchestrator state (not abilities). A new plan is shown when
+		 * it has at least one step; later thinks may update statuses.
 		 * Completed steps from a prior plan are preserved if the model omits them.
 		 *
 		 * @param int   $session_id Session ID.
@@ -1610,7 +1959,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$existing = Ahentic_Session_Repository::get_plan( $session_id );
 			$step_n   = count( $normalized['steps'] );
 
-			// First visible plan requires ≥ MIN_PLAN_STEPS; updates may refine.
+			// First visible plan requires ≥ MIN_PLAN_STEPS (1); updates may refine.
 			if ( null === $existing && $step_n < self::MIN_PLAN_STEPS ) {
 				return;
 			}
@@ -1686,65 +2035,27 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
-		 * Append the LLM thought process as an intermediate chat message.
+		 * Publish ephemeral thought process for the sidebar (not a durable chat entry).
 		 *
 		 * @param int    $session_id Session ID.
 		 * @param array  $result     LLM result.
 		 * @param array  $debug      Parsed debug block.
-		 * @param string $first_tool First planned tool (for retry progress).
 		 */
-		private static function append_thought_process_to_chat( $session_id, array $result, array $debug, $first_tool = '' ) {
+		private static function publish_thought_process( $session_id, array $result, array $debug ) {
 			$content = self::resolve_thought_process_for_chat( $result, $debug );
 			if ( '' === $content ) {
 				return;
 			}
-
-			$text = isset( $result['text'] ) ? trim( (string) $result['text'] ) : '';
-			// If thinking is a near-duplicate of the last bubble, try the user-facing reply instead.
-			if ( self::should_omit_intermediate( $session_id, $content ) ) {
-				$thinking = is_array( $debug ) && isset( $debug['thinking'] ) ? trim( (string) $debug['thinking'] ) : '';
-				if ( '' !== $thinking && '' !== $text && $text !== $thinking && ! self::should_omit_intermediate( $session_id, $text ) ) {
-					$content = $text;
-				} else {
-					$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
-					if ( self::recent_tool_failure( $session_id ) ) {
-						$retry_label = __( 'Retrying…', 'ahentic' );
-						if ( '' !== $first_tool ) {
-							$tool_label  = self::progress_label_for_tool( $first_tool, $debug );
-							$retry_label = sprintf(
-								/* translators: %s: tool progress label (e.g. Searching the plugin directory…) */
-								__( 'Retrying — %s', 'ahentic' ),
-								$tool_label
-							);
-						}
-						Ahentic_Session_Repository::set_progress( $session_id, $retry_label, $step );
-					}
-					Ahentic_Session_Repository::append_trace(
-						$session_id,
-						'intermediate_omitted',
-						'Skipped duplicate thought-process chat bubble',
-						array(
-							'reason'  => self::recent_tool_failure( $session_id ) ? 'tool_failure_recovery' : 'duplicate',
-							'excerpt' => self::excerpt( $content, 120 ),
-						),
-						$step
-					);
-					return;
-				}
-			}
-
-			Ahentic_Session_Repository::append_entry(
+			Ahentic_Session_Repository::set_thought( $session_id, $content );
+			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+			Ahentic_Session_Repository::append_trace(
 				$session_id,
+				'thought_process',
+				self::excerpt( $content, 120 ),
 				array(
-					'role'    => 'assistant',
-					'content' => $content,
-					'meta'    => array(
-						'model'          => isset( $result['model'] ) ? $result['model'] : '',
-						'debug'          => $debug,
-						'intermediate'   => true,
-						'thought_process'=> true,
-					),
-				)
+					'text' => self::excerpt( $content, 400 ),
+				),
+				$step
 			);
 		}
 
@@ -2277,20 +2588,19 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			$artifact_key = '';
 			if ( class_exists( 'Ahentic_Session_Artifacts' ) && ! empty( $input['from_memory'] ) ) {
-				$resolved = self::expand_from_memory( $session_id, $name, $input );
-				if ( is_wp_error( $resolved ) ) {
+				$artifact_key = Ahentic_Session_Artifacts::sanitize_artifact_key( (string) $input['from_memory'] );
+				$valid        = Ahentic_Session_Artifacts::validate_from_memory( $session_id, $name, $input );
+				if ( is_wp_error( $valid ) ) {
 					Ahentic_Session_Repository::set_pending_tool( $session_id, null );
 					Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
-					self::append_tool_failure( $session_id, $name, $resolved, $step );
+					self::append_tool_failure( $session_id, $name, $valid, $step );
 					Ahentic_Step_Queue::enqueue_step( $session_id );
 					Ahentic_Step_Queue::schedule_interactive_run( $session_id );
 					return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 				}
-				$input        = $resolved['input'];
-				$artifact_key = $resolved['artifact_key'];
 			}
 
-			// After approval: browser tools pause for sidebar JS; PHP tools execute here.
+			// After approval: browser tools pause for sidebar JS (keep from_memory key-only).
 			if ( Ahentic_Abilities::requires_browser_runtime( $name, $input ) ) {
 				$summary = Ahentic_Abilities::browser_summary( $name, $input );
 				$pending_browser = array(
@@ -2303,12 +2613,21 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				);
 				if ( $artifact_key ) {
 					$pending_browser['artifact_key'] = $artifact_key;
+					$mem                             = self::memory_pointer_for_pending( $session_id, $artifact_key );
+					if ( $mem ) {
+						$pending_browser['memory'] = $mem;
+					}
 				}
 				Ahentic_Session_Repository::set_pending_tool( $session_id, $pending_browser );
 				Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_BROWSER );
+				Ahentic_Session_Repository::touch_browser_paused_at( $session_id );
 				Ahentic_Session_Repository::set_progress(
 					$session_id,
-					self::progress_label_for_tool( $name ),
+					sprintf(
+						/* translators: %s: tool / action label */
+						__( 'Waiting for this page to run: %s', 'ahentic' ),
+						self::progress_label_for_tool( $name )
+					),
 					$step
 				);
 				Ahentic_Session_Repository::append_trace(
@@ -2324,6 +2643,20 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					$step
 				);
 				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
+			}
+
+			if ( class_exists( 'Ahentic_Session_Artifacts' ) && ! empty( $input['from_memory'] ) ) {
+				$resolved = self::expand_from_memory( $session_id, $name, $input );
+				if ( is_wp_error( $resolved ) ) {
+					Ahentic_Session_Repository::set_pending_tool( $session_id, null );
+					Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
+					self::append_tool_failure( $session_id, $name, $resolved, $step );
+					Ahentic_Step_Queue::enqueue_step( $session_id );
+					Ahentic_Step_Queue::schedule_interactive_run( $session_id );
+					return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
+				}
+				$input        = $resolved['input'];
+				$artifact_key = $resolved['artifact_key'];
 			}
 
 			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
@@ -2350,12 +2683,15 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			} finally {
 				self::$current_session_id = 0;
 			}
+			Ahentic_Session_Repository::touch_heartbeat( $session_id );
 			$ok      = ! is_wp_error( $tool_result );
 			$payload = $ok ? $tool_result : self::tool_error_payload( $tool_result );
 
 			if ( $ok && $artifact_key && class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
 			}
+
+			self::track_tool_for_verify( $session_id, $name, $payload, $ok );
 
 			$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			if ( ! is_string( $content ) ) {
@@ -2451,6 +2787,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
 			}
 
+			self::track_tool_for_verify( $session_id, $name, $tool_payload, $ok );
+
 			$content = wp_json_encode( $tool_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			if ( ! is_string( $content ) ) {
 				$content = '{}';
@@ -2484,6 +2822,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			);
 
 			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
+			Ahentic_Session_Repository::clear_browser_paused_at( $session_id );
 			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
 			Ahentic_Session_Repository::set_progress( $session_id, __( 'Planning next steps…', 'ahentic' ), $step );
 			Ahentic_Step_Queue::enqueue_step( $session_id );
@@ -2769,20 +3108,35 @@ Rules:
 		 * @return array{history: array, user: string}
 		 */
 		private static function build_chat_payload( array $entries ) {
+			$latest_snapshot = self::latest_live_editor_snapshots( $entries );
+
 			$normalized = array();
-			foreach ( $entries as $entry ) {
+			foreach ( $entries as $i => $entry ) {
 				if ( ! empty( $entry['meta']['error'] ) ) {
 					continue;
 				}
 				$role = isset( $entry['role'] ) ? $entry['role'] : '';
 				if ( 'user' === $role || 'assistant' === $role ) {
+					if ( ! empty( $entry['meta']['thought_process'] ) || ! empty( $entry['meta']['intermediate'] ) ) {
+						continue;
+					}
 					$normalized[] = array(
 						'role'    => $role,
 						'content' => (string) $entry['content'],
 					);
 				} elseif ( 'tool' === $role ) {
-					$ability = isset( $entry['meta']['ability'] ) ? (string) $entry['meta']['ability'] : 'tool';
-					$body    = self::truncate_tool_result_for_prompt( (string) $entry['content'] );
+					$ability  = isset( $entry['meta']['ability'] ) ? (string) $entry['meta']['ability'] : 'tool';
+					$snapshot = isset( $latest_snapshot[ $ability ] );
+
+					if ( $snapshot && $latest_snapshot[ $ability ] !== $i ) {
+						$body = '[Superseded — a newer ' . $ability . ' result appears below.]';
+					} else {
+						$body = self::truncate_tool_result_for_prompt(
+							(string) $entry['content'],
+							$snapshot ? self::MAX_TOOL_RESULT_CHARS_SNAPSHOT : self::MAX_TOOL_RESULT_CHARS
+						);
+					}
+
 					$normalized[] = array(
 						'role'    => 'tool',
 						'content' => '[Ability result: ' . $ability . "]\n" . $body,
@@ -2827,7 +3181,9 @@ Rules:
 				$user .= "\n\n---\nAbility results from this run (use these facts; do not invent conflicting data). "
 					. "If a result includes block ref values (b1, b2, …), pass those refs back to tools EXACTLY as printed — "
 					. "never invent Gutenberg clientId UUID hashes. "
-					. "If a mutate ability returned ok:true, treat the edit as done and reply — do not re-read blocks only to confirm:\n"
+					. "ok:true means the mutate applied — but if this message (or session) still lists pending write verification "
+					. "or ready unapplied artifacts, you MUST set next=\"use_tools\" for the required readonly check / from_memory apply "
+					. "before next=\"reply\". Do not claim the article is finished from chat alone:\n"
 					. implode( "\n\n", $chunks );
 			}
 
@@ -2836,9 +3192,186 @@ Rules:
 			}
 
 			return array(
-				'history' => $history,
-				'user'    => $user,
+				'history'   => $history,
+				'user'      => $user,
+				'compacted' => false,
 			);
+		}
+
+		/**
+		 * Mid-run compaction: summarize older history; never drop plan / artifacts / latest goal.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $payload    From build_chat_payload.
+		 * @return array{history: array, user: string, compacted?: bool}
+		 */
+		private static function apply_context_compaction( $session_id, array $payload ) {
+			$history = isset( $payload['history'] ) && is_array( $payload['history'] ) ? $payload['history'] : array();
+			$user    = isset( $payload['user'] ) ? (string) $payload['user'] : '';
+
+			$chars = strlen( $user );
+			foreach ( $history as $turn ) {
+				$chars += isset( $turn['content'] ) ? strlen( (string) $turn['content'] ) : 0;
+			}
+
+			$needs = count( $history ) > self::COMPACT_HISTORY_THRESHOLD || $chars > self::COMPACT_CHAR_THRESHOLD;
+			if ( ! $needs ) {
+				return array(
+					'history'   => $history,
+					'user'      => $user,
+					'compacted' => false,
+				);
+			}
+
+			$keep_n = min( self::COMPACT_KEEP_RECENT, count( $history ) );
+			$keep   = $keep_n > 0 ? array_slice( $history, -1 * $keep_n ) : array();
+			$old    = $keep_n > 0 ? array_slice( $history, 0, -1 * $keep_n ) : $history;
+
+			$summary = self::build_extractive_context_summary( $session_id, $old );
+			Ahentic_Session_Repository::set_context_summary( $session_id, $summary );
+
+			$compacted_history = array();
+			if ( '' !== $summary ) {
+				$compacted_history[] = array(
+					'role'    => 'user',
+					'content' => "[Earlier in this session — compact summary; current plan, artifact keys, and latest goal are pinned separately and must not be ignored]\n"
+						. $summary,
+				);
+				$compacted_history[] = array(
+					'role'    => 'assistant',
+					'content' => 'Understood. I will continue from the pinned plan, artifacts, and latest user goal.',
+				);
+			}
+
+			foreach ( $keep as $turn ) {
+				$compacted_history[] = $turn;
+			}
+
+			if ( count( $compacted_history ) > self::MAX_HISTORY_TURNS ) {
+				$compacted_history = array_slice( $compacted_history, -1 * self::MAX_HISTORY_TURNS );
+			}
+
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'context_compact',
+				'Compacted older chat/tool context for this think',
+				array(
+					'old_turns'  => count( $old ),
+					'kept_turns' => count( $keep ),
+					'summary_len'=> strlen( $summary ),
+				),
+				(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+			);
+
+			return array(
+				'history'   => $compacted_history,
+				'user'      => $user,
+				'compacted' => true,
+			);
+		}
+
+		/**
+		 * Extractive rolling summary of older turns (no extra LLM call).
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $turns      Older history turns.
+		 * @return string
+		 */
+		private static function build_extractive_context_summary( $session_id, array $turns ) {
+			$prior = trim( (string) Ahentic_Session_Repository::get_context_summary( $session_id ) );
+			$lines = array();
+			if ( '' !== $prior ) {
+				$lines[] = 'Previous compact notes: ' . self::excerpt( $prior, 800 );
+			}
+
+			foreach ( $turns as $turn ) {
+				if ( ! is_array( $turn ) ) {
+					continue;
+				}
+				$role = isset( $turn['role'] ) ? (string) $turn['role'] : 'user';
+				$text = isset( $turn['content'] ) ? trim( (string) $turn['content'] ) : '';
+				if ( '' === $text ) {
+					continue;
+				}
+				$label = ( 'assistant' === $role || 'model' === $role ) ? 'Assistant/tool' : 'User';
+				// Tool-shaped lines get a tighter excerpt.
+				$limit = ( 0 === strpos( $text, '[Ability result:' ) ) ? 280 : 420;
+				$lines[] = $label . ': ' . self::excerpt( $text, $limit );
+			}
+
+			$summary = implode( "\n", $lines );
+			if ( strlen( $summary ) > self::COMPACT_SUMMARY_MAX_CHARS ) {
+				$summary = substr( $summary, -1 * self::COMPACT_SUMMARY_MAX_CHARS );
+				$nl      = strpos( $summary, "\n" );
+				if ( false !== $nl && $nl < 200 ) {
+					$summary = substr( $summary, $nl + 1 );
+				}
+			}
+			return trim( $summary );
+		}
+
+		/**
+		 * Always-retained mid-run pins: latest goal + plan (artifacts added separately).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string
+		 */
+		private static function pinned_run_context_for_prompt( $session_id ) {
+			$parts = array();
+
+			$goal = self::latest_user_goal_excerpt( $session_id );
+			if ( '' !== $goal ) {
+				$parts[] = 'Latest user goal: ' . $goal;
+			}
+
+			$plan = Ahentic_Session_Repository::get_plan( $session_id );
+			if ( is_array( $plan ) && ! empty( $plan['steps'] ) && is_array( $plan['steps'] ) ) {
+				$title = isset( $plan['title'] ) ? trim( (string) $plan['title'] ) : '';
+				$step_bits = array();
+				foreach ( $plan['steps'] as $step ) {
+					if ( ! is_array( $step ) ) {
+						continue;
+					}
+					$status  = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+					$content = isset( $step['content'] ) ? trim( (string) $step['content'] ) : '';
+					if ( '' === $content ) {
+						continue;
+					}
+					$step_bits[] = '[' . $status . '] ' . $content;
+				}
+				if ( ! empty( $step_bits ) ) {
+					$parts[] = 'Current plan'
+						. ( '' !== $title ? ' (“' . $title . '”)' : '' )
+						. ': '
+						. implode( '; ', $step_bits );
+				}
+			}
+
+			if ( empty( $parts ) ) {
+				return '';
+			}
+
+			return "---\nPinned run context (must retain — do not drop):\n- " . implode( "\n- ", $parts );
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 * @return string
+		 */
+		private static function latest_user_goal_excerpt( $session_id ) {
+			$entries = Ahentic_Session_Repository::get_entries( $session_id );
+			for ( $i = count( $entries ) - 1; $i >= 0; $i-- ) {
+				$entry = $entries[ $i ];
+				if ( ! is_array( $entry ) || 'user' !== ( isset( $entry['role'] ) ? $entry['role'] : '' ) ) {
+					continue;
+				}
+				$text = trim( (string) ( isset( $entry['content'] ) ? $entry['content'] : '' ) );
+				if ( '' === $text ) {
+					continue;
+				}
+				return self::excerpt( $text, 400 );
+			}
+			return '';
 		}
 
 		/**
@@ -2897,9 +3430,10 @@ Rules:
 				. 'CRITICAL — block refs: get-blocks / get-selection return short refs (b1, b2, …). When calling tools that take ref / refs / after_ref / root_ref, '
 				. 'copy those refs EXACTLY from the latest get-blocks / get-selection result. Never invent refs and never send Gutenberg clientId UUID hashes. '
 				. 'If a tool returns missing refs / block_not_found, re-call get-blocks (or get-selection) and use the fresh refs — do not guess. '
-				. 'CRITICAL — trust successful mutates: if update-block-attributes / replace-blocks / set-blocks / insert-blocks returns ok:true '
-				. '(and missing is empty when present), set next="reply". Do NOT re-call get-blocks only to verify the change '
-				. 'unless ok was false, missing was non-empty, or the user explicitly asked to confirm/verify. '
+				. 'CRITICAL — verify writes before finishing: after create-post / update-post / set-blocks / insert-blocks / replace-blocks '
+				. '(and other mutates), call a readonly check (get-content or get-blocks — not get-editor-state alone for long-form) '
+				. 'before next="reply". For long-form, the body must be non-trivial (not a stub/placeholder). '
+				. 'Staging (stage-artifact) is not done — still apply with from_memory. '
 				. 'If a tool returns error placeholder_content / ahentic_placeholder_content / ahentic_use_browser_editor, fix the approach '
 				. '(real block objects and/or browser tools) — do not claim the article was written. '
 				. 'Core block cookbook (common attrs): '
@@ -2911,7 +3445,10 @@ Rules:
 				. 'core/html → content (raw HTML escape hatch). '
 				. 'When the block editor is open, a fuller cheatsheet is attached with page context. '
 				. 'Prefer ahentic/create-post + ahentic/update-post + ahentic/set-post-status when the block editor is NOT open (server-side drafts/publish). '
-				. 'When a long draft is ready, stage it with ahentic/stage-artifact (key e.g. article_draft, kind blocks|html|post_content), '
+				. 'When a long draft is ready, stage it with ahentic/stage-artifact (key e.g. article_draft, kind blocks|html|post_content, '
+				. 'payload: for blocks use {"blocks":[{name,attributes,innerBlocks},…]} — never put the body under content/blocks at the top level; '
+				. 'while first writing a draft, chunk with mode=append + complete=false, then complete=true; '
+				. 'when revising an already-ready artifact or rewriting the whole article, use mode=replace or a new key — never append onto a finished draft), '
 				. 'then apply with set-blocks / create-post / update-post using {"from_memory":"article_draft"} — do not invent keys; list-artifacts shows what is staged. '
 				. 'Prefer ahentic/http-fetch to GET a URL. For public pages omit as_user. For wp-admin / logged-in same-site pages pass {"url":"…","as_user":true} — that runs in the user’s browser with their session. Judge soft white screens by success_marker/body, not status alone. '
 				. 'Prefer ahentic/get-debug-log for PHP fatals when WP_DEBUG_LOG is available. '
@@ -2993,11 +3530,11 @@ Rules:
 				. 'process and findings (what you know, what you will check or just learned from tools). Do not leave thinking empty. '
 				. 'tools_planned may be strings (ability names) or objects {"name":"ahentic/…","input":{}}. '
 				. 'ability_needed is optional except when next is missing_ability (string or list of ability slugs). '
-				. 'plan is optional orchestrator state (not a tool): include it only when finishing the user goal likely needs '
-				. self::MIN_PLAN_STEPS . '+ distinct steps. Omit plan for simple 1–2 step asks. '
-				. 'When you include plan, use coarse user-facing steps (not every tool name), keep exactly one status '
-				. '"in_progress", and on later thinks ALWAYS re-send the FULL plan including already completed/cancelled steps '
-				. '(same ids) — never drop finished steps from the list; only update their status. '
+				. 'plan is orchestrator state (not a tool). In Agent mode you MUST include a non-empty plan.steps list when you '
+				. 'intend 2+ tools in tools_planned OR any write (non-readonly) ability. A single readonly tool may omit plan. '
+				. 'Omit plan for simple Ask answers. When you include plan, use coarse user-facing steps (not every tool name), '
+				. 'keep exactly one status "in_progress", and on later thinks ALWAYS re-send the FULL plan including already '
+				. 'completed/cancelled steps (same ids) — never drop finished steps from the list; only update their status. '
 				. 'The plan checklist is silent UI metadata — it must NOT replace thinking or chat narration. '
 				. 'Closing marker: AHENTIC_DEBUG followed by exactly three > characters. '
 				. 'After the closing marker, write a short normal reply the user can read (even when next is use_tools — e.g. what you are about to check or what you just learned). '
@@ -3005,9 +3542,1328 @@ Rules:
 
 			if ( $session_id ) {
 				$base .= self::plan_context_for_prompt( $session_id );
+				if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id ) ) {
+					$base .= ' CRITICAL — this run is long-form content work: you MUST use ahentic/stage-artifact '
+						. '(while drafting: chunk with mode=append until complete=true; when revising a ready draft or rewriting the full article: mode=replace or a new key) '
+						. 'then apply with set-blocks/create-post/update-post '
+						. 'using {"from_memory":"…"} — do not finish after a thin one-section set-blocks rewrite. '
+						. 'A finished article needs a full multi-section body; verify with get-blocks/get-content and keep writing if thin.';
+				}
 			}
 
 			return $base;
+		}
+
+		/**
+		 * Step budget for this session (content / long-form gets a higher ceiling).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return int
+		 */
+		private static function max_steps_for_session( $session_id ) {
+			if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id ) ) {
+				return self::MAX_STEPS_CONTENT_RUN;
+			}
+			return self::MAX_STEPS_PER_RUN;
+		}
+
+		/**
+		 * Prompt note when writes still need verification.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string
+		 */
+		private static function verify_context_for_prompt( $session_id ) {
+			$notes = array();
+
+			$unapplied = self::ready_unapplied_content_artifacts( $session_id );
+			if ( ! empty( $unapplied ) ) {
+				$notes[] = 'Ready artifacts not yet applied: '
+					. implode( ', ', $unapplied )
+					. '. Set next="use_tools" with set-blocks / create-post / update-post using {"from_memory":"<key>"} before next="reply".';
+			}
+
+			$pending = Ahentic_Session_Repository::get_verify_pending( $session_id );
+			if ( ! empty( $pending ) ) {
+				$names = array();
+				foreach ( $pending as $item ) {
+					if ( ! empty( $item['ability'] ) ) {
+						$names[] = (string) $item['ability'];
+					}
+				}
+				$names   = array_values( array_unique( $names ) );
+				$notes[] = 'Pending write verification (required before finishing): '
+					. implode( ', ', $names )
+					. '. Set next="use_tools" with ahentic/get-content (server) or ahentic-browser/get-blocks (editor open). '
+					. 'Do not rely on get-editor-state alone for long-form — it has no body. '
+					. 'Do not set next="reply" until a readonly check proves a non-trivial body for long-form work.';
+			}
+
+			if ( empty( $notes ) ) {
+				return '';
+			}
+			return "---\n" . implode( "\n", $notes );
+		}
+
+		/**
+		 * Max output tokens for this completion (8k default, 16k for content staging).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return int
+		 */
+		private static function max_output_tokens_for_session( $session_id ) {
+			if ( class_exists( 'Ahentic_AI' ) && class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id ) ) {
+				return Ahentic_AI::MAX_OUTPUT_TOKENS_CONTENT;
+			}
+			return class_exists( 'Ahentic_AI' ) ? Ahentic_AI::MAX_OUTPUT_TOKENS : 8000;
+		}
+
+		/**
+		 * Track successful writes for tiered verification; clear on matching readonly reads.
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $name       Ability.
+		 * @param mixed  $payload    Tool payload.
+		 * @param bool   $ok         Success.
+		 */
+		private static function track_tool_for_verify( $session_id, $name, $payload, $ok ) {
+			if ( ! $ok || ! class_exists( 'Ahentic_Abilities' ) ) {
+				return;
+			}
+			$name = (string) $name;
+			if ( Ahentic_Abilities::is_readonly( $name ) ) {
+				if ( self::ability_is_verify_read( $name ) ) {
+					self::apply_verify_read( $session_id, $name, is_array( $payload ) ? $payload : array() );
+				}
+				return;
+			}
+			if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::is_artifact_ability( $name ) ) {
+				return;
+			}
+
+			$item = array(
+				'ability' => $name,
+				'at'      => gmdate( 'c' ),
+				'tier'    => self::verify_tier_for_ability( $name ),
+			);
+			if ( is_array( $payload ) ) {
+				if ( ! empty( $payload['id'] ) ) {
+					$item['post_id'] = (int) $payload['id'];
+				} elseif ( ! empty( $payload['post_id'] ) ) {
+					$item['post_id'] = (int) $payload['post_id'];
+				}
+				$count = 0;
+				if ( ! empty( $payload['block_count'] ) ) {
+					$count = (int) $payload['block_count'];
+				} elseif ( ! empty( $payload['inserted_count'] ) ) {
+					$count = (int) $payload['inserted_count'];
+				} elseif ( ! empty( $payload['blocks'] ) && is_array( $payload['blocks'] ) ) {
+					$count = count( $payload['blocks'] );
+				}
+				if ( $count > 0 ) {
+					$item['block_count'] = $count;
+				}
+			}
+
+			// Site-tier mutates (plugins, etc.): tool success is enough. Meta-tier writes
+			// (title) return the stored value, so a body read-back proves nothing about them.
+			if ( 'site' === $item['tier'] || 'meta' === $item['tier'] ) {
+				self::advance_plan_after_tool( $session_id, $name );
+				return;
+			}
+
+			$pending   = Ahentic_Session_Repository::get_verify_pending( $session_id );
+			$pending[] = $item;
+			Ahentic_Session_Repository::set_verify_pending( $session_id, $pending );
+			self::advance_plan_after_tool( $session_id, $name );
+		}
+
+		/**
+		 * @param string $name Ability.
+		 * @return bool
+		 */
+		private static function ability_is_verify_read( $name ) {
+			return in_array(
+				(string) $name,
+				array(
+					'ahentic/get-content',
+					'ahentic-browser/get-blocks',
+					'ahentic-browser/get-selection',
+				),
+				true
+			);
+		}
+
+		/**
+		 * @param string $name Ability.
+		 * @return string
+		 */
+		private static function verify_tier_for_ability( $name ) {
+			if ( in_array( (string) $name, array( 'ahentic/set-post-status', 'ahentic-browser/save-post' ), true ) ) {
+				return 'publish';
+			}
+			if ( false !== strpos( (string) $name, 'plugin' ) ) {
+				return 'site';
+			}
+			if ( in_array( (string) $name, array( 'ahentic-browser/update-post-title' ), true ) ) {
+				return 'meta';
+			}
+			return 'content';
+		}
+
+		/**
+		 * @param int    $session_id Session ID.
+		 * @param string $name       Ability.
+		 * @param array  $payload    Payload.
+		 */
+		private static function apply_verify_read( $session_id, $name, array $payload ) {
+			$pending = Ahentic_Session_Repository::get_verify_pending( $session_id );
+			if ( empty( $pending ) ) {
+				return;
+			}
+
+			$long_form = class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id );
+			$body      = self::body_from_verify_payload( $payload );
+			$block_count = isset( $payload['count'] ) ? (int) $payload['count'] : 0;
+
+			// Never clear from counts-only or empty reads (e.g. get-editor-state / empty selection).
+			if ( '' === trim( $body ) ) {
+				return;
+			}
+			unset( $name );
+
+			$kept = array();
+			foreach ( $pending as $item ) {
+				$tier = isset( $item['tier'] ) ? (string) $item['tier'] : 'content';
+				if ( 'content' !== $tier && 'publish' !== $tier ) {
+					continue;
+				}
+				if ( $long_form && ! self::body_is_nontrivial( $body, true ) ) {
+					$kept[] = $item;
+					continue;
+				}
+				// Long-form full-document rewrites need more than a one-section stub.
+				if ( $long_form && $block_count > 0 && $block_count < 6 ) {
+					$kept[] = $item;
+				}
+			}
+			Ahentic_Session_Repository::set_verify_pending( $session_id, $kept );
+		}
+
+		/**
+		 * Extract verifiable body text (no synthetic padding from counts).
+		 *
+		 * @param array $payload Payload.
+		 * @return string
+		 */
+		private static function body_from_verify_payload( array $payload ) {
+			if ( isset( $payload['content'] ) ) {
+				return (string) $payload['content'];
+			}
+			if ( isset( $payload['post_content'] ) ) {
+				return (string) $payload['post_content'];
+			}
+			if ( empty( $payload['blocks'] ) || ! is_array( $payload['blocks'] ) ) {
+				return '';
+			}
+			$chunks = array();
+			$walk   = static function ( $blocks ) use ( &$walk, &$chunks ) {
+				foreach ( $blocks as $block ) {
+					if ( ! is_array( $block ) ) {
+						continue;
+					}
+					$attrs = isset( $block['attributes'] ) && is_array( $block['attributes'] ) ? $block['attributes'] : array();
+					foreach ( array( 'content', 'text', 'caption', 'citation' ) as $key ) {
+						if ( ! empty( $attrs[ $key ] ) ) {
+							$chunks[] = wp_strip_all_tags( (string) $attrs[ $key ] );
+						}
+					}
+					if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+						$walk( $block['innerBlocks'] );
+					}
+				}
+			};
+			$walk( $payload['blocks'] );
+			return implode( ' ', $chunks );
+		}
+
+		/**
+		 * @param string $html_or_text Body.
+		 * @param bool   $long_form    Use the stricter article bar.
+		 * @return bool
+		 */
+		private static function body_is_nontrivial( $html_or_text, $long_form = false ) {
+			$text = trim( wp_strip_all_tags( (string) $html_or_text ) );
+			$min  = $long_form ? 1000 : 120;
+			if ( strlen( $text ) < $min ) {
+				return false;
+			}
+			if ( preg_match( '/^(lorem ipsum|placeholder|\[full article\]|todo:?\s*write|coming soon)/i', $text ) ) {
+				return false;
+			}
+			return true;
+		}
+
+		/**
+		 * Detect long-form / article writing intent from the user message (PRD intent gate).
+		 *
+		 * @param string $content User message.
+		 * @return bool
+		 */
+		private static function message_looks_like_content_work( $content ) {
+			$text = strtolower( trim( (string) $content ) );
+			if ( '' === $text ) {
+				return false;
+			}
+			if ( preg_match( '/\b(full article|entire (article|post|page)|long[- ]form|finish (the )?(article|post|draft)|complete (the )?(article|post|draft))\b/u', $text ) ) {
+				return true;
+			}
+			if ( preg_match( '/\b(finish|complete|write|draft|create|rewrite|expand|fill out)\b.{0,48}\b(article|post|blog|guide|essay|draft|content)\b/u', $text ) ) {
+				return true;
+			}
+			if ( preg_match( '/\b(article|post|blog|guide)\b.{0,32}\b(finish|complete|write|draft|create)\b/u', $text ) ) {
+				return true;
+			}
+			return false;
+		}
+
+		/**
+		 * Stash candidate closing prose so verify/apply continues do not drop it.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $result     LLM result.
+		 * @param array $debug      Debug meta.
+		 */
+		private static function stash_pending_final( $session_id, array $result, $debug = array() ) {
+			$text = isset( $result['text'] ) ? trim( (string) $result['text'] ) : '';
+			if ( ( '' === $text || self::reply_looks_like_process( $text ) ) && is_array( $debug ) && class_exists( 'Ahentic_AI' ) ) {
+				$fallback = trim( (string) Ahentic_AI::fallback_reply_from_debug( $debug ) );
+				if ( '' !== $fallback && ! self::reply_looks_like_process( $fallback ) ) {
+					$text = $fallback;
+				}
+			}
+			if ( '' === $text || self::reply_looks_like_process( $text ) ) {
+				return;
+			}
+
+			$existing = Ahentic_Session_Repository::get_pending_final( $session_id );
+			if ( is_array( $existing ) && ! empty( $existing['text'] ) ) {
+				// Keep the first good closing reply unless the new one is longer/better.
+				if ( strlen( $text ) < strlen( (string) $existing['text'] ) ) {
+					return;
+				}
+			}
+
+			Ahentic_Session_Repository::set_pending_final(
+				$session_id,
+				array(
+					'text'  => $text,
+					'model' => isset( $result['model'] ) ? (string) $result['model'] : '',
+					'debug' => is_array( $debug ) ? $debug : array(),
+				)
+			);
+		}
+
+		/**
+		 * Content artifacts that are ready but not yet applied to the site/editor.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array<int, string> Artifact keys.
+		 */
+		private static function ready_unapplied_content_artifacts( $session_id ) {
+			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
+				return array();
+			}
+			$content_kinds = array(
+				Ahentic_Session_Artifacts::KIND_BLOCKS,
+				Ahentic_Session_Artifacts::KIND_HTML,
+				Ahentic_Session_Artifacts::KIND_MARKDOWN,
+				Ahentic_Session_Artifacts::KIND_POST_CONTENT,
+			);
+			$keys = array();
+			foreach ( Ahentic_Session_Artifacts::list_pointers( $session_id ) as $p ) {
+				$status = isset( $p['status'] ) ? (string) $p['status'] : '';
+				$kind   = isset( $p['kind'] ) ? (string) $p['kind'] : '';
+				$key    = isset( $p['key'] ) ? (string) $p['key'] : '';
+				if ( '' === $key || Ahentic_Session_Artifacts::STATUS_READY !== $status ) {
+					continue;
+				}
+				if ( ! in_array( $kind, $content_kinds, true ) ) {
+					continue;
+				}
+				$keys[] = $key;
+			}
+			return $keys;
+		}
+
+		/**
+		 * Mark remaining plan steps completed when the run idles with a final reply.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		private static function complete_plan_on_finish( $session_id ) {
+			$plan = Ahentic_Session_Repository::get_plan( $session_id );
+			if ( ! is_array( $plan ) || empty( $plan['steps'] ) || ! is_array( $plan['steps'] ) ) {
+				return;
+			}
+			$changed = false;
+			$steps   = array();
+			foreach ( $plan['steps'] as $step ) {
+				if ( ! is_array( $step ) ) {
+					continue;
+				}
+				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+				if ( 'cancelled' !== $status && 'completed' !== $status ) {
+					$step['status'] = 'completed';
+					$changed        = true;
+				}
+				$steps[] = $step;
+			}
+			if ( ! $changed ) {
+				return;
+			}
+			$plan['steps'] = $steps;
+			Ahentic_Session_Repository::set_plan( $session_id, $plan );
+		}
+
+		/**
+		 * Advance the plan checklist after a successful tool (best-effort).
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $name       Ability name.
+		 */
+		private static function advance_plan_after_tool( $session_id, $name ) {
+			$plan = Ahentic_Session_Repository::get_plan( $session_id );
+			if ( ! is_array( $plan ) || empty( $plan['steps'] ) || ! is_array( $plan['steps'] ) ) {
+				return;
+			}
+
+			$short   = strtolower( (string) preg_replace( '/^.*\//', '', (string) $name ) );
+			$short   = str_replace( '-', ' ', $short );
+			$steps   = $plan['steps'];
+			$changed = false;
+			$marked  = false;
+
+			foreach ( $steps as $i => $step ) {
+				if ( ! is_array( $step ) ) {
+					continue;
+				}
+				$status  = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+				$content = isset( $step['content'] ) ? strtolower( (string) $step['content'] ) : '';
+				if ( in_array( $status, array( 'completed', 'cancelled' ), true ) ) {
+					continue;
+				}
+				if ( '' !== $short && false !== strpos( $content, $short ) ) {
+					$steps[ $i ]['status'] = 'completed';
+					$changed               = true;
+					$marked                = true;
+					break;
+				}
+			}
+
+			if ( ! $marked ) {
+				foreach ( $steps as $i => $step ) {
+					if ( ! is_array( $step ) ) {
+						continue;
+					}
+					$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+					if ( 'in_progress' === $status ) {
+						$steps[ $i ]['status'] = 'completed';
+						$changed               = true;
+						$marked                = true;
+						break;
+					}
+				}
+			}
+
+			if ( ! $marked ) {
+				foreach ( $steps as $i => $step ) {
+					if ( ! is_array( $step ) ) {
+						continue;
+					}
+					$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+					if ( 'pending' === $status ) {
+						$steps[ $i ]['status'] = 'completed';
+						$changed               = true;
+						break;
+					}
+				}
+			}
+
+			// Promote the next pending step.
+			foreach ( $steps as $i => $step ) {
+				if ( ! is_array( $step ) ) {
+					continue;
+				}
+				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+				if ( 'pending' === $status ) {
+					$steps[ $i ]['status'] = 'in_progress';
+					$changed               = true;
+					break;
+				}
+			}
+
+			if ( ! $changed ) {
+				return;
+			}
+			$plan['steps'] = $steps;
+			Ahentic_Session_Repository::set_plan( $session_id, $plan );
+		}
+
+		/**
+		 * Whether closing text reads like mid-process thinking.
+		 *
+		 * @param string $text Text.
+		 * @return bool
+		 */
+		private static function reply_looks_like_process( $text ) {
+			if ( class_exists( 'Ahentic_AI' ) ) {
+				return Ahentic_AI::text_looks_like_process( $text );
+			}
+			return '' === trim( (string) $text );
+		}
+
+		/**
+		 * Last-resort user-facing finish copy when the model left empty / process-y prose.
+		 *
+		 * @param array  $debug   Debug meta.
+		 * @param string $content Current content.
+		 * @return string
+		 */
+		private static function user_facing_finish_fallback( $debug, $content ) {
+			unset( $content );
+			if ( is_array( $debug ) && class_exists( 'Ahentic_AI' ) ) {
+				$from_debug = trim( (string) Ahentic_AI::fallback_reply_from_debug( $debug ) );
+				if ( '' !== $from_debug && ! self::reply_looks_like_process( $from_debug ) ) {
+					return $from_debug;
+				}
+			}
+			return __( 'Done.', 'ahentic' );
+		}
+
+		/**
+		 * @param int   $session_id Session ID.
+		 * @param array $result     Pending final reply.
+		 * @param array $debug      Debug.
+		 * @return string|array 'continue' or { result, debug }
+		 */
+		private static function run_verification_gate( $session_id, array $result, $debug ) {
+			$pending = Ahentic_Session_Repository::get_verify_pending( $session_id );
+			if ( empty( $pending ) ) {
+				return array(
+					'result' => $result,
+					'debug'  => $debug,
+				);
+			}
+
+			// Keep the model's closing prose across verify continues.
+			self::stash_pending_final( $session_id, $result, $debug );
+
+			Ahentic_Session_Repository::set_progress( $session_id, __( 'Verifying changes…', 'ahentic' ) );
+			$long_form = class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id );
+			$pending   = self::enrich_verify_pending_post_ids( $session_id, $pending );
+			$remaining = array();
+			$stub      = false;
+			$browser_writes = array(
+				'ahentic-browser/set-blocks',
+				'ahentic-browser/insert-blocks',
+				'ahentic-browser/replace-blocks',
+			);
+
+			foreach ( $pending as $item ) {
+				$ability = isset( $item['ability'] ) ? (string) $item['ability'] : '';
+				$post_id = isset( $item['post_id'] ) ? (int) $item['post_id'] : 0;
+				$count   = ! empty( $item['block_count'] ) ? (int) $item['block_count'] : 0;
+
+				if ( $post_id > 0 && in_array( $ability, array( 'ahentic/create-post', 'ahentic/update-post' ), true ) ) {
+					$post = get_post( $post_id );
+					if ( ! $post instanceof WP_Post ) {
+						$remaining[] = $item;
+						continue;
+					}
+					if ( $long_form && ! self::body_is_nontrivial( $post->post_content, true ) ) {
+						$stub        = true;
+						$remaining[] = $item;
+						continue;
+					}
+					continue;
+				}
+
+				if ( in_array( $ability, $browser_writes, true ) && $count > 0 ) {
+					if ( $long_form && $count < 6 ) {
+						$stub        = true;
+						$remaining[] = $item;
+						continue;
+					}
+					// Counts are enough for short edits; long-form still needs a body read.
+					if ( ! $long_form ) {
+						continue;
+					}
+					$remaining[] = $item;
+					continue;
+				}
+
+				$remaining[] = $item;
+			}
+
+			Ahentic_Session_Repository::set_verify_pending( $session_id, $remaining );
+
+			// Server-side read-after-write for non-browser pending (no extra LLM turn).
+			if ( ! empty( $remaining ) && ! $stub ) {
+				self::auto_verify_server_pending( $session_id );
+				$remaining = Ahentic_Session_Repository::get_verify_pending( $session_id );
+			}
+
+			if ( empty( $remaining ) ) {
+				return array(
+					'result' => $result,
+					'debug'  => $debug,
+				);
+			}
+
+			if ( $stub ) {
+				return self::verification_continue_or_partial(
+					$session_id,
+					$result,
+					$debug,
+					$remaining,
+					'stub',
+					__( 'The applied body looks too thin or like a placeholder — expanding or restaging the full draft before finishing.', 'ahentic' )
+				);
+			}
+
+			return self::verification_continue_or_partial(
+				$session_id,
+				$result,
+				$debug,
+				$remaining,
+				'verify',
+				__( 'Checking that the last write landed correctly before finishing.', 'ahentic' )
+			);
+		}
+
+		/**
+		 * Continue the run for verify/repair, or finish with an honest partial after the attempt cap.
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param array  $result     Result.
+		 * @param array  $debug      Debug.
+		 * @param array  $remaining  Remaining pending items.
+		 * @param string $reason     stub|verify.
+		 * @param string $thought    Ephemeral thought.
+		 * @return string|array
+		 */
+		private static function verification_continue_or_partial( $session_id, array $result, $debug, array $remaining, $reason, $thought ) {
+			$attempts = Ahentic_Session_Repository::bump_verify_attempts( $session_id );
+			$step     = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+
+			if ( $attempts > self::MAX_VERIFY_ATTEMPTS ) {
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'verify_partial',
+					'Verification attempts exhausted — honest partial finish',
+					array(
+						'reason'   => $reason,
+						'pending'  => $remaining,
+						'attempts' => $attempts,
+					),
+					$step
+				);
+				Ahentic_Session_Repository::clear_verify_pending( $session_id );
+				Ahentic_Session_Repository::clear_forced_tools( $session_id );
+
+				$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
+				$msg     = 'stub' === $reason
+					? __(
+						'I applied a draft, but verification still shows a thin or placeholder body. Send Continue and I’ll expand or restage the full content.',
+						'ahentic'
+					)
+					: __(
+						'I made changes, but could not fully verify them in this run. Send Continue if you want me to re-check or finish the remaining work.',
+						'ahentic'
+					);
+				if ( is_array( $stashed ) && ! empty( $stashed['text'] ) && ! self::reply_looks_like_process( (string) $stashed['text'] ) ) {
+					$result['text'] = trim( (string) $stashed['text'] ) . "\n\n" . $msg;
+				} else {
+					$result['text'] = $msg;
+				}
+
+				return array(
+					'result' => $result,
+					'debug'  => $debug,
+				);
+			}
+
+			$forced = array();
+			if ( 'verify' === $reason ) {
+				$forced = self::build_forced_verify_tools( $session_id, $remaining );
+				if ( ! empty( $forced ) ) {
+					Ahentic_Session_Repository::set_forced_tools( $session_id, $forced );
+				}
+			}
+			// stub: leave forced empty so the next step is a free LLM repair think.
+
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'verify_required',
+				'stub' === $reason
+					? 'Stub/placeholder body — continuing to repair'
+					: 'Write verification still pending — continuing run',
+				array(
+					'reason'   => $reason,
+					'pending'  => $remaining,
+					'attempts' => $attempts,
+					'tools'    => $forced,
+				),
+				$step
+			);
+			Ahentic_Session_Repository::set_progress(
+				$session_id,
+				'stub' === $reason
+					? __( 'Expanding draft…', 'ahentic' )
+					: __( 'Verifying changes…', 'ahentic' ),
+				$step
+			);
+			Ahentic_Session_Repository::set_thought( $session_id, $thought );
+			return 'continue';
+		}
+
+		/**
+		 * Fill missing post_id on verify items from recent tool results / page context.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $pending    Pending items.
+		 * @return array
+		 */
+		private static function enrich_verify_pending_post_ids( $session_id, array $pending ) {
+			$ctx_id = 0;
+			$ctx    = Ahentic_Session_Repository::get_page_context( $session_id );
+			if ( ! empty( $ctx['post_id'] ) ) {
+				$ctx_id = (int) $ctx['post_id'];
+			}
+			$from_tools = self::recent_content_write_post_ids( $session_id );
+
+			$changed = false;
+			foreach ( $pending as $i => $item ) {
+				if ( ! empty( $item['post_id'] ) ) {
+					continue;
+				}
+				$ability = isset( $item['ability'] ) ? (string) $item['ability'] : '';
+				if ( in_array( $ability, array( 'ahentic/create-post', 'ahentic/update-post', 'ahentic/set-post-status' ), true ) ) {
+					if ( ! empty( $from_tools ) ) {
+						$pending[ $i ]['post_id'] = (int) $from_tools[0];
+						$changed                  = true;
+					} elseif ( $ctx_id > 0 ) {
+						$pending[ $i ]['post_id'] = $ctx_id;
+						$changed                  = true;
+					}
+				}
+			}
+			if ( $changed ) {
+				Ahentic_Session_Repository::set_verify_pending( $session_id, $pending );
+			}
+			return $pending;
+		}
+
+		/**
+		 * Recent create/update tool result post IDs (newest first).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array<int, int>
+		 */
+		private static function recent_content_write_post_ids( $session_id ) {
+			$entries = Ahentic_Session_Repository::get_entries( $session_id );
+			$ids     = array();
+			for ( $i = count( $entries ) - 1; $i >= 0; $i-- ) {
+				$entry = $entries[ $i ];
+				if ( ! is_array( $entry ) || 'tool' !== ( isset( $entry['role'] ) ? $entry['role'] : '' ) ) {
+					continue;
+				}
+				$ability = isset( $entry['meta']['ability'] ) ? (string) $entry['meta']['ability'] : '';
+				if ( ! in_array( $ability, array( 'ahentic/create-post', 'ahentic/update-post' ), true ) ) {
+					continue;
+				}
+				if ( empty( $entry['meta']['ok'] ) ) {
+					continue;
+				}
+				$decoded = json_decode( (string) $entry['content'], true );
+				if ( ! is_array( $decoded ) ) {
+					continue;
+				}
+				$id = 0;
+				if ( ! empty( $decoded['id'] ) ) {
+					$id = (int) $decoded['id'];
+				} elseif ( ! empty( $decoded['post_id'] ) ) {
+					$id = (int) $decoded['post_id'];
+				}
+				if ( $id > 0 && ! in_array( $id, $ids, true ) ) {
+					$ids[] = $id;
+				}
+				if ( count( $ids ) >= 5 ) {
+					break;
+				}
+			}
+			return $ids;
+		}
+
+		/**
+		 * Execute get-content for pending non-browser writes and clear when body checks pass.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		private static function auto_verify_server_pending( $session_id ) {
+			$pending = Ahentic_Session_Repository::get_verify_pending( $session_id );
+			if ( empty( $pending ) || ! class_exists( 'Ahentic_Abilities_Content' ) ) {
+				return;
+			}
+
+			$browser_prefix = 'ahentic-browser/';
+			$ids            = array();
+			foreach ( $pending as $item ) {
+				$ability = isset( $item['ability'] ) ? (string) $item['ability'] : '';
+				if ( 0 === strpos( $ability, $browser_prefix ) ) {
+					continue;
+				}
+				$post_id = isset( $item['post_id'] ) ? (int) $item['post_id'] : 0;
+				if ( $post_id > 0 ) {
+					$ids[ $post_id ] = true;
+				}
+			}
+			if ( empty( $ids ) ) {
+				return;
+			}
+
+			foreach ( array_keys( $ids ) as $post_id ) {
+				$payload = Ahentic_Abilities::execute(
+					Ahentic_Abilities_Content::GET,
+					array( 'id' => (int) $post_id )
+				);
+				if ( is_wp_error( $payload ) || ! is_array( $payload ) ) {
+					continue;
+				}
+				self::apply_verify_read( $session_id, Ahentic_Abilities_Content::GET, $payload );
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'verify_auto',
+					'Server auto-verify via get-content',
+					array(
+						'post_id' => (int) $post_id,
+						'ok'      => true,
+					),
+					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+				);
+			}
+		}
+
+		/**
+		 * Forced readonly tools to clear verify_pending.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $remaining  Pending items.
+		 * @return array<int, array{name: string, input: array}>
+		 */
+		private static function build_forced_verify_tools( $session_id, array $remaining ) {
+			$ctx           = Ahentic_Session_Repository::get_page_context( $session_id );
+			$editor_open   = ! empty( $ctx['is_block_editor'] );
+			$ctx_post_id   = ! empty( $ctx['post_id'] ) ? (int) $ctx['post_id'] : 0;
+			$needs_browser = false;
+			$post_ids      = array();
+
+			foreach ( $remaining as $item ) {
+				$ability = isset( $item['ability'] ) ? (string) $item['ability'] : '';
+				if ( 0 === strpos( $ability, 'ahentic-browser/' ) ) {
+					$needs_browser = true;
+				}
+				if ( ! empty( $item['post_id'] ) ) {
+					$post_ids[] = (int) $item['post_id'];
+				}
+			}
+
+			if ( $needs_browser || $editor_open ) {
+				if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
+					return array(
+						array(
+							'name'  => Ahentic_Abilities_Browser::GET_BLOCKS,
+							'input' => array(),
+						),
+					);
+				}
+			}
+
+			$post_id = ! empty( $post_ids ) ? (int) $post_ids[0] : $ctx_post_id;
+			if ( $post_id > 0 && class_exists( 'Ahentic_Abilities_Content' ) ) {
+				return array(
+					array(
+						'name'  => Ahentic_Abilities_Content::GET,
+						'input' => array( 'id' => $post_id ),
+					),
+				);
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
+				return array(
+					array(
+						'name'  => Ahentic_Abilities_Browser::GET_BLOCKS,
+						'input' => array(),
+					),
+				);
+			}
+
+			return array();
+		}
+
+		/**
+		 * Forced mutate to apply the first ready content artifact.
+		 *
+		 * @param int                $session_id Session ID.
+		 * @param array<int, string> $keys       Ready artifact keys.
+		 * @return array<int, array{name: string, input: array}>
+		 */
+		private static function build_forced_apply_tools( $session_id, array $keys ) {
+			if ( empty( $keys ) ) {
+				return array();
+			}
+			$key = (string) $keys[0];
+			$ctx = Ahentic_Session_Repository::get_page_context( $session_id );
+			$editor_open = ! empty( $ctx['is_block_editor'] );
+			$post_id     = ! empty( $ctx['post_id'] ) ? (int) $ctx['post_id'] : 0;
+
+			if ( $editor_open && class_exists( 'Ahentic_Abilities_Browser' ) ) {
+				return array(
+					array(
+						'name'  => Ahentic_Abilities_Browser::SET_BLOCKS,
+						'input' => array( 'from_memory' => $key ),
+					),
+				);
+			}
+
+			if ( $post_id > 0 && class_exists( 'Ahentic_Abilities_Content' ) ) {
+				return array(
+					array(
+						'name'  => Ahentic_Abilities_Content::UPDATE,
+						'input' => array(
+							'id'          => $post_id,
+							'from_memory' => $key,
+						),
+					),
+				);
+			}
+
+			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {
+				return array(
+					array(
+						'name'  => Ahentic_Abilities_Content::CREATE,
+						'input' => array( 'from_memory' => $key ),
+					),
+				);
+			}
+
+			return array();
+		}
+
+		/**
+		 * Whether this tool batch already applies one of the ready artifact keys.
+		 *
+		 * @param array              $planned Tool calls.
+		 * @param array<int, string> $keys    Ready keys.
+		 * @return bool
+		 */
+		private static function planned_includes_artifact_apply( array $planned, array $keys ) {
+			$key_lookup = array();
+			foreach ( $keys as $k ) {
+				$key_lookup[ (string) $k ] = true;
+			}
+			$apply_names = array();
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
+				$apply_names[] = Ahentic_Abilities_Browser::SET_BLOCKS;
+			}
+			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {
+				$apply_names[] = Ahentic_Abilities_Content::CREATE;
+				$apply_names[] = Ahentic_Abilities_Content::UPDATE;
+			}
+			foreach ( $planned as $call ) {
+				if ( ! is_array( $call ) ) {
+					continue;
+				}
+				$name  = isset( $call['name'] ) ? (string) $call['name'] : '';
+				$input = isset( $call['input'] ) && is_array( $call['input'] ) ? $call['input'] : array();
+				if ( ! in_array( $name, $apply_names, true ) ) {
+					continue;
+				}
+				$mem = isset( $input['from_memory'] ) ? (string) $input['from_memory'] : '';
+				if ( '' !== $mem && isset( $key_lookup[ $mem ] ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * @param int    $session_id Session ID.
+		 * @param string $name       Ability.
+		 * @param array  $input      Input.
+		 * @return true|array{fallback: array}|\WP_Error
+		 */
+		private static function browser_preflight( $session_id, $name, array $input ) {
+			$ctx     = Ahentic_Session_Repository::get_page_context( $session_id );
+			$updated = ! empty( $ctx['updatedAt'] ) ? strtotime( (string) $ctx['updatedAt'] ) : 0;
+			$fresh   = $updated && ( time() - $updated ) <= 180;
+
+			$needs_editor = class_exists( 'Ahentic_Abilities_Browser' )
+				&& Ahentic_Abilities_Browser::is_browser( $name )
+				&& ! in_array(
+					$name,
+					array(
+						'ahentic-browser/get-current-page',
+						'ahentic-browser/get-visible-page',
+					),
+					true
+				);
+
+			if ( $needs_editor && empty( $ctx['is_block_editor'] ) ) {
+				$fallback = self::server_fallback_for_browser( $name, $input, $ctx );
+				if ( $fallback ) {
+					Ahentic_Session_Repository::append_trace(
+						$session_id,
+						'browser_fallback',
+						'Editor not open — using server ability',
+						array(
+							'from' => $name,
+							'to'   => $fallback['name'],
+						),
+						(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+					);
+					return array( 'fallback' => $fallback );
+				}
+				$post_id = isset( $ctx['post_id'] ) ? (int) $ctx['post_id'] : 0;
+				$msg     = $post_id > 0
+					? sprintf(
+						/* translators: %d: post ID */
+						__( 'Open the block editor for post #%d (or the Ahentic sidebar on that screen) so this browser ability can run.', 'ahentic' ),
+						$post_id
+					)
+					: __( 'Open the block editor (or keep the Ahentic sidebar on an editor screen) so this browser ability can run.', 'ahentic' );
+				return new WP_Error( 'ahentic_browser_runtime_missing', $msg );
+			}
+
+			if ( ! $fresh && empty( $ctx ) ) {
+				return new WP_Error(
+					'ahentic_browser_runtime_missing',
+					__( 'The Ahentic sidebar does not have a fresh page context. Keep the sidebar open on the target page and try again.', 'ahentic' )
+				);
+			}
+
+			return true;
+		}
+
+		/**
+		 * @param string $name  Browser ability.
+		 * @param array  $input Input.
+		 * @param array  $ctx   Page context.
+		 * @return array|null
+		 */
+		private static function server_fallback_for_browser( $name, array $input, array $ctx ) {
+			if ( ! class_exists( 'Ahentic_Abilities_Browser' ) || ! class_exists( 'Ahentic_Abilities_Content' ) ) {
+				return null;
+			}
+			if ( Ahentic_Abilities_Browser::SET_BLOCKS !== $name && Ahentic_Abilities_Browser::UPDATE_POST_TITLE !== $name ) {
+				return null;
+			}
+
+			$post_id      = isset( $ctx['post_id'] ) ? (int) $ctx['post_id'] : 0;
+			$server_input = array();
+			if ( ! empty( $input['from_memory'] ) ) {
+				$server_input['from_memory'] = $input['from_memory'];
+			}
+			if ( Ahentic_Abilities_Browser::UPDATE_POST_TITLE === $name && isset( $input['title'] ) ) {
+				$server_input['title'] = $input['title'];
+			}
+
+			if ( $post_id > 0 ) {
+				$server_input['id'] = $post_id;
+				return array(
+					'name'  => Ahentic_Abilities_Content::UPDATE,
+					'input' => $server_input,
+				);
+			}
+
+			if ( ! empty( $server_input['from_memory'] ) || ! empty( $server_input['title'] ) ) {
+				return array(
+					'name'  => Ahentic_Abilities_Content::CREATE,
+					'input' => $server_input,
+				);
+			}
+
+			return null;
+		}
+
+		/**
+		 * Timed recovery when awaiting_browser stalls.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		private static function recover_stale_browser( $session_id ) {
+			$pending = Ahentic_Session_Repository::get_pending_tool( $session_id );
+			if ( ! $pending || empty( $pending['name'] ) ) {
+				return;
+			}
+			$paused = Ahentic_Session_Repository::get_browser_paused_at( $session_id );
+			$age    = $paused ? ( time() - strtotime( $paused ) ) : 0;
+			if ( $age < 45 ) {
+				return;
+			}
+
+			$name     = (string) $pending['name'];
+			$input    = isset( $pending['input'] ) && is_array( $pending['input'] ) ? $pending['input'] : array();
+			$step     = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+			$ctx      = Ahentic_Session_Repository::get_page_context( $session_id );
+			$fallback = self::server_fallback_for_browser( $name, $input, $ctx );
+
+			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
+			Ahentic_Session_Repository::clear_browser_paused_at( $session_id );
+			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
+
+			if ( $fallback ) {
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'browser_timeout_fallback',
+					'Browser pause timed out — falling back to server ability',
+					array(
+						'from' => $name,
+						'to'   => $fallback['name'],
+					),
+					$step
+				);
+				self::append_tool_failure(
+					$session_id,
+					$name,
+					new WP_Error(
+						'ahentic_browser_timeout',
+						sprintf(
+							/* translators: %s: server ability name */
+							__( 'Browser runtime timed out. Retry with server ability %s (or open the block editor and Continue).', 'ahentic' ),
+							$fallback['name']
+						),
+						array( 'fallback' => $fallback )
+					),
+					$step
+				);
+			} else {
+				self::append_tool_failure(
+					$session_id,
+					$name,
+					new WP_Error(
+						'ahentic_browser_timeout',
+						__( 'Browser runtime timed out. Open the target page/editor with the Ahentic sidebar, then send Continue.', 'ahentic' )
+					),
+					$step
+				);
+			}
+
+			Ahentic_Session_Repository::set_progress( $session_id, __( 'Recovering after browser timeout…', 'ahentic' ), $step );
+			Ahentic_Step_Queue::enqueue_step( $session_id );
+			Ahentic_Step_Queue::schedule_interactive_run( $session_id );
+		}
+
+		/**
+		 * Whether this think requires a persisted plan (Agent + ≥2 tools or any write).
+		 *
+		 * @param array  $debug Parsed debug block.
+		 * @param string $mode  agent|ask.
+		 * @return bool
+		 */
+		private static function debug_requires_plan( $debug, $mode ) {
+			if ( 'agent' !== $mode || ! is_array( $debug ) ) {
+				return false;
+			}
+			$planned = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
+			if ( count( $planned ) >= 2 ) {
+				return true;
+			}
+			foreach ( $planned as $call ) {
+				$name = isset( $call['name'] ) ? (string) $call['name'] : '';
+				if ( $name && class_exists( 'Ahentic_Abilities' ) && ! Ahentic_Abilities::is_readonly( $name ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Persist a minimal plan when the model used tools/writes without one.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $debug      Parsed debug block.
+		 */
+		private static function ensure_synthetic_plan( $session_id, $debug ) {
+			if ( Ahentic_Session_Repository::get_plan( $session_id ) ) {
+				return;
+			}
+			$intention = is_array( $debug ) && isset( $debug['intention'] ) ? trim( (string) $debug['intention'] ) : '';
+			$planned   = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
+			$steps     = array();
+			if ( count( $planned ) > 0 ) {
+				$i = 1;
+				foreach ( $planned as $call ) {
+					$name = isset( $call['name'] ) ? (string) $call['name'] : '';
+					$short = $name ? preg_replace( '/^.*\//', '', $name ) : '';
+					$steps[] = array(
+						'id'      => (string) $i,
+						'content' => $short ? sprintf(
+							/* translators: %s: ability short name */
+							__( 'Run %s', 'ahentic' ),
+							str_replace( '-', ' ', $short )
+						) : __( 'Complete the next action', 'ahentic' ),
+						'status'  => 1 === $i ? 'in_progress' : 'pending',
+					);
+					++$i;
+					if ( $i > self::MAX_PLAN_STEPS ) {
+						break;
+					}
+				}
+			} else {
+				$steps[] = array(
+					'id'      => '1',
+					'content' => $intention ? $intention : __( 'Complete the requested work', 'ahentic' ),
+					'status'  => 'in_progress',
+				);
+			}
+			$plan = array(
+				'title' => $intention ? $intention : __( 'Working plan', 'ahentic' ),
+				'steps' => $steps,
+			);
+			Ahentic_Session_Repository::set_plan( $session_id, $plan );
+			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'plan_updated',
+				self::plan_trace_summary( $plan ),
+				array(
+					'title'     => $plan['title'],
+					'steps'     => $plan['steps'],
+					'synthetic' => true,
+				),
+				$step
+			);
+		}
+
+		/**
+		 * Auto-stage oversized tool bodies and rewrite to from_memory.
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $name       Ability.
+		 * @param array  $input      Tool input.
+		 * @param int    $step       Step.
+		 * @return array
+		 */
+		private static function maybe_auto_stage_tool_input( $session_id, $name, array $input, $step ) {
+			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
+				return $input;
+			}
+			if ( ! empty( $input['from_memory'] ) || ! Ahentic_Session_Artifacts::ability_supports_from_memory( $name ) ) {
+				return $input;
+			}
+
+			$threshold = 6000;
+			$kind      = '';
+			$payload   = null;
+
+			if ( ! empty( $input['blocks'] ) && is_array( $input['blocks'] ) ) {
+				$encoded = wp_json_encode( $input['blocks'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+				if ( is_string( $encoded ) && strlen( $encoded ) >= $threshold ) {
+					$kind    = Ahentic_Session_Artifacts::KIND_BLOCKS;
+					$payload = array( 'blocks' => $input['blocks'] );
+				}
+			} elseif ( ! empty( $input['content'] ) && is_string( $input['content'] ) && strlen( $input['content'] ) >= $threshold ) {
+				$kind    = Ahentic_Session_Artifacts::KIND_POST_CONTENT;
+				$payload = array( 'content' => $input['content'] );
+			}
+
+			if ( ! $payload || ! $kind ) {
+				return $input;
+			}
+
+			$key    = 'auto_' . substr( md5( $name . '|' . $step . '|' . wp_json_encode( array_keys( $payload ) ) ), 0, 12 );
+			$result = Ahentic_Session_Artifacts::stage(
+				$session_id,
+				$key,
+				array(
+					'kind'    => $kind,
+					'title'   => __( 'Auto-staged draft', 'ahentic' ),
+					'payload' => $payload,
+					'meta'    => array(
+						'source' => 'auto_stage',
+						'step'   => (int) $step,
+					),
+					'status'  => Ahentic_Session_Artifacts::STATUS_READY,
+				)
+			);
+			if ( is_wp_error( $result ) ) {
+				return $input;
+			}
+
+			$out = $input;
+			unset( $out['blocks'], $out['content'] );
+			$out['from_memory'] = $key;
+
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'artifact_auto_staged',
+				sprintf( 'Auto-staged oversized payload as %s', $key ),
+				array(
+					'ability' => $name,
+					'key'     => $key,
+					'kind'    => $kind,
+				),
+				(int) $step
+			);
+
+			return $out;
+		}
+
+		/**
+		 * HITL summary, enriched with artifact pointer when using from_memory.
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $name       Ability.
+		 * @param array  $input      Tool input.
+		 * @return string
+		 */
+		private static function hitl_summary_for_pending( $session_id, $name, array $input ) {
+			$summary = Ahentic_Abilities::hitl_summary( $name, $input );
+			if ( empty( $input['from_memory'] ) || ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
+				return $summary;
+			}
+			$key  = Ahentic_Session_Artifacts::sanitize_artifact_key( (string) $input['from_memory'] );
+			$mem  = self::memory_pointer_for_pending( $session_id, $key );
+			if ( ! $mem ) {
+				return $summary;
+			}
+			$bits = array( $summary );
+			if ( ! empty( $mem['title'] ) ) {
+				$bits[] = '"' . $mem['title'] . '"';
+			}
+			if ( ! empty( $mem['bytes'] ) ) {
+				$bits[] = (int) $mem['bytes'] . ' bytes';
+			}
+			if ( ! empty( $mem['excerpt'] ) ) {
+				$bits[] = $mem['excerpt'];
+			}
+			return implode( ' · ', $bits );
+		}
+
+		/**
+		 * Short memory pointer for HITL / browser pending (no full body).
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $key        Artifact key.
+		 * @return array|null
+		 */
+		private static function memory_pointer_for_pending( $session_id, $key ) {
+			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) || ! $key ) {
+				return null;
+			}
+			return Ahentic_Session_Artifacts::pointer_with_excerpt( $session_id, $key );
 		}
 
 		/**
@@ -3075,6 +4931,50 @@ Rules:
 		}
 
 		/**
+		 * Keep the rest of a planned batch alive across a browser pause.
+		 *
+		 * Pausing returns from the step, so calls the model planned after the paused
+		 * one were dropped and had to be re-planned by a whole extra think. Only an
+		 * all-browser remainder is re-queued: those pause again immediately instead of
+		 * running to the end of the forced batch.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $planned    Full planned batch.
+		 * @param int   $index      Index of the call that paused.
+		 * @param int   $step       Step number for the trace.
+		 */
+		private static function preserve_browser_batch_remainder( $session_id, array $planned, $index, $step ) {
+			$remaining = array_slice( $planned, (int) $index + 1 );
+			if ( empty( $remaining ) ) {
+				return;
+			}
+
+			$names       = array();
+			$all_browser = true;
+			foreach ( $remaining as $call ) {
+				$name  = isset( $call['name'] ) ? (string) $call['name'] : '';
+				$input = isset( $call['input'] ) && is_array( $call['input'] ) ? $call['input'] : array();
+				$names[] = $name;
+				if ( '' === $name || ! Ahentic_Abilities::requires_browser_runtime( $name, $input ) ) {
+					$all_browser = false;
+				}
+			}
+
+			if ( ! $all_browser ) {
+				return;
+			}
+
+			Ahentic_Session_Repository::set_forced_tools( $session_id, $remaining );
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'browser_batch_queued',
+				'Queued remaining browser tools to run after the pause',
+				array( 'tools' => $names ),
+				$step
+			);
+		}
+
+		/**
 		 * Shrink tool input for trace / pending dumps (omit huge bodies).
 		 *
 		 * @param array $input Input.
@@ -3095,17 +4995,61 @@ Rules:
 		}
 
 		/**
+		 * Abilities that read the current state of the open editor.
+		 *
+		 * These describe one document, so only the newest result is meaningful —
+		 * unlike id/query-scoped reads (get-content, list-content) where each
+		 * result answers a different question and must all be kept.
+		 *
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		private static function ability_is_live_editor_snapshot( $name ) {
+			return in_array(
+				(string) $name,
+				array(
+					'ahentic-browser/get-blocks',
+					'ahentic-browser/get-editor-state',
+					'ahentic-browser/get-selection',
+				),
+				true
+			);
+		}
+
+		/**
+		 * Entry index of the newest result per live-editor snapshot ability.
+		 *
+		 * @param array $entries Session entries.
+		 * @return array<string, int|string>
+		 */
+		private static function latest_live_editor_snapshots( array $entries ) {
+			$latest = array();
+			foreach ( $entries as $i => $entry ) {
+				if ( 'tool' !== ( isset( $entry['role'] ) ? $entry['role'] : '' ) ) {
+					continue;
+				}
+				if ( ! empty( $entry['meta']['error'] ) ) {
+					continue;
+				}
+				$ability = isset( $entry['meta']['ability'] ) ? (string) $entry['meta']['ability'] : '';
+				if ( self::ability_is_live_editor_snapshot( $ability ) ) {
+					$latest[ $ability ] = $i;
+				}
+			}
+			return $latest;
+		}
+
+		/**
 		 * Cap tool-result JSON injected into the next think prompt.
 		 *
-		 * Oversized get-blocks trees (HTML attributes, etc.) inflate context and
-		 * correlate with empty / malformed model replies on the following step.
-		 *
 		 * @param string $content Raw tool entry content.
+		 * @param int    $max     Optional cap override (0 uses the default).
 		 * @return string
 		 */
-		private static function truncate_tool_result_for_prompt( $content ) {
+		private static function truncate_tool_result_for_prompt( $content, $max = 0 ) {
 			$content = (string) $content;
-			$max     = self::MAX_TOOL_RESULT_CHARS;
+			$max     = (int) $max > 0 ? (int) $max : self::MAX_TOOL_RESULT_CHARS;
+
 			if ( strlen( $content ) <= $max ) {
 				return $content;
 			}

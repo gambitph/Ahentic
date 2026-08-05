@@ -272,6 +272,9 @@ if ( ! class_exists( 'Ahentic_REST_Sessions' ) ) {
 			if ( isset( $params['pageContext'] ) && is_array( $params['pageContext'] ) ) {
 				Ahentic_Session_Repository::set_page_context( $id, $params['pageContext'] );
 			}
+			if ( array_key_exists( 'editorRefs', $params ) ) {
+				Ahentic_Session_Repository::set_editor_refs( $id, is_array( $params['editorRefs'] ) ? $params['editorRefs'] : null );
+			}
 
 			return rest_ensure_response( Ahentic_Session_Repository::to_rest( $id ) );
 		}

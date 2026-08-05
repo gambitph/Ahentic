@@ -20,6 +20,9 @@ export default function HitlApprovalCard( {
 } ) {
 	const summary = pendingTool?.summary || pendingTool?.name || __( 'Pending action', 'ahentic' )
 	const ability = pendingTool?.name || ''
+	const memory = pendingTool?.memory && typeof pendingTool.memory === 'object'
+		? pendingTool.memory
+		: null
 	const busy = Boolean( submitting ) || disabled
 
 	const decide = useCallback( async decision => {
@@ -39,6 +42,15 @@ export default function HitlApprovalCard( {
 				{ __( 'Approval needed', 'ahentic' ) }
 			</div>
 			<p className="ahentic-hitl__summary">{ summary }</p>
+			{ memory?.key ? (
+				<p className="ahentic-hitl__memory">
+					{ memory.title
+						? `${ memory.key } · ${ memory.title }`
+						: memory.key }
+					{ memory.bytes ? ` · ${ memory.bytes } bytes` : '' }
+					{ memory.excerpt ? ` — ${ memory.excerpt }` : '' }
+				</p>
+			) : null }
 			{ ability ? (
 				<p className="ahentic-hitl__meta">{ ability }</p>
 			) : null }

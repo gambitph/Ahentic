@@ -61,7 +61,7 @@ Session-scoped namespaces (Working memory PRD):
 
 - Progress `{ label, updatedAt }` for human status copy.
 - Heartbeat timestamp (or equivalent) updated while the worker is alive — distinct from label text changing.
-- REST must expose enough for the sidebar to render busy / slow / stuck / wait states (Sidebar PRD).
+- REST must expose enough for the sidebar to render busy / stuck / wait states (Sidebar PRD).
 
 ## Caps & compaction
 

@@ -5,6 +5,8 @@ Protocol between the **LLM** and the **orchestrator**. Ahentic does **not** use 
 > **Canonical should:** [Agent runtime PRD](../../pro__premium_only/docs/prd/agent-runtime.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)  
 > **Plan rule (product law):** require a plan in Agent mode when ≥2 tools are planned **or** any write runs. Older “≥3 coarse steps” guidance below describes **current prompt heuristics** and must be aligned to the contract.
 
+**Verification:** Agent writes must be verified (readonly follow-up / non-trivial body for long-form) before idle — see Agent runtime PRD.
+
 **Code:** `Ahentic_Orchestrator::system_prompt()`, debug parse/retry helpers, `build_chat_payload()`  
 **Related:** [orchestrator.md](./orchestrator.md) · [abilities.md](../abilities/abilities.md) · [artifacts.md](../session/artifacts.md)
 
@@ -78,7 +80,7 @@ Supported apply targets today: `set-blocks`, `create-post`, `update-post`. Do no
 
 ## `plan`
 
-Include only when the goal needs roughly **≥ `MIN_PLAN_STEPS` (3)** coarse steps. Omit for trivial 1–2 step asks.
+**Required in Agent mode** when the model intends **≥2 tools** or **any write** (non-readonly). A single readonly tool may omit the plan. Omit for simple Ask answers.
 
 Rules enforced in prompt + merge logic:
 
@@ -86,6 +88,7 @@ Rules enforced in prompt + merge logic:
 - Exactly one `in_progress` at a time
 - Cap length (`MAX_PLAN_STEPS`)
 - Plan is UI/orchestrator state — **not** a substitute for `thinking` / chat narration
+- If the model skips a required plan, the orchestrator retries once then synthesizes a minimal plan
 
 ---
 
@@ -97,10 +100,10 @@ Assembled approximately as:
 2. **History** — prior user/assistant turns (capped)
 3. **Latest user message** plus:
    - Active **page context** (URL / editor / post id)
-   - **Artifact pointers** (keys/status only)
+   - **Artifact pointers** (keys/status only; drafting vs ready)
    - **Ability results from this run** (tool JSON, truncated ~8k each)
 
-Tool results are facts. Successful mutates should generally lead to `next=reply` unless more work remains — do not re-read blocks only to “verify” an `ok:true` result.
+Tool results are facts. For Agent writes, prefer a follow-up readonly check (get post / editor snapshot) before treating the goal as done — see the Agent runtime PRD verification tiers.
 
 ---
 

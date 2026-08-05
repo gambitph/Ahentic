@@ -11,6 +11,7 @@ import {
 	useState,
 } from '@wordpress/element'
 import { __ } from '@wordpress/i18n'
+import classnames from 'classnames'
 import { LoaderCircle } from 'lucide-react'
 import AhenticLogo from './ahentic-logo'
 import CapabilityRequestCard from './capability-request-card'
@@ -87,10 +88,14 @@ async function installAiPlugin() {
  * @param {string}      props.progressLabel
  * @param {Object|null} props.pendingTool
  * @param {Object|null} props.plan
+ * @param {string}      [props.thoughtProcess] Ephemeral faded thought while busy.
  * @param {string}      props.sessionStatus
  * @param {string}      [props.approvingDecision] HITL decision in flight (hides card, shows live status).
  * @param {Function}    props.onApproval
  * @param {Function}    props.onSuggestedAction
+ * @param {string}      [props.liveness] '' | 'stuck'
+ * @param {Function}    [props.onContinue]
+ * @param {Function}    [props.onCancelRun]
  */
 export default function TabContent( {
 	aiReady,
@@ -107,10 +112,14 @@ export default function TabContent( {
 	progressLabel = '',
 	pendingTool = null,
 	plan = null,
+	thoughtProcess = '',
 	sessionStatus = 'idle',
 	approvingDecision = '',
 	onApproval,
 	onSuggestedAction,
+	liveness = '',
+	onContinue,
+	onCancelRun,
 } ) {
 	const [ installing, setInstalling ] = useState( false )
 	const [ installError, setInstallError ] = useState( '' )
@@ -552,6 +561,15 @@ export default function TabContent( {
 					</div>
 				) : null }
 
+				{ busy && thoughtProcess ? (
+					<div className="ahentic-thought" aria-live="polite">
+						<div className="ahentic-thought__label">
+							{ __( 'Thinking', 'ahentic' ) }
+						</div>
+						<p className="ahentic-thought__text">{ thoughtProcess }</p>
+					</div>
+				) : null }
+
 				{ sessionStatus === 'awaiting_human' && pendingTool && ! approvingDecision && typeof onApproval === 'function' ? (
 					<div className="ahentic-hitl-wrap">
 						<HitlApprovalCard
@@ -561,15 +579,47 @@ export default function TabContent( {
 					</div>
 				) : null }
 
-				{ busy && progressLabel && ( sessionStatus !== 'awaiting_human' || Boolean( approvingDecision ) ) ? (
+				{ busy && ( progressLabel || liveness === 'stuck' ) && ( sessionStatus !== 'awaiting_human' || Boolean( approvingDecision ) ) ? (
 					<div
-						className="ahentic-live-status"
+						className={ classnames(
+							'ahentic-live-status',
+							liveness === 'stuck' && 'is-stuck'
+						) }
 						role="status"
 						aria-live="polite"
 					>
 						<span className="ahentic-live-status__text">
-							{ progressLabel }
+							{ liveness === 'stuck'
+								? __( 'This run may be stuck', 'ahentic' )
+								: progressLabel }
 						</span>
+						{ liveness === 'stuck' && progressLabel ? (
+							<span className="ahentic-live-status__hint">
+								{ progressLabel }
+							</span>
+						) : null }
+						{ liveness === 'stuck' ? (
+							<div className="ahentic-live-status__actions">
+								{ typeof onContinue === 'function' ? (
+									<button
+										type="button"
+										className="ahentic-live-status__continue"
+										onClick={ () => onContinue() }
+									>
+										{ __( 'Continue', 'ahentic' ) }
+									</button>
+								) : null }
+								{ typeof onCancelRun === 'function' ? (
+									<button
+										type="button"
+										className="ahentic-live-status__cancel"
+										onClick={ () => onCancelRun() }
+									>
+										{ __( 'Cancel', 'ahentic' ) }
+									</button>
+								) : null }
+							</div>
+						) : null }
 					</div>
 				) : null }
 			</div>
