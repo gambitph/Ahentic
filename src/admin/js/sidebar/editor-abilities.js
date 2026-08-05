@@ -19,6 +19,7 @@ import {
 } from './block-ref-registry'
 
 const MAX_BLOCKS_DEFAULT = 80
+const MAX_BLOCKS_FULL_UNSCOPED_CAP = 8
 const MAX_ATTR_CHARS = 2000
 const MAX_TYPES_DEFAULT = 100
 
@@ -271,25 +272,33 @@ function capValue( value, depth = 0 ) {
 /**
  * @param {Object} block
  * @param {{ remaining: number }} budget
+ * @param {{ full?: boolean }} [opts]
  * @return {Object|null}
  */
-function serializeBlockTree( block, budget ) {
+function serializeBlockTree( block, budget, opts = {} ) {
 	if ( ! block || budget.remaining <= 0 ) {
 		return null
 	}
 	budget.remaining -= 1
 	const rawAttrs = block.attributes || {}
-	const attributes = {}
-	for ( const key of Object.keys( rawAttrs ) ) {
-		const val = rawAttrs[ key ]
-		attributes[ key ] = isRichTextValue( val )
-			? capValue( richTextToHtml( val ) )
-			: capValue( val )
-	}
 	const node = {
 		ref: refForClientId( block.clientId ),
 		name: block.name,
-		attributes,
+	}
+	// Full attribute dump is opt-in: third-party page-builder blocks (e.g. Greenshift
+	// rows) carry huge design/attribute payloads that otherwise crowd real text
+	// content out of the (size-capped) tool result before the agent ever sees it.
+	if ( opts.full ) {
+		const attributes = {}
+		for ( const key of Object.keys( rawAttrs ) ) {
+			const val = rawAttrs[ key ]
+			attributes[ key ] = isRichTextValue( val )
+				? capValue( richTextToHtml( val ) )
+				: capValue( val )
+		}
+		node.attributes = attributes
+	} else if ( Object.keys( rawAttrs ).length ) {
+		node.attribute_keys = Object.keys( rawAttrs ).slice( 0, 40 )
 	}
 	// Plain-text preview so the agent can match user phrases (e.g. "Get in touch").
 	for ( const key of CONTENT_ATTR_KEYS ) {
@@ -302,14 +311,43 @@ function serializeBlockTree( block, budget ) {
 		const preview = htmlToPlainPreview( html )
 		if ( preview ) {
 			node.preview = preview
+			// Tells the agent which attribute key to patch via update-block-attributes
+			// without needing a full attributes dump for a simple text edit.
+			node.content_attr = key
 			break
+		}
+	}
+	// Fallback for third-party blocks that don't use any of the CONTENT_ATTR_KEYS
+	// names (e.g. Greenshift's `textContent`): pick the longest phrase-like string
+	// attribute (must contain a space, so short design tokens like "blocksy" or
+	// "custom-0" are excluded) so the agent can still find/match this block by text.
+	if ( ! node.preview ) {
+		let bestPreview = ''
+		let bestKey = ''
+		for ( const key of Object.keys( rawAttrs ) ) {
+			const val = rawAttrs[ key ]
+			const html = isRichTextValue( val )
+				? richTextToHtml( val )
+				: ( typeof val === 'string' ? val : '' )
+			if ( ! html ) {
+				continue
+			}
+			const preview = htmlToPlainPreview( html )
+			if ( preview && preview.includes( ' ' ) && preview.length > bestPreview.length ) {
+				bestPreview = preview
+				bestKey = key
+			}
+		}
+		if ( bestPreview ) {
+			node.preview = bestPreview
+			node.content_attr = bestKey
 		}
 	}
 	const inner = Array.isArray( block.innerBlocks ) ? block.innerBlocks : []
 	if ( inner.length ) {
 		node.innerBlocks = []
 		for ( const child of inner ) {
-			const mapped = serializeBlockTree( child, budget )
+			const mapped = serializeBlockTree( child, budget, opts )
 			if ( mapped ) {
 				node.innerBlocks.push( mapped )
 			}
@@ -616,23 +654,30 @@ export function getBlocks( input = {} ) {
 		rootId = resolved.clientIds[ 0 ]
 	}
 
-	const maxBlocks = Math.max( 1, Math.min( 200, Number( input.max_blocks || input.maxBlocks || MAX_BLOCKS_DEFAULT ) ) )
+	const includeAttributes = Boolean( input.include_attributes || input.includeAttributes )
+	const requestedMaxBlocks = Number( input.max_blocks || input.maxBlocks || MAX_BLOCKS_DEFAULT )
+	// Full attributes on an untargeted (no root_ref) call can still blow past the
+	// prompt's tool-result size limit on pages with large/third-party block trees —
+	// clamp hard so a mis-scoped include_attributes request can't reproduce that.
+	// Pair include_attributes with root_ref to inspect one block's full attributes.
+	const maxBlocksCap = ( includeAttributes && ! rootId ) ? MAX_BLOCKS_FULL_UNSCOPED_CAP : 200
+	const maxBlocks = Math.max( 1, Math.min( maxBlocksCap, requestedMaxBlocks ) )
 	const blocks = rootId
 		? ( blockSelect.getBlocks?.( rootId ) || [] )
 		: ( blockSelect.getBlocks?.() || [] )
-	if ( rootId ) {
-		syncFromBlocks( [
-			...( blockSelect.getBlock?.( rootId ) ? [ blockSelect.getBlock( rootId ) ] : [] ),
-		] )
-		// Also ensure children are mapped.
-		syncFromBlocks( blocks )
-	}
+	// Note: deliberately NOT re-syncing refs from just `blocks` here. syncFromBlocks()
+	// treats whatever list it's given as "the whole live document" and drops refs for
+	// any clientId not in it — since `blocks` is only the root's subtree when root_ref
+	// is set, that previously wiped every other on-page block's ref on each drill-down
+	// call, forcing them to be renumbered (and re-sent in full) on the next listing.
+	// syncRegistryFromEditor() above already synced the full document; serializeBlockTree()
+	// lazily assigns refs (via refForClientId) for anything it walks, so no extra sync is needed.
 
 	const budget = { remaining: maxBlocks }
 	const tree = []
 	let truncated = false
 	for ( const block of blocks ) {
-		const node = serializeBlockTree( block, budget )
+		const node = serializeBlockTree( block, budget, { full: includeAttributes } )
 		if ( node ) {
 			tree.push( node )
 		}
@@ -646,6 +691,11 @@ export function getBlocks( input = {} ) {
 		count: tree.length,
 		truncated,
 		blocks: tree,
+		...( includeAttributes && ! rootId && truncated
+			? {
+				note: 'include_attributes without root_ref is capped to a few blocks to avoid an oversized result. Pass root_ref (from this or an earlier get-blocks/get-selection call) to see full attributes for one block/subtree in detail.',
+			}
+			: {} ),
 	}
 }
 
@@ -660,7 +710,7 @@ export function getSelection() {
 	const blocks = clientIds
 		.map( id => blockSelect.getBlock?.( id ) )
 		.filter( Boolean )
-		.map( block => serializeBlockTree( block, { remaining: 20 } ) )
+		.map( block => serializeBlockTree( block, { remaining: 20 }, { full: true } ) )
 		.filter( Boolean )
 
 	let selectedText = ''

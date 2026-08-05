@@ -112,7 +112,8 @@ If the action is destructive / persist (save, convert):
 ## Block addressing contract
 
 ```text
-get-blocks / get-selection → { ref: "b1", name, attributes, innerBlocks, … }
+get-blocks → { ref: "b1", name, preview, content_attr, attribute_keys, innerBlocks, … } (attributes omitted unless include_attributes:true)
+get-selection → { ref: "b1", name, attributes, innerBlocks, … } (selection is small/deliberate, always full)
 later tools → { ref: "b1" } or { refs: ["b1","b2"] }
 JS → resolveToClientIds → live Gutenberg clientIds
 ```

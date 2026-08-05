@@ -208,18 +208,22 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				array(
 					'name'        => self::GET_BLOCKS,
 					'label'       => __( 'Get blocks', 'ahentic' ),
-					'description' => __( 'Returns the block tree from the open block editor (ref, name, attributes, innerBlocks), capped for size. Use returned ref values (b1, b2, …) in later browser tools — never invent clientId hashes. Runs in the browser.', 'ahentic' ),
+					'description' => __( 'Returns the block tree from the open block editor (ref, name, preview, content_attr, attribute_keys, innerBlocks), capped for size. Full attribute values are omitted by default — use "preview" to match user phrases and "content_attr" as the attribute key to patch via update-block-attributes. Pass include_attributes:true (ideally with a narrow root_ref) to get full attribute values for one block, e.g. before a non-text style edit. Use returned ref values (b1, b2, …) in later browser tools — never invent clientId hashes. Runs in the browser.', 'ahentic' ),
 					'meta'        => $readonly_meta,
 					'input'       => array(
 						'type'       => 'object',
 						'properties' => array(
-							'root_ref'   => array(
+							'root_ref'           => array(
 								'type'        => 'string',
 								'description' => __( 'Optional root block ref from a prior get-blocks/get-selection; omit for the full document.', 'ahentic' ),
 							),
-							'max_blocks' => array(
+							'max_blocks'         => array(
 								'type'        => 'integer',
 								'description' => __( 'Max blocks to return (default 80).', 'ahentic' ),
+							),
+							'include_attributes' => array(
+								'type'        => 'boolean',
+								'description' => __( 'Include full attribute values per block (default false). Only set this with a narrow root_ref — on large/third-party blocks (e.g. page builders) it can produce a very large result.', 'ahentic' ),
 							),
 						),
 					),
