@@ -4,7 +4,9 @@
 
 import { useCallback, useState } from '@wordpress/element'
 import { __, sprintf } from '@wordpress/i18n'
-import { Check, ChevronRight, Copy, ExternalLink } from 'lucide-react'
+import {
+	Check, ChevronRight, Copy, ExternalLink,
+} from 'lucide-react'
 
 /**
  * @param {Object} props

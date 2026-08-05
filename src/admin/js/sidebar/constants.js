@@ -36,7 +36,7 @@ export const MAX_FLOAT_HEIGHT = 1200
 
 /**
  * @param {string} value
- * @return {boolean}
+ * @return {boolean} True if the placement floats over the page.
  */
 export function isFloatingPlacement( value ) {
 	return value === PLACEMENTS.FLOATING || value === PLACEMENTS.FLOATING_SMALL
@@ -56,7 +56,7 @@ export function normalizePlacement( value ) {
  *
  * @param {string} placement
  * @param {number} [width]
- * @return {{ left: number, top: number, width: number, height: number }}
+ * @return {{ left: number, top: number, width: number, height: number }} Default rect for the placement.
  */
 export function getDefaultFloatingRect( placement, width = DEFAULT_WIDTH ) {
 	const gap = FLOATING_GAP
@@ -87,7 +87,7 @@ export function getDefaultFloatingRect( placement, width = DEFAULT_WIDTH ) {
  * Keep a floating rect usable inside the viewport.
  *
  * @param {{ left: number, top: number, width: number, height: number }} rect
- * @return {{ left: number, top: number, width: number, height: number }}
+ * @return {{ left: number, top: number, width: number, height: number }} Rect clamped to the viewport.
  */
 export function clampFloatingRect( rect ) {
 	const vw = typeof window !== 'undefined' ? window.innerWidth : 1280

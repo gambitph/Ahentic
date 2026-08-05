@@ -9,7 +9,7 @@ import { isSameOriginUrl } from './links'
  * Repair text corrupted when JSON escapes lost their backslash in post meta.
  *
  * @param {string} text
- * @return {string}
+ * @return {string} Repaired text.
  */
 export function repairCorruptedText( text ) {
 	if ( ! text || typeof text !== 'string' ) {
@@ -42,7 +42,7 @@ export function repairCorruptedText( text ) {
  * Never show AHENTIC_DEBUG blocks in the chat thread (client safety net).
  *
  * @param {string} text
- * @return {string}
+ * @return {string} Text with debug blocks removed.
  */
 export function stripAhenticDebug( text ) {
 	if ( ! text || typeof text !== 'string' ) {
@@ -59,7 +59,7 @@ export function stripAhenticDebug( text ) {
  * Escape HTML special characters.
  *
  * @param {string} text
- * @return {string}
+ * @return {string} HTML-escaped text.
  */
 function escapeHtml( text ) {
 	return text
@@ -73,7 +73,7 @@ function escapeHtml( text ) {
  * Allow only safe URL schemes for rendered links.
  *
  * @param {string} raw Escaped or plain URL candidate.
- * @return {string|null}
+ * @return {string|null} Safe URL, or null if the scheme is disallowed.
  */
 function sanitizeHref( raw ) {
 	const url = String( raw || '' ).trim()
@@ -94,7 +94,7 @@ function sanitizeHref( raw ) {
  * window, everything else opens in a new tab.
  *
  * @param {string} href
- * @return {string}
+ * @return {string} HTML attributes for the link's target/rel.
  */
 function linkTargetAttrs( href ) {
 	return isSameOriginUrl( href )
@@ -106,7 +106,7 @@ function linkTargetAttrs( href ) {
  * Apply **bold** / *italic* to already-escaped inline text.
  *
  * @param {string} html
- * @return {string}
+ * @return {string} HTML with bold/italic emphasis applied.
  */
 function applyEmphasis( html ) {
 	let out = html
@@ -172,7 +172,7 @@ function formatInline( text ) {
  * Render a list item, including optional nested bullet children.
  *
  * @param {{ text: string, children: string[] }} item
- * @return {string}
+ * @return {string} Rendered `<li>` HTML.
  */
 function renderListItem( item ) {
 	let html = formatInline( item.text )
@@ -186,7 +186,7 @@ function renderListItem( item ) {
  * Convert a markdown-ish assistant reply into simple HTML.
  *
  * @param {string} raw
- * @return {string}
+ * @return {string} Rendered HTML.
  */
 export function markdownToHtml( raw ) {
 	const text = stripAhenticDebug( repairCorruptedText( raw ) ).replace( /\r\n/g, '\n' ).trim()
@@ -279,7 +279,7 @@ export function markdownToHtml( raw ) {
  * @param {Object} props
  * @param {string} props.content
  * @param {string} props.role
- * @return {import('@wordpress/element').WPElement}
+ * @return {import('@wordpress/element').WPElement} Rendered message content.
  */
 export function MessageBody( { content, role } ) {
 	const cleaned = role === 'assistant'

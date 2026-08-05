@@ -18,9 +18,9 @@ import { MODES } from './constants'
  * @param {Function} props.onSubmit
  * @param {boolean}  props.focusSignal
  * @param {string}   props.shortcutLabel
- * @param {boolean}  [props.disabled]       Blocked (no AI / connector) — whole composer inert.
- * @param {boolean}  [props.inputDisabled]  Textarea/mode locked while a run is active.
- * @param {boolean}  [props.canStop]        Show stop control for the active run.
+ * @param {boolean}  [props.disabled]      Blocked (no AI / connector) — whole composer inert.
+ * @param {boolean}  [props.inputDisabled] Textarea/mode locked while a run is active.
+ * @param {boolean}  [props.canStop]       Show stop control for the active run.
  * @param {Function} [props.onStop]
  * @param {boolean}  [props.stopping]
  * @param {string}   [props.disabledHint]

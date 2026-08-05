@@ -7,10 +7,14 @@
  * opens it, while a bug report still gets the complete log.
  */
 
-import { useCallback, useEffect, useRef, useState } from '@wordpress/element'
+import {
+	useCallback, useEffect, useRef, useState,
+} from '@wordpress/element'
 import { __, sprintf } from '@wordpress/i18n'
 import classnames from 'classnames'
-import { Check, ChevronDown, ChevronRight, Copy, Download, X } from 'lucide-react'
+import {
+	Check, ChevronDown, ChevronRight, Copy, Download, X,
+} from 'lucide-react'
 import { getDiagnostics } from './api'
 
 /** Refresh cadence for the full log while a run is active. */
@@ -19,10 +23,10 @@ const REFRESH_MS = 1500
 /**
  * Build a paste-friendly debug log from the diagnostics bundle.
  *
- * @param {Object} bundle     Diagnostics response.
- * @param {Array}  fallback   Trace to use when diagnostics have not loaded.
+ * @param {Object} bundle       Diagnostics response.
+ * @param {Array}  fallback     Trace to use when diagnostics have not loaded.
  * @param {string} sessionTitle
- * @return {string}
+ * @return {string} Pretty-printed JSON log.
  */
 function formatLogForExport( bundle, fallback, sessionTitle ) {
 	if ( bundle && Array.isArray( bundle.trace ) ) {
@@ -45,7 +49,7 @@ function formatLogForExport( bundle, fallback, sessionTitle ) {
  * One-line host summary so a maintainer can triage before reading events.
  *
  * @param {Object} bundle Diagnostics response.
- * @return {string}
+ * @return {string} One-line environment summary.
  */
 function describeEnvironment( bundle ) {
 	const env = bundle?.environment
@@ -64,9 +68,9 @@ function describeEnvironment( bundle ) {
 
 /**
  * @param {Object}        props
- * @param {Array}         props.trace       Recent envelopes from the session poll.
+ * @param {Array}         props.trace        Recent envelopes from the session poll.
  * @param {number|string} props.sessionId
- * @param {boolean}       props.isBusy      Whether the run is still active.
+ * @param {boolean}       props.isBusy       Whether the run is still active.
  * @param {Function}      props.onClose
  * @param {string}        props.sessionTitle
  */

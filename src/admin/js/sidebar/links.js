@@ -12,7 +12,7 @@
  * Relative URLs (e.g. `/wp-admin/...`) are treated as same-origin.
  *
  * @param {string} url
- * @return {boolean}
+ * @return {boolean} True if the URL points at the current site's origin.
  */
 export function isSameOriginUrl( url ) {
 	const value = String( url || '' ).trim()

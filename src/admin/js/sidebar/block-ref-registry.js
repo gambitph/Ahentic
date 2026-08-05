@@ -25,7 +25,7 @@ export function resetBlockRefs() {
 
 /**
  * @param {string} clientId
- * @return {string|null}
+ * @return {string|null} Existing or newly assigned ref.
  */
 export function refForClientId( clientId ) {
 	if ( ! clientId ) {
@@ -44,7 +44,7 @@ export function refForClientId( clientId ) {
 
 /**
  * @param {string} ref
- * @return {string|null}
+ * @return {string|null} The clientId for the ref, or null if unknown.
  */
 export function clientIdForRef( ref ) {
 	if ( ! ref ) {
@@ -57,7 +57,7 @@ export function clientIdForRef( ref ) {
  * Collect clientIds depth-first from live block objects.
  *
  * @param {Object[]} blocks
- * @return {string[]}
+ * @return {string[]} Flattened clientIds in depth-first order.
  */
 export function collectLiveClientIds( blocks ) {
 	const ids = []
@@ -78,8 +78,8 @@ export function collectLiveClientIds( blocks ) {
 /**
  * Drop refs whose clientIds are no longer in the editor; ensure live ones are mapped.
  *
- * @param {Object[]} blocks Root (or subtree) blocks from the block editor.
- * @param {number}    [postId] Open document id for session binding.
+ * @param {Object[]} blocks   Root (or subtree) blocks from the block editor.
+ * @param {number}   [postId] Open document id for session binding.
  */
 export function syncFromBlocks( blocks, postId = boundPostId ) {
 	if ( postId && boundPostId && postId !== boundPostId ) {
@@ -104,7 +104,7 @@ export function syncFromBlocks( blocks, postId = boundPostId ) {
 /**
  * Snapshot for session PATCH (editor.refs).
  *
- * @return {{ postId: number, nextIndex: number, map: Object<string, string> }}
+ * @return {{ postId: number, nextIndex: number, map: Object<string, string> }} Snapshot of the ref registry.
  */
 export function exportEditorRefs() {
 	/** @type {Object<string, string>} */
@@ -164,7 +164,7 @@ export function wipeEditorRefs() {
 
 /**
  * @param {string|string[]|undefined|null} value
- * @return {string[]}
+ * @return {string[]} Normalized, trimmed, non-empty tokens.
  */
 function asTokenList( value ) {
 	if ( Array.isArray( value ) ) {
@@ -179,9 +179,9 @@ function asTokenList( value ) {
 /**
  * Resolve agent tokens (refs, or legacy raw clientIds) to live clientIds.
  *
- * @param {string|string[]|undefined|null} value
+ * @param {string|string[]|undefined|null}        value
  * @param {(id: string) => Object|null|undefined} [getBlock] Optional live lookup.
- * @return {{ clientIds: string[], missing: string[] }}
+ * @return {{ clientIds: string[], missing: string[] }} Resolved live clientIds and unresolved tokens.
  */
 export function resolveToClientIds( value, getBlock ) {
 	const tokens = asTokenList( value )
@@ -212,7 +212,7 @@ export function resolveToClientIds( value, getBlock ) {
  * Map clientIds back to refs for ability result payloads.
  *
  * @param {string[]} clientIds
- * @return {string[]}
+ * @return {string[]} Refs for the given clientIds.
  */
 export function refsForClientIds( clientIds ) {
 	return ( clientIds || [] )

@@ -2,6 +2,8 @@
  * Client-side handlers for browser-runtime abilities.
  */
 
+/* eslint-disable camelcase -- Ability I/O matches PHP schema snake_case. */
+
 import { collectPageContext } from './page-context'
 import { collectVisiblePage } from './visible-page'
 import {
@@ -33,7 +35,7 @@ const EXCERPT_MAX = 4000
  * Run a pending browser ability and return a result payload.
  *
  * @param {{ name?: string, input?: Object }} pending
- * @return {Promise<{ result?: Object, error?: string }>}
+ * @return {Promise<{ result?: Object, error?: string }>} Ability result or error.
  */
 export async function runBrowserAbility( pending ) {
 	const name = pending?.name || ''
@@ -99,7 +101,7 @@ export async function runBrowserAbility( pending ) {
  * Credentialed same-site fetch for http-fetch + as_user.
  *
  * @param {{ url?: string, as_user?: boolean }} input
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Fetch result payload.
  */
 async function fetchPageAsUser( input ) {
 	const url = typeof input.url === 'string' ? input.url.trim() : ''
@@ -224,7 +226,7 @@ async function fetchPageAsUser( input ) {
 
 /**
  * @param {URL} parsed
- * @return {boolean}
+ * @return {boolean} True if the URL's hostname matches this site.
  */
 function isSameSiteUrl( parsed ) {
 	const hosts = new Set()
@@ -248,7 +250,7 @@ function isSameSiteUrl( parsed ) {
 
 /**
  * @param {string} html
- * @return {string}
+ * @return {string} Plain-text excerpt, truncated to EXCERPT_MAX.
  */
 function htmlToExcerpt( html ) {
 	let text = String( html || '' )

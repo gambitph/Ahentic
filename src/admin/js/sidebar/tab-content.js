@@ -88,12 +88,12 @@ async function installAiPlugin() {
  * @param {string}      props.progressLabel
  * @param {Object|null} props.pendingTool
  * @param {Object|null} props.plan
- * @param {string}      [props.thoughtProcess] Ephemeral faded thought while busy.
+ * @param {string}      [props.thoughtProcess]    Ephemeral faded thought while busy.
  * @param {string}      props.sessionStatus
  * @param {string}      [props.approvingDecision] HITL decision in flight (hides card, shows live status).
  * @param {Function}    props.onApproval
  * @param {Function}    props.onSuggestedAction
- * @param {string}      [props.liveness] '' | 'stuck'
+ * @param {string}      [props.liveness]          '' | 'stuck'
  * @param {Function}    [props.onContinue]
  * @param {Function}    [props.onCancelRun]
  */

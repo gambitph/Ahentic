@@ -3,7 +3,9 @@
  */
 
 import { __ } from '@wordpress/i18n'
-import { Check, Circle, LoaderCircle, Minus } from 'lucide-react'
+import {
+	Check, Circle, LoaderCircle, Minus,
+} from 'lucide-react'
 
 /**
  * @param {Object} props

@@ -7,8 +7,8 @@ import { __ } from '@wordpress/i18n'
 
 /**
  * @param {Object}   props
- * @param {Object}   props.pendingTool Pending tool from session REST.
- * @param {Function} props.onDecide    (decision: string) => Promise|void
+ * @param {Object}   props.pendingTool  Pending tool from session REST.
+ * @param {Function} props.onDecide     (decision: string) => Promise|void
  * @param {string}   [props.submitting] Decision currently in flight (parent-owned).
  * @param {boolean}  [props.disabled]
  */

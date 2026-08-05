@@ -3,7 +3,7 @@
  */
 
 /**
- * @return {{ restUrl: string, restNonce: string }}
+ * @return {{ restUrl: string, restNonce: string }} REST url + nonce from the localized config.
  */
 function getRestConfig() {
 	return {
@@ -13,9 +13,9 @@ function getRestConfig() {
 }
 
 /**
- * @param {string} path Relative path under ahentic/v1.
+ * @param {string} path      Relative path under ahentic/v1.
  * @param {Object} [options] fetch options.
- * @return {Promise<any>}
+ * @return {Promise<any>} Parsed JSON response payload.
  */
 export async function apiRequest( path, options = {} ) {
 	const { restUrl, restNonce } = getRestConfig()
@@ -51,7 +51,7 @@ export async function apiRequest( path, options = {} ) {
 
 /**
  * @param {Object} [body]
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Created session record.
  */
 export function createSession( body = {} ) {
 	return apiRequest( '/sessions', {
@@ -62,7 +62,7 @@ export function createSession( body = {} ) {
 
 /**
  * @param {number|string} id
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Session record.
  */
 export function getSession( id ) {
 	return apiRequest( `/sessions/${ id }` )
@@ -73,16 +73,16 @@ export function getSession( id ) {
  * payload, so it is only fetched when the debugger is open or a log is exported.
  *
  * @param {number|string} id
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Diagnostics payload (trace + host details).
  */
 export function getDiagnostics( id ) {
 	return apiRequest( `/sessions/${ id }/diagnostics` )
 }
 
 /**
- * @param {number|string} id
+ * @param {number|string}                                           id
  * @param {{ title?: string, mode?: string, pageContext?: Object }} body
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Updated session record.
  */
 export function patchSession( id, body ) {
 	return apiRequest( `/sessions/${ id }`, {
@@ -92,9 +92,9 @@ export function patchSession( id, body ) {
 }
 
 /**
- * @param {number|string} id
+ * @param {number|string}                                            id
  * @param {{ content: string, mode?: string, pageContext?: Object }} body
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Updated session record with the new message.
  */
 export function postMessage( id, body ) {
 	return apiRequest( `/sessions/${ id }/messages`, {
@@ -106,9 +106,9 @@ export function postMessage( id, body ) {
 /**
  * Post a browser ability result for a session awaiting_browser.
  *
- * @param {number|string} id
+ * @param {number|string}                                         id
  * @param {{ call_id?: string, result?: Object, error?: string }} body
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Updated session record.
  */
 export function postBrowserResult( id, body ) {
 	return apiRequest( `/sessions/${ id }/browser-results`, {
@@ -119,7 +119,7 @@ export function postBrowserResult( id, body ) {
 
 /**
  * @param {number|string} id
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Updated session record.
  */
 export function cancelSession( id ) {
 	return apiRequest( `/sessions/${ id }/cancel`, {
@@ -132,7 +132,7 @@ export function cancelSession( id ) {
  * Kick a stalled run (Local / no cron fallback).
  *
  * @param {number|string} id
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Updated session record.
  */
 export function continueSession( id ) {
 	return apiRequest( `/sessions/${ id }/continue`, {
@@ -144,9 +144,9 @@ export function continueSession( id ) {
 /**
  * Post a HITL approval decision.
  *
- * @param {number|string} id
+ * @param {number|string}        id
  * @param {{ decision: string }} body
- * @return {Promise<Object>}
+ * @return {Promise<Object>} Updated session record.
  */
 export function postApproval( id, body ) {
 	return apiRequest( `/sessions/${ id }/approvals`, {
@@ -159,8 +159,8 @@ export function postApproval( id, body ) {
  * Start a suggested ability action (may pause for HITL).
  *
  * @param {number|string} id
- * @param {Object} body Action payload.
- * @return {Promise<Object>}
+ * @param {Object}        body Action payload.
+ * @return {Promise<Object>} Updated session record.
  */
 export function postSuggestedAction( id, body ) {
 	return apiRequest( `/sessions/${ id }/actions`, {
@@ -173,7 +173,7 @@ export function postSuggestedAction( id, body ) {
  * Map server entries to sidebar message objects.
  *
  * @param {Array} entries
- * @return {Array}
+ * @return {Array} Sidebar message objects.
  */
 export function mapEntriesToMessages( entries ) {
 	if ( ! Array.isArray( entries ) ) {
@@ -203,7 +203,7 @@ export function mapEntriesToMessages( entries ) {
  * Whether a tab id looks like a server session id.
  *
  * @param {string|number} id
- * @return {boolean}
+ * @return {boolean} True if the id is a server session id.
  */
 export function isSessionId( id ) {
 	return /^\d+$/.test( String( id ) )

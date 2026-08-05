@@ -156,9 +156,9 @@ export default function TabBar( {
 							</button>
 							<button
 								type="button"
-								role="menuitem"
+								role="menuitemcheckbox"
 								className="ahentic-menu__item"
-								aria-pressed={ debugOpen }
+								aria-checked={ debugOpen }
 								onClick={ () => {
 									setMenuOpen( false )
 									onToggleDebug?.()

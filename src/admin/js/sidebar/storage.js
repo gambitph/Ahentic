@@ -22,10 +22,10 @@ import {
 
 /**
  * @typedef {Object} FloatingRect
- * @property {number} left
- * @property {number} top
- * @property {number} width
- * @property {number} height
+ * @property {number} left   Distance from the viewport's left edge, in pixels.
+ * @property {number} top    Distance from the viewport's top edge, in pixels.
+ * @property {number} width  Width in pixels.
+ * @property {number} height Height in pixels.
  */
 
 /**
@@ -44,7 +44,7 @@ import {
  * @param {unknown} value
  * @param {string}  placement
  * @param {number}  width
- * @return {FloatingRect|null}
+ * @return {FloatingRect|null} Normalized floating rect, or null when not floating.
  */
 function normalizeFloatRect( value, placement, width ) {
 	if ( ! isFloatingPlacement( placement ) ) {

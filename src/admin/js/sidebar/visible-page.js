@@ -2,6 +2,8 @@
  * Collect a capped snapshot of what’s visible on the open page.
  */
 
+/* eslint-disable camelcase -- Ability output matches PHP schema snake_case. */
+
 import { collectPageContext } from './page-context'
 
 const HEADINGS_MAX = 20
@@ -14,7 +16,7 @@ const NOTICE_TEXT_MAX = 400
 const ACTION_LABEL_MAX = 80
 
 /**
- * @return {Object}
+ * @return {Object} Visible-page snapshot (headings, notices, actions, fields, excerpt).
  */
 export function collectVisiblePage() {
 	const page = collectPageContext()
@@ -67,7 +69,7 @@ export function collectVisiblePage() {
 }
 
 /**
- * @return {Element|null}
+ * @return {Element|null} Main content root, or null if none found.
  */
 function resolveContentRoot() {
 	if ( typeof document === 'undefined' ) {
@@ -92,7 +94,7 @@ function resolveContentRoot() {
 
 /**
  * @param {Element} el
- * @return {boolean}
+ * @return {boolean} True if the element is inside the Ahentic UI.
  */
 function isInsideAhentic( el ) {
 	return Boolean(
@@ -102,7 +104,7 @@ function isInsideAhentic( el ) {
 
 /**
  * @param {Element} el
- * @return {boolean}
+ * @return {boolean} True if the element is visible and not Ahentic chrome.
  */
 function isVisible( el ) {
 	if ( ! el || el.nodeType !== 1 ) {
@@ -127,7 +129,7 @@ function isVisible( el ) {
 /**
  * @param {string} text
  * @param {number} max
- * @return {string}
+ * @return {string} Whitespace-collapsed text, truncated to max with an ellipsis.
  */
 function clip( text, max ) {
 	const value = String( text || '' ).replace( /\s+/g, ' ' ).trim()
@@ -139,7 +141,7 @@ function clip( text, max ) {
 
 /**
  * @param {Element} root
- * @return {Array<{ level: number, text: string }>}
+ * @return {Array<{ level: number, text: string }>} Visible headings, capped at HEADINGS_MAX.
  */
 function collectHeadings( root ) {
 	const out = []
@@ -163,7 +165,7 @@ function collectHeadings( root ) {
 
 /**
  * @param {Element} root
- * @return {Array<{ type: string, text: string }>}
+ * @return {Array<{ type: string, text: string }>} Visible notices, capped at NOTICES_MAX.
  */
 function collectNotices( root ) {
 	const out = []
@@ -208,7 +210,7 @@ function collectNotices( root ) {
 
 /**
  * @param {Element} root
- * @return {Array<{ text: string, tag: string, type: string, name: string, href: string }>}
+ * @return {Array<{ text: string, tag: string, type: string, name: string, href: string }>} Visible actions, capped at ACTIONS_MAX.
  */
 function collectActions( root ) {
 	const out = []
@@ -256,7 +258,7 @@ function collectActions( root ) {
 
 /**
  * @param {Element} root
- * @return {Array<Object>}
+ * @return {Array<Object>} Visible form fields, capped at FIELDS_MAX.
  */
 function collectFields( root ) {
 	const out = []
@@ -304,8 +306,8 @@ function collectFields( root ) {
 
 /**
  * @param {Element} node
- * @param {string} id
- * @return {string}
+ * @param {string}  id
+ * @return {string} Best-effort label for the field.
  */
 function resolveFieldLabel( node, id ) {
 	const aria = node.getAttribute( 'aria-label' )
@@ -334,7 +336,7 @@ function resolveFieldLabel( node, id ) {
 
 /**
  * @param {Element} root
- * @return {{ excerpt: string, truncated: boolean }}
+ * @return {{ excerpt: string, truncated: boolean }} Plain-text excerpt and whether it was truncated.
  */
 function collectExcerpt( root ) {
 	const clone = root.cloneNode( true )

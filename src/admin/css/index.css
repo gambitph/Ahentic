@@ -1060,16 +1060,16 @@ a.ahentic-empty__ai-install {
 	box-sizing: border-box;
 }
 
+.ahentic button.ahentic-empty__ai-install:disabled {
+	opacity: 0.75;
+	cursor: wait;
+}
+
 .ahentic button.ahentic-empty__ai-install:hover:not(:disabled),
 a.ahentic-empty__ai-install:hover {
 	background: var(--ah-primary-hover);
 	padding: 10px 12px;
 	color: #fff;
-}
-
-.ahentic button.ahentic-empty__ai-install:disabled {
-	opacity: 0.75;
-	cursor: wait;
 }
 
 .ahentic-empty__ai-error {
@@ -1084,6 +1084,7 @@ a.ahentic-empty__ai-install:hover {
 }
 
 @keyframes ahentic-spin {
+
 	to {
 		transform: rotate(360deg);
 	}
@@ -1274,6 +1275,7 @@ a.ahentic-empty__ai-install:hover {
 	background: color-mix(in srgb, var(--ah-bg) 80%, transparent);
 }
 
+/* stylelint-disable-next-line no-descending-specificity -- unrelated component, no real cascade conflict with .ahentic-message__rich p:last-child. */
 .ahentic-cap-request__tweet p {
 	margin: 0;
 	font-size: 12.5px;
@@ -1448,6 +1450,7 @@ a.ahentic-empty__ai-install:hover {
 }
 
 @keyframes ahentic-plan-in {
+
 	from {
 		opacity: 0;
 		transform: translateY(6px);
@@ -1460,6 +1463,7 @@ a.ahentic-empty__ai-install:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
 	.ahentic-plan {
 		animation: none;
 	}
@@ -1698,6 +1702,7 @@ a.ahentic-empty__ai-install:hover {
 }
 
 @keyframes ahentic-live-pulse {
+
 	0%,
 	100% {
 		opacity: 0.42;
@@ -1709,6 +1714,7 @@ a.ahentic-empty__ai-install:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
 	.ahentic-live-status__text {
 		animation: none;
 		opacity: 0.85;
@@ -1746,6 +1752,7 @@ a.ahentic-empty__ai-install:hover {
 	outline: none;
 	box-shadow: none;
 	background: transparent;
+
 	/* Beat WP admin / theme textarea color rules. */
 	color: var(--ah-fg) !important;
 	-webkit-text-fill-color: var(--ah-fg);
@@ -1761,6 +1768,7 @@ a.ahentic-empty__ai-install:hover {
 
 .ahentic-composer__input:disabled,
 .ahentic-composer__input[disabled] {
+
 	/* Beat WP admin / UA disabled textarea greys. */
 	background: transparent !important;
 	background-color: transparent !important;
@@ -1771,17 +1779,17 @@ a.ahentic-empty__ai-install:hover {
 	box-shadow: none !important;
 }
 
+.ahentic-composer__input::placeholder {
+	color: var(--ah-muted) !important;
+	-webkit-text-fill-color: var(--ah-muted);
+	opacity: 0.85;
+}
+
 .ahentic-composer__input:disabled::placeholder,
 .ahentic-composer__input[disabled]::placeholder {
 	color: var(--ah-muted) !important;
 	-webkit-text-fill-color: var(--ah-muted);
 	opacity: 0.75;
-}
-
-.ahentic-composer__input::placeholder {
-	color: var(--ah-muted) !important;
-	-webkit-text-fill-color: var(--ah-muted);
-	opacity: 0.85;
 }
 
 .ahentic-composer__footer {
@@ -1814,11 +1822,6 @@ a.ahentic-empty__ai-install:hover {
 	transition: background 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
-.ahentic-composer__stop:hover:not(:disabled) {
-	background: var(--ah-primary);
-	color: #fff;
-}
-
 .ahentic-composer__stop:focus-visible {
 	outline: 2px solid var(--ah-primary);
 	outline-offset: 2px;
@@ -1827,6 +1830,11 @@ a.ahentic-empty__ai-install:hover {
 .ahentic-composer__stop:disabled {
 	opacity: 0.55;
 	cursor: wait;
+}
+
+.ahentic-composer__stop:hover:not(:disabled) {
+	background: var(--ah-primary);
+	color: #fff;
 }
 
 .ahentic-mode {

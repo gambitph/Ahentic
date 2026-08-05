@@ -293,7 +293,7 @@ function serializeBlockTree( block, budget ) {
 	}
 	// Plain-text preview so the agent can match user phrases (e.g. "Get in touch").
 	for ( const key of CONTENT_ATTR_KEYS ) {
-		if ( !( key in rawAttrs ) ) {
+		if ( ! ( key in rawAttrs ) ) {
 			continue
 		}
 		const html = isRichTextValue( rawAttrs[ key ] )
@@ -1047,7 +1047,9 @@ export function focusBlock( input = {} ) {
 	if ( ! clientIds.length ) {
 		return missing.length
 			? missingRefsError( missing )
-			: { ok: false, error: 'missing_ref', message: 'ref is required (from get-blocks / get-selection).' }
+			: {
+				ok: false, error: 'missing_ref', message: 'ref is required (from get-blocks / get-selection).',
+			}
 	}
 	const clientId = clientIds[ 0 ]
 	const block = ctx.select( 'core/block-editor' ).getBlock?.( clientId )
@@ -1078,7 +1080,9 @@ export function updateBlockAttributes( input = {} ) {
 	if ( ! clientIds.length ) {
 		return missingTokens.length
 			? missingRefsError( missingTokens )
-			: { ok: false, error: 'missing_ref', message: 'ref (or refs) is required.' }
+			: {
+				ok: false, error: 'missing_ref', message: 'ref (or refs) is required.',
+			}
 	}
 	if ( ! attributes || typeof attributes !== 'object' || Array.isArray( attributes ) ) {
 		return {
@@ -1137,7 +1141,9 @@ export function replaceBlocks( input = {} ) {
 	if ( ! clientIds.length ) {
 		return missing.length
 			? missingRefsError( missing )
-			: { ok: false, error: 'missing_refs', message: 'Provide refs (from get-blocks) or select blocks.' }
+			: {
+				ok: false, error: 'missing_refs', message: 'Provide refs (from get-blocks) or select blocks.',
+			}
 	}
 	if ( missing.length ) {
 		return missingRefsError( missing )
@@ -1347,7 +1353,9 @@ export function duplicateBlocks( input = {} ) {
 	if ( ! clientIds.length ) {
 		return missing.length
 			? missingRefsError( missing )
-			: { ok: false, error: 'missing_refs', message: 'Provide refs or select blocks.' }
+			: {
+				ok: false, error: 'missing_refs', message: 'Provide refs or select blocks.',
+			}
 	}
 	if ( missing.length ) {
 		return missingRefsError( missing )
@@ -1368,7 +1376,9 @@ export function moveBlocks( input = {} ) {
 	if ( ! clientIds.length ) {
 		return missing.length
 			? missingRefsError( missing )
-			: { ok: false, error: 'missing_refs', message: 'refs is required.' }
+			: {
+				ok: false, error: 'missing_refs', message: 'refs is required.',
+			}
 	}
 	if ( missing.length ) {
 		return missingRefsError( missing )

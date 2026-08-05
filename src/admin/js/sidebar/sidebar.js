@@ -115,7 +115,7 @@ function progressLabelForAbility( ability ) {
  * Age of a heartbeat ISO timestamp in ms, or null when unknown.
  *
  * @param {string} heartbeatAt ISO timestamp.
- * @return {number|null}
+ * @return {number|null} Age in milliseconds, or null when unknown.
  */
 function heartbeatAgeMs( heartbeatAt ) {
 	if ( ! heartbeatAt || typeof heartbeatAt !== 'string' ) {
@@ -131,10 +131,10 @@ function heartbeatAgeMs( heartbeatAt ) {
 /**
  * Live status text: prefer a real step label (tool / intention), matching the debugger.
  *
- * @param {string}      progressLabel Server progress.label.
- * @param {Array}       trace         Session trace events.
- * @param {boolean}     isBusy        Whether the session is actively working.
- * @param {Object|null} pendingTool   HITL pending tool, if any.
+ * @param {string}      progressLabel   Server progress.label.
+ * @param {Array}       trace           Session trace events.
+ * @param {boolean}     isBusy          Whether the session is actively working.
+ * @param {Object|null} pendingTool     HITL pending tool, if any.
  * @param {string}      [sessionStatus] Session status.
  * @return {string} Label for the live-status row.
  */
@@ -492,8 +492,8 @@ function pendingLocalsConfirmedOnServer( serverMessages, pendingById ) {
  * @param {Function} [setProgressByTab]    Progress state setter.
  * @param {Function} [setPendingToolByTab] Pending tool state setter.
  * @param {Function} [setPlanByTab]        Plan state setter.
- * @param {Function} [setThoughtByTab]     Ephemeral thought setter.
  * @param {Object}   [pendingLocalByTab]   In-flight optimistic user messages keyed by session id.
+ * @param {Function} [setThoughtByTab]     Ephemeral thought setter.
  */
 function applySessionPayload( session, setTabs, setMessagesByTab, setStatusByTab, setTraceByTab, setProgressByTab, setPendingToolByTab, setPlanByTab, pendingLocalByTab, setThoughtByTab ) {
 	if ( ! session?.id ) {
@@ -1308,7 +1308,10 @@ export default function Sidebar() {
 			applySession( session )
 		}
 
-		/** Quiet queue recovery when heartbeat is stale — not progress-label based. */
+		/**
+		 * Quiet queue recovery when heartbeat is stale — not progress-label based.
+		 * @param {Object} session Session REST payload.
+		 */
 		const needsHeartbeatNudge = session => {
 			if ( session?.status !== 'running' ) {
 				return false
@@ -1320,7 +1323,10 @@ export default function Sidebar() {
 			return age >= HEARTBEAT_STALL_MS
 		}
 
-		/** Timed browser recovery (server falls back or errors clearly). */
+		/**
+		 * Timed browser recovery (server falls back or errors clearly).
+		 * @param {Object} session Session REST payload.
+		 */
 		const needsBrowserNudge = session => {
 			if ( session?.status !== 'awaiting_browser' ) {
 				return false
