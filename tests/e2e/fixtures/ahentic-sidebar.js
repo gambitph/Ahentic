@@ -95,10 +95,22 @@ class AhenticSidebar {
 		// (`hydratedRef` guard). Race the wait against navigation itself rather
 		// than starting it after `goto()` settles, or the request can fire (and
 		// this promise miss it) before we start listening.
-		const hydrated = this.page.waitForResponse(
-			response => response.request().method() === 'GET' &&
-				new URL( response.url() ).pathname.endsWith( `/sessions/${ session.id }` )
-		)
+		//
+		// Match the route in pathname (/wp-json/…) *or* in ?rest_route=… —
+		// Playground defaults to plain permalinks, so rest_url() is often
+		// index.php?rest_route=/ahentic/v1/sessions/{id} (pathname is /index.php).
+		const sessionPath = `/sessions/${ session.id }`
+		const hydrated = this.page.waitForResponse( response => {
+			if ( response.request().method() !== 'GET' ) {
+				return false
+			}
+			const url = new URL( response.url() )
+			if ( url.pathname.includes( sessionPath ) ) {
+				return true
+			}
+			const restRoute = url.searchParams.get( 'rest_route' ) || ''
+			return restRoute.includes( sessionPath )
+		} )
 
 		await this.page.goto( path )
 		await Promise.all( [ hydrated, this.sidebar.waitFor( { state: 'visible' } ) ] )
