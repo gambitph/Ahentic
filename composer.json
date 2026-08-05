@@ -10,14 +10,16 @@
 		"dealerdirect/phpcodesniffer-composer-installer": "^1.0",
 		"wp-coding-standards/wpcs": "^3.0",
 		"phpcompatibility/phpcompatibility-wp": "^2.1",
-		"phpunit/phpunit": "^9.6"
+		"phpunit/phpunit": "^9.6",
+		"brain/monkey": "^2.6"
 	},
 	"scripts": {
 		"lint:php": [
 			"phpcs --standard=phpcs.xml.dist -s"
 		],
 		"test": [
-			"phpunit"
+			"phpunit --configuration=phpunit.xml.dist",
+			"phpunit --configuration=phpunit-wp-mocked.xml.dist"
 		]
 	},
 	"config": {

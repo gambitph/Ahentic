@@ -54,6 +54,26 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			$options    = is_array( $options ) ? $options : array();
 			$session_id = isset( $options['session_id'] ) ? (int) $options['session_id'] : 0;
 
+			/**
+			 * Short-circuit a chat completion (e2e testing only).
+			 *
+			 * Nothing in production hooks this — only the e2e-only mu-plugin
+			 * (tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php, never shipped
+			 * with the plugin) does, so it's a no-op outside the Playwright suite.
+			 * Returning a non-null, complete_chat()-shaped array here skips the
+			 * real AI provider entirely and returns it as-is.
+			 *
+			 * @param array|null $override Non-null to short-circuit; null (default) proceeds to a real provider.
+			 * @param string     $system   System instruction.
+			 * @param array      $history  Prior turns.
+			 * @param string     $user     Latest user message.
+			 * @param array      $options  Options passed to complete_chat().
+			 */
+			$override = apply_filters( 'pre_ahentic_ai_complete_chat', null, $system, $history, $user, $options );
+			if ( null !== $override ) {
+				return $override;
+			}
+
 			self::begin_llm_heartbeat( $session_id );
 			try {
 				// Always prefer Core helpers when present — never mix with a Composer SDK copy.

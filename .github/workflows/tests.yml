@@ -35,7 +35,7 @@ jobs:
         run: composer test
 
   e2e:
-    name: Playwright e2e (wp-env)
+    name: Playwright e2e (Playground CLI)
     runs-on: ubuntu-latest
 
     steps:
@@ -48,26 +48,15 @@ jobs:
           node-version-file: '.nvmrc'
           cache: npm
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          coverage: none
-          tools: composer
-
-      - name: Install Composer dependencies
-        uses: ramsey/composer-install@v3
-
       - name: Install Node dependencies
         run: npm ci --legacy-peer-deps
 
-      # No browser-driven specs exist yet (all current specs are REST-only via
-      # the `request` fixture, see tests/e2e/README.md) — add a
-      # `npx playwright install --with-deps chromium` step here once one lands.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
 
-      - name: Start wp-env
-        run: npx wp-env start --config=.wp-env.tests.json
-
+      # No Docker / wp-env involved: playwright.config.js's `webServer` spawns
+      # `@wp-playground/cli` (WASM PHP + SQLite) itself and tears it down after
+      # the run — see tests/e2e/README.md.
       - name: Run Playwright e2e suite
         run: npx playwright test
 

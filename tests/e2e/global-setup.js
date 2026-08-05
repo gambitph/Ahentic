@@ -1,57 +1,31 @@
 /**
- * Playwright global setup: mints a fresh application password for the
- * wp-env e2e instance's default admin user, so specs can authenticate
- * against the REST API without a browser-driven login flow.
+ * Playwright global setup: logs in as the WordPress admin user created by
+ * `tests/e2e/playground-blueprint.json` (admin / password) and persists the
+ * resulting cookies + REST nonce to `STORAGE_STATE_PATH` (see
+ * playwright.config.js), so:
  *
- * Runs against the `cli` container of the **separate** environment defined
- * by `.wp-env.tests.json` (via wp-env's `--config` flag) — not the
- * `.wp-env.json` "development" instance a contributor might have open
- * locally. `@wordpress/env`'s single-config `testsEnvironment` sub-instance
- * feature is deprecated; `--config` with its own file is the current
- * recommended way to run an isolated environment (see the `@wordpress/env`
- * README's "Running parallel environments" section).
+ * - Every browser context launched by a spec starts already logged in
+ *   (`use.storageState` in playwright.config.js points at the same file).
+ * - The worker-scoped `requestUtils` fixture (from
+ *   `@wordpress/e2e-test-utils-playwright`) can make authenticated REST calls
+ *   without each spec driving its own login.
+ *
+ * This is the same `RequestUtils.setupRest()` pattern used by Gutenberg's own
+ * e2e suite (and Cimo/Interactions) rather than a bespoke Application
+ * Password / Basic-auth flow — one fewer thing to explain, and it composes
+ * with the `admin`/`page`/`editor` fixtures those packages already ship.
  */
-const { execSync } = require( 'child_process' )
-const fs = require( 'fs' )
-const path = require( 'path' )
-
-const AUTH_DIR = path.join( __dirname, '.auth' )
-const AUTH_FILE = path.join( AUTH_DIR, 'admin.json' )
-const WP_ENV_ADMIN_USER = 'admin'
-const WP_ENV_TESTS_CONFIG = '.wp-env.tests.json'
+const { RequestUtils } = require( '@wordpress/e2e-test-utils-playwright' )
 
 module.exports = async function globalSetup() {
-	const appPasswordName = `ahentic-e2e-${ Date.now() }`
+	const requestUtils = await RequestUtils.setup( {
+		user: {
+			username: process.env.WP_USERNAME || 'admin',
+			password: process.env.WP_PASSWORD || 'password',
+		},
+		storageStatePath: process.env.STORAGE_STATE_PATH,
+		baseURL: process.env.WP_BASE_URL,
+	} )
 
-	let output
-	try {
-		output = execSync(
-			`npx wp-env run cli --config=${ WP_ENV_TESTS_CONFIG } wp user application-password create ${ WP_ENV_ADMIN_USER } ${ appPasswordName } --porcelain`,
-			{ encoding: 'utf8' }
-		)
-	} catch ( error ) {
-		throw new Error(
-			'Could not create a WordPress application password for the e2e admin user via ' +
-				`\`wp-env run cli --config=${ WP_ENV_TESTS_CONFIG }\`. ` +
-				`Make sure \`npm run test:e2e\` (or \`wp-env start --config=${ WP_ENV_TESTS_CONFIG }\`) has finished ` +
-				'successfully — Docker daemon running, ports free — before running the e2e suite.\n\n' +
-				String( error )
-		)
-	}
-
-	// `wp-env run` may print its own status lines before the command's actual
-	// (porcelain) output, so take the last non-empty line rather than the
-	// whole stdout blob.
-	const lines = output.split( '\n' ).map( line => line.trim() ).filter( Boolean )
-	const password = lines[ lines.length - 1 ]
-
-	if ( ! password ) {
-		throw new Error( '`wp user application-password create` returned no password.' )
-	}
-
-	fs.mkdirSync( AUTH_DIR, { recursive: true } )
-	fs.writeFileSync(
-		AUTH_FILE,
-		JSON.stringify( { username: WP_ENV_ADMIN_USER, password }, null, '\t' ) + '\n'
-	)
+	await requestUtils.setupRest()
 }

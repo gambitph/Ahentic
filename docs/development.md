@@ -9,7 +9,7 @@ How to run Ahentic locally, connect an AI provider, and debug an agent run.
 ## Prerequisites
 
 - Node.js 18+, npm 9+
-- Docker (if using `@wordpress/env`)
+- Docker (only if using `@wordpress/env` for manual local dev — not needed for tests)
 - A WordPress site with the plugin loaded (wp-env or your own stack)
 - An AI provider configured for the WordPress AI Client / Connectors
 
@@ -50,8 +50,8 @@ Config: [`.wp-env.json`](../.wp-env.json) (PHP 8.2, this plugin mounted).
 - Admin: typically `http://localhost:8888/wp-admin` (see wp-env output)
 - Default credentials: `admin` / `password` (wp-env defaults)
 
-There's a **separate** [`.wp-env.tests.json`](../.wp-env.tests.json) (its own
-containers/DB, port 8889) used only by the Playwright e2e suite — see
+The Playwright e2e suite does **not** use this `wp-env` instance (or Docker at
+all) — it boots its own throwaway WordPress via `@wp-playground/cli`, see
 [Testing](#testing) below. Running the e2e suite never touches this
 `.wp-env.json` instance.
 
@@ -130,13 +130,14 @@ See [rest.md](../src/admin/rest.md).
 ## Testing
 
 ```bash
-composer test      # PHPUnit — pure PHP, no WordPress dependency
-npm run test:e2e   # Playwright against an isolated wp-env instance (Docker required)
+composer test        # PHPUnit — pure PHP + Brain Monkey-mocked, no real WordPress
+npm run test:e2e     # Playwright against @wp-playground/cli (WASM WordPress, no Docker)
+npm run test:debug   # Same, in Playwright UI mode (real Chromium window)
 ```
 
-`test:e2e` needs a Docker CLI + running daemon (Docker Desktop, OrbStack,
-Colima — see `docker version`). Full policy (PHPUnit vs. Playwright
-boundary, spec grouping, troubleshooting) in
+No Docker, Composer, or separate WordPress install needed for `test:e2e` —
+`playwright.config.js` boots and tears down its own throwaway WordPress. Full
+policy (PHPUnit vs. Playwright boundary, spec grouping, troubleshooting) in
 [docs/agents/testing.md](./agents/testing.md) and
 [tests/e2e/README.md](../tests/e2e/README.md).
 

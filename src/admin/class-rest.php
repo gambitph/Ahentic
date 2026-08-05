@@ -262,6 +262,23 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 		 * @return array
 		 */
 		public static function build_status_payload() {
+			/**
+			 * Short-circuit the AI readiness/connector status (e2e testing only).
+			 *
+			 * Nothing in production hooks this — only the e2e-only mu-plugin
+			 * (tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php, never shipped
+			 * with the plugin) does, forcing the sidebar composer "ready" so specs
+			 * can drive real chat turns against a mocked
+			 * `Ahentic_AI::complete_chat()` (see pre_ahentic_ai_complete_chat)
+			 * without installing/configuring a real AI provider.
+			 *
+			 * @param array|null $override Non-null to short-circuit with this exact payload; null (default) computes the real status.
+			 */
+			$override = apply_filters( 'pre_ahentic_ai_status', null );
+			if ( null !== $override ) {
+				return $override;
+			}
+
 			if ( ! function_exists( 'get_plugins' ) || ! function_exists( 'is_plugin_active' ) ) {
 				require_once ABSPATH . 'wp-admin/includes/plugin.php';
 			}

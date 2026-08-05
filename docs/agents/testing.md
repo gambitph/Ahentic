@@ -3,22 +3,32 @@
 How `/tdd` and related engineering skills should exercise Ahentic. This is the
 canonical policy — `tests/e2e/README.md` covers the e2e harness's mechanics.
 
-## Stack — a hard boundary, not a preference
+## Stack — four tiers, two tools
 
-| Layer | Tool | Scope |
-| --- | --- | --- |
-| Pure PHP functions | **PHPUnit** (`tests/unit/`, `composer test`) | Zero WordPress dependency. No `get_option`, `update_post_meta`, `$wpdb`, `current_user_can`, `wp_insert_post`, etc. — input in, output out. |
-| Everything WordPress-dependent | **Playwright** (`tests/e2e/`, `npm run test:e2e`) | Ability execution, HITL, REST, sidebar/editor integration — anything that needs a real WP runtime. |
+| Tier | Tool | Bootstrap | Scope |
+| --- | --- | --- | --- |
+| Pure PHP | **PHPUnit** (`tests/unit/`, `phpunit.xml.dist`) | `tests/bootstrap.php` (stubs `__()` only) | Zero WordPress dependency. No `get_option`, `update_post_meta`, `$wpdb`, `current_user_can`, `wp_insert_post`, etc. — input in, output out. |
+| WordPress-mocked | **PHPUnit + Brain Monkey** (`tests/wp-mocked/`, `phpunit-wp-mocked.xml.dist`) | `tests/wp-mocked/bootstrap.php` | "Medium" units where the *decision logic* matters but a real WP boot would be overkill — e.g. orchestrator dispatch. WordPress functions (`apply_filters`, `get_option`, …) are mocked with Brain Monkey; no real WordPress ever boots. |
+| REST-direct e2e | **Playwright** (`tests/e2e/specs/`, `request`/`requestUtils` fixture) | `@wp-playground/cli` via `playwright.config.js`'s `webServer` | Ability execution, HITL, REST against a real (if WASM) WordPress — no browser, no LLM. The default e2e tier. |
+| Browser-driven e2e | **Playwright** (`ahenticSidebar` fixture, `tests/e2e/fixtures/`) | Same Playground instance + a real Chromium `page` | Sidebar UX that can only be observed live — chat rendering, HITL cards, composer state. Small and deliberately rare — the slower, flakier tier. |
 
-**PHPUnit never gets WordPress integration or e2e tests.** `tests/bootstrap.php`
-only stubs `__()` on purpose — if a test needs more than that, the code under
-test is not a pure unit and belongs in the Playwright suite instead. Do not
-grow the stub file to make WP-dependent code testable in PHPUnit.
+Run all four with `npm test` (`composer test` runs both PHPUnit configs,
+`npm run test:e2e` runs both Playwright tiers — see "Running tests" below).
 
-**Playwright is the only integration/e2e tier.** There is no PHPUnit
-integration suite and none should be added — a real `wp-env` WordPress via
-Playwright is more truthful than a partially-stubbed WordPress via PHPUnit,
-and having exactly one non-unit tier keeps the boundary unambiguous.
+**PHPUnit's pure-PHP tier never gets WordPress.** `tests/bootstrap.php` only
+stubs `__()` on purpose — if a test needs more than that but doesn't need a
+*real* WordPress either, it belongs in the wp-mocked tier (Brain Monkey), not
+a growing stub file.
+
+**The wp-mocked tier mocks WordPress functions, never boots WordPress.** If a
+test needs real `$wpdb` behavior, real hook execution order across multiple
+files, or anything else a mock can't faithfully stand in for, it belongs in
+Playwright instead — that's what "real (if WASM) WordPress" is for.
+
+**Playwright is the only tier with a real WordPress runtime**, provided by
+`@wp-playground/cli` (WordPress Playground: WASM PHP + SQLite) — no Docker.
+See `tests/e2e/README.md` for the two Playwright tiers (REST-direct vs.
+browser-driven) and how AI responses get mocked for the browser-driven one.
 
 ### Splitting an ability's logic across the boundary
 
@@ -43,6 +53,9 @@ default seams for Ahentic:
 - `Ahentic_Abilities::execute( $name, $input )` — the dispatch boundary every
   ability goes through (readonly/HITL/mode checks + the actual mutation),
   reachable in e2e specs via the harness described below.
+- `Ahentic_AI::complete_chat()` — the orchestrator's one LLM call site.
+  Dispatch logic (Core vs. SDK vs. unavailable) is a wp-mocked PHPUnit seam;
+  the `pre_ahentic_ai_complete_chat` filter it exposes is the e2e mocking seam.
 - `Ahentic_Session_Repository` HITL/session state (preallow lists, snapshot
   store, once ADR-0007 lands).
 - `Ahentic_Orchestrator::handle_approval()` and other REST/Abilities API
@@ -57,39 +70,43 @@ behaviour.
 ## Running tests
 
 ```bash
-composer test      # PHPUnit — pure PHP, no WordPress, seconds
-npm run test:e2e   # Playwright — starts wp-env (Docker), then runs specs
-npm test           # both, in that order
+composer test       # both PHPUnit configs — pure PHP + Brain Monkey-mocked, seconds, no WordPress
+npm run test:e2e    # both Playwright tiers — @wp-playground/cli boots WordPress, then runs specs
+npm run test:debug  # same, but Playwright UI mode — a real Chromium window + step timeline
+npm test            # composer test, then npm run test:e2e
 ```
 
-`npm run test:e2e` requires a Docker CLI + running daemon (Docker Desktop,
-OrbStack, Colima) and starts an isolated wp-env instance defined by
-`.wp-env.tests.json` — a separate environment/port from the `.wp-env.json`
-one you might use for manual local dev. It's left running afterwards for
-fast repeat runs; stop it with `npx wp-env stop --config=.wp-env.tests.json`
-when done. See `tests/e2e/README.md` (including its Troubleshooting section)
-for how specs authenticate and call abilities without driving a real LLM.
+`npm run test:e2e` needs **no Docker, no Composer, no separate WordPress
+install** — `playwright.config.js`'s `webServer` boots
+[`@wp-playground/cli`](https://www.npmjs.com/package/@wp-playground/cli)
+(WordPress Playground: WASM PHP + SQLite) itself and tears it down after the
+run (it reuses an already-running instance locally for fast repeat runs; CI
+always boots fresh). See `tests/e2e/README.md` (including its Troubleshooting
+section) for how specs authenticate, call abilities, and mock AI responses.
 
-Both tiers run in CI (`.github/workflows/tests.yml`, jobs `phpunit` and `e2e`)
-on every push/PR to `master`/`main`/`develop`.
+All tiers run in CI (`.github/workflows/tests.yml`, jobs `phpunit` — a matrix
+across the PHP range in `readme.txt`/`phpcs.xml.dist`, running both PHPUnit
+configs — and `e2e`) on every push/PR to `master`/`main`/`develop`.
 
 ## How e2e specs call abilities
 
 Ahentic abilities deliberately keep `meta.show_in_rest => false` (agent tools
 aren't a public HTTP surface — see `src/abilities/abilities.md`). Rather than
 flipping that for testability, or driving a real chat turn through the
-sidebar (slow, costly, non-deterministic) for every module, e2e specs call a
-**test-only** REST route that's mounted into the wp-env container as an
-mu-plugin (`tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php`, never
-shipped with the plugin) and delegates straight to
+sidebar (slow, costly, non-deterministic) for every module, REST-direct e2e
+specs call a **test-only** REST route mounted into the Playground instance as
+an mu-plugin (`tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php`, never
+shipped with the plugin) that delegates straight to
 `Ahentic_Abilities::execute()` — the exact seam the orchestrator itself uses.
 No parallel dispatch/permission/HITL logic is reimplemented; the route is a
 thin pass-through, so it can't drift from production behaviour.
 
-A small, separate set of full browser-driven Playwright specs (using
-`@wordpress/e2e-test-utils-playwright`, already a devDependency) is reserved
-for sidebar UX that can't be validated at the REST layer — e.g. the HITL
-approve/deny card actually rendering and being clickable. Keep that tier
+A small, separate set of full browser-driven Playwright specs (the
+`ahenticSidebar` fixture, built on `@wordpress/e2e-test-utils-playwright`) is
+reserved for sidebar UX that can't be validated at the REST layer — e.g. a
+chat turn actually rendering, or the HITL approve/deny card being clickable.
+Those specs mock the LLM via the same mu-plugin's AI-response queue (see
+`tests/e2e/README.md`) rather than calling a real provider. Keep this tier
 small; it's the expensive, flakier one.
 
 ## Spec grouping — large modules, not one spec per ability
@@ -111,10 +128,18 @@ ability rather than creating a new file per ability.
 
 ## Anti-patterns
 
-Same as the `tdd` skill in general, plus two specific to this boundary:
+Same as the `tdd` skill in general, plus a few specific to this boundary:
 
-- **A PHPUnit test that stubs its way around a WordPress function** to keep
-  testing WP-dependent code in `tests/unit/` — that behaviour belongs in a
-  Playwright module spec instead.
+- **A PHPUnit test that hand-rolls WordPress function stubs** in `tests/unit/`
+  to keep testing WP-adjacent code there — use the wp-mocked tier (Brain
+  Monkey) instead if mocking is genuinely sufficient, or a Playwright module
+  spec if it isn't.
 - **A brand-new Playwright spec file per ability** — extend the module spec
   for that ability's track instead.
+- **Seeding a browser-driven spec's mocked AI response as a bare string** —
+  it skips the orchestrator's `<<<AHENTIC_DEBUG {…} AHENTIC_DEBUG>>>` control
+  block and silently falls through to a real, unconfigured provider on retry.
+  Use `mockReply()` (`tests/e2e/fixtures/ahentic-sidebar.js`).
+- **A browser-driven spec for something a REST-direct spec could already
+  prove** — if the assertion doesn't depend on rendering, prefer the faster,
+  more stable REST-direct tier.

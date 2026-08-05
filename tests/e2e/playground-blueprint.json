@@ -1,0 +1,15 @@
+{
+	"$schema": "https://playground.wordpress.net/blueprint-schema.json",
+	"steps": [
+		{
+			"step": "login",
+			"username": "admin",
+			"password": "password"
+		},
+		{
+			"step": "activatePlugin",
+			"pluginName": "Ahentic",
+			"pluginPath": "/wordpress/wp-content/plugins/ahentic/ahentic.php"
+		}
+	]
+}

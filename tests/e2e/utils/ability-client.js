@@ -1,66 +1,81 @@
 /**
- * Thin client for the e2e-only `ahentic-e2e/v1/run-ability` REST route.
+ * Thin client for the e2e-only `ahentic-e2e/v1/*` REST routes.
  *
- * That route (tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php) delegates
+ * Those routes (tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php) delegate
  * straight to `Ahentic_Abilities::execute()` — the same seam the
  * orchestrator's step worker calls — so specs can assert real ability
- * behaviour against a live wp-env WordPress without driving an LLM turn
+ * behaviour against a live WordPress instance without driving an LLM turn
  * through the sidebar chat loop.
- */
-const fs = require( 'fs' )
-const path = require( 'path' )
-
-const AUTH_FILE = path.join( __dirname, '..', '.auth', 'admin.json' )
-
-/**
- * Load the admin application-password credentials written by global-setup.js.
  *
- * @return {{username: string, password: string}} Credentials for Basic auth.
+ * Built on `requestUtils.rest()` (from `@wordpress/e2e-test-utils-playwright`)
+ * rather than a bespoke auth client — see tests/e2e/global-setup.js for how
+ * that fixture gets authenticated.
  */
-function loadAdminAuth() {
-	if ( ! fs.existsSync( AUTH_FILE ) ) {
-		throw new Error(
-			'No e2e admin credentials found at ' + AUTH_FILE + '. ' +
-				'Run the suite via `npm run test:e2e` (or `npx playwright test`, which runs ' +
-				'the global setup) rather than invoking a spec file in isolation.'
-		)
-	}
-	return JSON.parse( fs.readFileSync( AUTH_FILE, 'utf8' ) )
-}
-
-/**
- * Build a `Basic` auth header value for the e2e admin user.
- *
- * @return {string} `Authorization` header value.
- */
-function basicAuthHeader() {
-	const { username, password } = loadAdminAuth()
-	return 'Basic ' + Buffer.from( `${ username }:${ password }` ).toString( 'base64' )
-}
 
 /**
  * Run a single Ahentic ability as the e2e admin user.
  *
- * @param {import('@playwright/test').APIRequestContext} request Playwright request context (usually the `request` fixture).
- * @param {string}                                       name    Ability name, e.g. "ahentic/list-content".
- * @param {Object}                                       [input] Ability input.
+ * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils The `requestUtils` fixture.
+ * @param {string}                                                      name         Ability name, e.g. "ahentic/get-site-snapshot".
+ * @param {Object}                                                      [input]      Ability input.
  * @return {Promise<{ok: boolean, data?: *, error?: string, message?: string}>} Parsed run-ability response.
  */
-async function runAbility( request, name, input = {} ) {
-	const response = await request.post( '/wp-json/ahentic-e2e/v1/run-ability', {
-		headers: { Authorization: basicAuthHeader() },
+async function runAbility( requestUtils, name, input = {} ) {
+	return requestUtils.rest( {
+		path: '/ahentic-e2e/v1/run-ability',
+		method: 'POST',
 		data: { name, input },
 	} )
+}
 
-	if ( ! response.ok() ) {
-		throw new Error(
-			`ahentic-e2e run-ability HTTP ${ response.status() } for "${ name }": ${ await response.text() }`
-		)
-	}
+/**
+ * Seed a queue of canned AI responses that `Ahentic_AI::complete_chat()` will
+ * pop from (in order) instead of calling a real provider, for the lifetime of
+ * the current WordPress request-handling session (until consumed or reset).
+ *
+ * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils The `requestUtils` fixture.
+ * @param {Array<Object|string>}                                        responses    Ordered canned `complete_chat()`-shaped results, or plain strings (shorthand for `{ text: ... }`).
+ * @return {Promise<{ok: boolean, queued: number}>} Confirmation of how many responses were queued.
+ */
+async function seedAiResponses( requestUtils, responses ) {
+	return requestUtils.rest( {
+		path: '/ahentic-e2e/v1/seed-ai-responses',
+		method: 'POST',
+		data: { responses },
+	} )
+}
 
-	return response.json()
+/**
+ * Seed WordPress fixture data (posts/users/options) via the e2e mu-plugin,
+ * so a spec doesn't need a slow UI walk-through to reach a given state.
+ *
+ * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils The `requestUtils` fixture.
+ * @param {Object}                                                      fixture      Declarative fixture, e.g. `{ posts: [...], users: [...], options: {...} }`.
+ * @return {Promise<{ok: boolean, created: Object}>} IDs/keys of what was created.
+ */
+async function seed( requestUtils, fixture ) {
+	return requestUtils.rest( {
+		path: '/ahentic-e2e/v1/seed',
+		method: 'POST',
+		data: fixture,
+	} )
+}
+
+/**
+ * Clear any queued AI responses and reset the e2e mu-plugin's per-run state
+ * (does not touch fixture data created via `seed()` — delete that explicitly
+ * if a spec needs a clean slate).
+ *
+ * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils The `requestUtils` fixture.
+ * @return {Promise<{ok: boolean}>} Confirmation.
+ */
+async function resetAiResponses( requestUtils ) {
+	return requestUtils.rest( {
+		path: '/ahentic-e2e/v1/reset',
+		method: 'POST',
+	} )
 }
 
 module.exports = {
-	runAbility, loadAdminAuth, basicAuthHeader,
+	runAbility, seedAiResponses, seed, resetAiResponses,
 }
