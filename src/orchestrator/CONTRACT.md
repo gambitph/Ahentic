@@ -80,3 +80,8 @@ Order of concerns for each planned tool:
 | --- | --- |
 | `agent` | `available_for_agent()` |
 | `ask` | Readonly only; writes → error entry, no execute |
+
+## Testing
+
+- Control-block parsing (`Ahentic_AI`) is pure PHP and covered in PHPUnit (`tests/unit/`).
+- Everything else here — HITL decisions, budgets, queue/locking — needs a real WordPress runtime and belongs in the `hitl-and-undo.spec.js` / relevant Playwright module spec, not PHPUnit. See [`docs/agents/testing.md`](../../docs/agents/testing.md).

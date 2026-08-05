@@ -33,3 +33,48 @@ jobs:
 
       - name: Run PHPUnit
         run: composer test
+
+  e2e:
+    name: Playwright e2e (wp-env)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: composer
+
+      - name: Install Composer dependencies
+        uses: ramsey/composer-install@v3
+
+      - name: Install Node dependencies
+        run: npm ci --legacy-peer-deps
+
+      # No browser-driven specs exist yet (all current specs are REST-only via
+      # the `request` fixture, see tests/e2e/README.md) — add a
+      # `npx playwright install --with-deps chromium` step here once one lands.
+
+      - name: Start wp-env
+        run: npx wp-env start --config=.wp-env.tests.json
+
+      - name: Run Playwright e2e suite
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

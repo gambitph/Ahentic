@@ -53,3 +53,8 @@ Browser abilities must not perform real work in PHP stubs beyond registration/me
 ## Premium headless
 
 - Abilities used by Premium Agents must be server-executable; browser-only tools are unavailable headless.
+
+## Testing
+
+- Every new or changed ability lands with coverage in its `tasks/mvp-abilities`-track Playwright module spec (`tests/e2e/specs/`) — see [`docs/agents/testing.md`](../../docs/agents/testing.md) and [server-abilities.md § Testing](./server-abilities.md#testing-a-new-server-ability).
+- Pure decision logic inside an ability (heuristics, diff previews, snapshot shaping) should be split out and covered in PHPUnit; PHPUnit never gets WordPress integration tests.

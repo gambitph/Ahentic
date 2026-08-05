@@ -131,8 +131,25 @@ Stage with `ahentic/stage-artifact`, then `create-post` / `update-post` with `fr
 
 ## Testing a new server ability
 
-1. Confirm it appears in Agent tool list (system prompt / debugger tools_planned).
-2. Ask mode: readonly visible; write blocked or absent.
-3. HITL: Allow runs once; Deny appends skip result and continues.
-4. Failure paths return tool JSON the model can adapt to (not a silent fatal).
-5. If it touches content while the editor is open, assert the browser-routing error.
+Full policy: [`docs/agents/testing.md`](../../docs/agents/testing.md).
+
+1. **Split decision logic from WP I/O where practical** (heuristic flags, a
+   diff/dry-run preview, a snapshot-entry shape) and cover the pure function
+   in PHPUnit (`tests/unit/`). Never grow `tests/bootstrap.php`'s stubs to
+   make WP-dependent code fit in PHPUnit instead — that behaviour belongs in
+   the Playwright suite.
+2. **Add or extend a Playwright module spec** (`tests/e2e/specs/`, grouped by
+   `tasks/mvp-abilities` track, not one file per ability) calling the ability
+   through `runAbility()` (`tests/e2e/utils/ability-client.js`) against a real
+   wp-env WordPress — no LLM turn needed. Confirm:
+   - It appears in `Ahentic_Abilities::available_for_agent()` and, if
+     readonly, in `available_for_mode( 'ask' )`; a write is blocked/absent in
+     Ask mode.
+   - HITL abilities pause (`requires_hitl()` true) and a `WP_Error` /
+     `ahentic_ability_unknown`-style failure path returns tool JSON the model
+     can adapt to, not a silent fatal.
+   - If it touches content while the editor is open, assert the
+     browser-routing error.
+3. Allow/Deny UX itself (the sidebar card) is out of scope for a new
+   ability's own spec — that's covered once by the small browser-driven HITL
+   tier, not per-ability.

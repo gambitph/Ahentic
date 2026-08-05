@@ -9,6 +9,10 @@ vendor/
 
 # Test artifacts
 .phpunit.result.cache
+/test-results/
+/playwright-report/
+/blob-report/
+/tests/e2e/.auth/
 
 # WordPress build files
 src/**/*.map

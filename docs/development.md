@@ -50,6 +50,11 @@ Config: [`.wp-env.json`](../.wp-env.json) (PHP 8.2, this plugin mounted).
 - Admin: typically `http://localhost:8888/wp-admin` (see wp-env output)
 - Default credentials: `admin` / `password` (wp-env defaults)
 
+There's a **separate** [`.wp-env.tests.json`](../.wp-env.tests.json) (its own
+containers/DB, port 8889) used only by the Playwright e2e suite — see
+[Testing](#testing) below. Running the e2e suite never touches this
+`.wp-env.json` instance.
+
 ### Option B: existing site
 
 Symlink or copy the plugin into `wp-content/plugins/ahentic`, activate it, run `npm start` so `build/` stays fresh.
@@ -119,6 +124,21 @@ See [rest.md](../src/admin/rest.md).
 - Interactive path: process on `shutdown` after the message response (`Ahentic_Step_Queue::schedule_interactive_run`).
 - Fallback: Action Scheduler or WP-Cron single event.
 - Local sites without working cron often need **continue** or a triggered cron spawn.
+
+---
+
+## Testing
+
+```bash
+composer test      # PHPUnit — pure PHP, no WordPress dependency
+npm run test:e2e   # Playwright against an isolated wp-env instance (Docker required)
+```
+
+`test:e2e` needs a Docker CLI + running daemon (Docker Desktop, OrbStack,
+Colima — see `docker version`). Full policy (PHPUnit vs. Playwright
+boundary, spec grouping, troubleshooting) in
+[docs/agents/testing.md](./agents/testing.md) and
+[tests/e2e/README.md](../tests/e2e/README.md).
 
 ---
 

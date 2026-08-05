@@ -54,6 +54,8 @@ Toggle the sidebar with **Cmd/Ctrl+I** (users with `manage_options`).
 | `npm run build:premium` | Premium package (needs `pro__premium_only/`) |
 | `npm run lint` / `lint:js` / `lint:css` | Lint |
 | `npm run format` | Prettier |
+| `composer test` | PHPUnit — pure PHP, no WordPress |
+| `npm run test:e2e` | Playwright against an isolated wp-env instance (Docker required) |
 
 ## Stack
 

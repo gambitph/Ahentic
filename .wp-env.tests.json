@@ -1,0 +1,12 @@
+{
+	"core": null,
+	"phpVersion": "8.2",
+	"port": 8889,
+	"plugins": [ "." ],
+	"mappings": {
+		"mu-plugins": "./tests/e2e/mu-plugins"
+	},
+	"config": {
+		"SCRIPT_DEBUG": false
+	}
+}
