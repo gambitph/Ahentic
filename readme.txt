@@ -1,7 +1,7 @@
 === Ahentic - AI Workspace ===
 Contributors: bfintal, gambitph
 Tags: ai, assistant, workspace, agent, productivity
-Requires at least: 6.6.2
+Requires at least: 7.0.0
 Tested up to: 7.0.2
 Requires PHP: 7.4
 Stable tag: 0.1.0
