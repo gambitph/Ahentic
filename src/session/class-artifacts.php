@@ -26,6 +26,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		const KIND_MARKDOWN      = 'markdown';
 		const KIND_POST_CONTENT  = 'post_content';
 		const KIND_JSON          = 'json';
+		const KIND_IMAGE         = 'image';
 
 		const STATUS_DRAFTING = 'drafting';
 		const STATUS_READY    = 'ready';
@@ -410,7 +411,9 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			}
 			$lines = array(
 				'---',
-				'Session artifacts (bodies omitted — apply with from_memory on set-blocks / create-post / update-post; do not re-paste large drafts):',
+				'Session artifacts (bodies omitted):',
+				'- Text drafts (blocks/html/markdown/post_content): apply with from_memory on set-blocks / create-post / update-post.',
+				'- Image artifacts: call ahentic/upload-media with {"from_memory":"<key>"} first (HITL), then ahentic-browser/insert-blocks with a core/image block using the returned attachment_id + url. Do NOT pass from_memory to insert-blocks for images.',
 			);
 			foreach ( $pointers as $p ) {
 				$parts = array(
@@ -431,7 +434,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				}
 				$lines[] = '- ' . implode( ' · ', $parts );
 			}
-			$lines[] = 'Prefer {"from_memory":"<key>"} when applying a ready artifact. Do not apply while status is drafting — finish with complete=true first. Staging is not publishing — still call the mutate ability.';
+			$lines[] = 'Prefer {"from_memory":"<key>"} for text drafts when applying a ready artifact. Do not apply while status is drafting — finish with complete=true first. Staging is not publishing — still call the mutate ability.';
 			return implode( "\n", $lines );
 		}
 
@@ -532,7 +535,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			if ( ! in_array( $kind, self::allowed_kinds(), true ) ) {
 				return new WP_Error(
 					'ahentic_invalid_artifact_kind',
-					__( 'Invalid artifact kind. Use blocks, html, markdown, post_content, or json.', 'ahentic' )
+					__( 'Invalid artifact kind. Use blocks, html, markdown, post_content, json, or image.', 'ahentic' )
 				);
 			}
 
@@ -696,6 +699,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			if ( '' === $key || ! isset( $store['items'][ $key ] ) ) {
 				return;
 			}
+			self::unlink_image_payload( isset( $store['items'][ $key ] ) ? $store['items'][ $key ] : null );
 			unset( $store['items'][ $key ] );
 			$store['updated_at'] = gmdate( 'c' );
 			self::persist( $session_id, $store );
@@ -709,7 +713,60 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			if ( $session_id <= 0 ) {
 				return;
 			}
+			$store = self::get( $session_id );
+			if ( ! empty( $store['items'] ) && is_array( $store['items'] ) ) {
+				foreach ( $store['items'] as $item ) {
+					self::unlink_image_payload( $item );
+				}
+			}
 			delete_post_meta( $session_id, self::META_KEY );
+		}
+
+		/**
+		 * Remove temp file for an image-kind artifact pointer.
+		 *
+		 * @param mixed $item Artifact item.
+		 */
+		private static function unlink_image_payload( $item ) {
+			if ( ! is_array( $item ) ) {
+				return;
+			}
+			if ( self::KIND_IMAGE !== ( isset( $item['kind'] ) ? (string) $item['kind'] : '' ) ) {
+				return;
+			}
+			$payload = isset( $item['payload'] ) && is_array( $item['payload'] ) ? $item['payload'] : array();
+			$path    = isset( $payload['path'] ) ? (string) $payload['path'] : '';
+			if ( '' === $path || ! is_string( $path ) ) {
+				return;
+			}
+			$temp_root = trailingslashit( function_exists( 'get_temp_dir' ) ? get_temp_dir() : sys_get_temp_dir() ) . 'ahentic-images/';
+			// Only unlink files under our temp directory.
+			$real_path = realpath( $path );
+			$real_root = realpath( $temp_root );
+			if ( ! $real_path || ! $real_root ) {
+				return;
+			}
+			if ( 0 !== strpos( $real_path, $real_root ) ) {
+				return;
+			}
+			if ( is_file( $real_path ) ) {
+				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- best-effort cleanup
+				@unlink( $real_path );
+			}
+		}
+
+		/**
+		 * Absolute directory for generated image temp files.
+		 *
+		 * @return string
+		 */
+		public static function image_temp_dir() {
+			$base = function_exists( 'get_temp_dir' ) ? get_temp_dir() : sys_get_temp_dir();
+			$dir  = trailingslashit( $base ) . 'ahentic-images';
+			if ( ! is_dir( $dir ) ) {
+				wp_mkdir_p( $dir );
+			}
+			return $dir;
 		}
 
 		/**
@@ -812,6 +869,37 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				);
 			}
 
+			if ( class_exists( 'Ahentic_Abilities_Media' ) && Ahentic_Abilities_Media::UPLOAD_MEDIA === $ability ) {
+				if ( self::KIND_IMAGE !== $kind ) {
+					return self::kind_mismatch( $key, $kind, $ability, array( self::KIND_IMAGE ) );
+				}
+				if ( ! is_array( $payload ) ) {
+					return new WP_Error(
+						'ahentic_invalid_artifact_payload',
+						__( 'image artifacts need { path, mime_type, width, height }.', 'ahentic' )
+					);
+				}
+				$path = isset( $payload['path'] ) ? (string) $payload['path'] : '';
+				if ( '' === $path ) {
+					return new WP_Error(
+						'ahentic_image_path_missing',
+						__( 'Image artifact has no file path (it may already have been uploaded).', 'ahentic' )
+					);
+				}
+				$out['source_path'] = $path;
+				if ( ! empty( $payload['mime_type'] ) ) {
+					$out['mime_type'] = (string) $payload['mime_type'];
+				}
+				if ( empty( $out['title'] ) && ! empty( $item['title'] ) ) {
+					$out['title'] = (string) $item['title'];
+				}
+				unset( $out['url'] );
+				return array(
+					'input'        => $out,
+					'artifact_key' => $key,
+				);
+			}
+
 			$is_create = class_exists( 'Ahentic_Abilities_Content' ) && Ahentic_Abilities_Content::CREATE === $ability;
 			$is_update = class_exists( 'Ahentic_Abilities_Content' ) && Ahentic_Abilities_Content::UPDATE === $ability;
 			if ( $is_create || $is_update ) {
@@ -850,7 +938,18 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			if ( '' === $key ) {
 				return;
 			}
+			$item = self::get_item( $session_id, $key );
 			self::set_status( $session_id, $key, self::STATUS_APPLIED );
+			// Image artifacts point at temp files — unlink once applied (e.g. after upload-media).
+			if ( is_array( $item ) && self::KIND_IMAGE === ( isset( $item['kind'] ) ? (string) $item['kind'] : '' ) ) {
+				self::unlink_image_payload( $item );
+				$store = self::get( $session_id );
+				if ( isset( $store['items'][ $key ]['payload'] ) && is_array( $store['items'][ $key ]['payload'] ) ) {
+					$store['items'][ $key ]['payload']['path'] = '';
+					$store['updated_at'] = gmdate( 'c' );
+					self::persist( $session_id, $store );
+				}
+			}
 		}
 
 		/**
@@ -862,6 +961,9 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		public static function ability_supports_from_memory( $ability ) {
 			$ability = (string) $ability;
 			if ( class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::SET_BLOCKS === $ability ) {
+				return true;
+			}
+			if ( class_exists( 'Ahentic_Abilities_Media' ) && Ahentic_Abilities_Media::UPLOAD_MEDIA === $ability ) {
 				return true;
 			}
 			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {
@@ -880,6 +982,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				self::KIND_MARKDOWN,
 				self::KIND_POST_CONTENT,
 				self::KIND_JSON,
+				self::KIND_IMAGE,
 			);
 		}
 
@@ -1094,6 +1197,29 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 					return new WP_Error( 'ahentic_invalid_artifact_payload', __( 'Artifact content cannot be empty.', 'ahentic' ) );
 				}
 				return array( 'content' => $content );
+			}
+
+			if ( self::KIND_IMAGE === $kind ) {
+				if ( ! is_array( $payload ) ) {
+					return new WP_Error(
+						'ahentic_invalid_artifact_payload',
+						__( 'image artifacts need { path, mime_type, width, height }.', 'ahentic' )
+					);
+				}
+				$path = isset( $payload['path'] ) ? (string) $payload['path'] : '';
+				$mime = isset( $payload['mime_type'] ) ? (string) $payload['mime_type'] : '';
+				if ( '' === $path || '' === $mime ) {
+					return new WP_Error(
+						'ahentic_invalid_artifact_payload',
+						__( 'image artifacts need path and mime_type.', 'ahentic' )
+					);
+				}
+				return array(
+					'path'      => $path,
+					'mime_type' => $mime,
+					'width'     => isset( $payload['width'] ) ? (int) $payload['width'] : 0,
+					'height'    => isset( $payload['height'] ) ? (int) $payload['height'] : 0,
+				);
 			}
 
 			if ( self::KIND_JSON === $kind ) {

@@ -96,6 +96,275 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		}
 
 		/**
+		 * Vision: describe an image file path or remote URL; return structured alt/description.
+		 *
+		 * @param string $file_or_url Local path or http(s) URL.
+		 * @param string $mime_type   MIME type.
+		 * @return array|\WP_Error { description, alt_text_suggestion }
+		 */
+		public static function describe_image( $file_or_url, $mime_type = 'image/jpeg' ) {
+			$file_or_url = (string) $file_or_url;
+			$mime_type   = (string) $mime_type;
+
+			/**
+			 * Short-circuit describe-image (e2e).
+			 *
+			 * @param array|null $override Non-null to short-circuit.
+			 * @param string     $file_or_url File path or URL.
+			 * @param string     $mime_type MIME.
+			 */
+			$override = apply_filters( 'pre_ahentic_ai_describe_image', null, $file_or_url, $mime_type );
+			if ( null !== $override ) {
+				return $override;
+			}
+
+			$system = 'You are an accessibility expert. Respond with JSON only matching '
+				. '{"description":"1-3 sentence general description","alt_text_suggestion":"objective, under 125 characters, no Image of/Photo of prefixes"}.';
+
+			try {
+				if ( function_exists( 'wp_ai_client_prompt' ) ) {
+					$builder = wp_ai_client_prompt( 'Describe this image for accessibility.' );
+					if ( ! is_object( $builder ) ) {
+						return new WP_Error( 'ahentic_ai_api', __( 'Unexpected AI client API shape.', 'ahentic' ) );
+					}
+					if ( method_exists( $builder, 'using_system_instruction' ) ) {
+						$builder = $builder->using_system_instruction( $system );
+					} elseif ( method_exists( $builder, 'usingSystemInstruction' ) ) {
+						$builder = $builder->usingSystemInstruction( $system );
+					}
+					if ( method_exists( $builder, 'with_file' ) ) {
+						$builder = $builder->with_file( $file_or_url, $mime_type );
+					} elseif ( method_exists( $builder, 'withFile' ) ) {
+						$builder = $builder->withFile( $file_or_url, $mime_type );
+					} else {
+						return new WP_Error(
+							'ahentic_vision_unsupported',
+							__( 'Your configured AI provider doesn\'t support image understanding — check Settings → Connectors.', 'ahentic' )
+						);
+					}
+					if ( method_exists( $builder, 'as_json_response' ) ) {
+						$builder = $builder->as_json_response();
+					} elseif ( method_exists( $builder, 'asJsonResponse' ) ) {
+						$builder = $builder->asJsonResponse();
+					}
+					$result = method_exists( $builder, 'generate_text_result' )
+						? $builder->generate_text_result()
+						: $builder->generateTextResult();
+					if ( is_wp_error( $result ) ) {
+						return self::vision_provider_error( $result );
+					}
+					$text = self::result_to_text( $result );
+					return self::parse_describe_json( $text );
+				}
+
+				if ( class_exists( '\WordPress\AiClient\AiClient' ) ) {
+					$builder = \WordPress\AiClient\AiClient::prompt( 'Describe this image for accessibility.' );
+					$builder = $builder->usingSystemInstruction( $system )->withFile( $file_or_url, $mime_type )->asJsonResponse();
+					$result  = $builder->generateTextResult();
+					$text    = self::result_to_text( $result );
+					return self::parse_describe_json( $text );
+				}
+
+				return new WP_Error(
+					'ahentic_ai_unavailable',
+					__( 'No AI client is available. Install and configure the WordPress AI plugin (Settings → AI / Connectors).', 'ahentic' )
+				);
+			} catch ( Exception $e ) {
+				return self::vision_provider_error( $e );
+			} catch ( Throwable $e ) {
+				return self::vision_provider_error( $e );
+			}
+		}
+
+		/**
+		 * Generate an image via AI Client; return data URI + mime + dimensions when known.
+		 *
+		 * @param string $prompt       Prompt.
+		 * @param string $aspect_ratio Aspect ratio e.g. 1:1.
+		 * @return array|\WP_Error { data_uri, mime_type, width, height }
+		 */
+		public static function generate_image( $prompt, $aspect_ratio = '1:1' ) {
+			$prompt       = (string) $prompt;
+			$aspect_ratio = (string) $aspect_ratio;
+
+			/**
+			 * Short-circuit generate-image (e2e).
+			 *
+			 * @param array|null $override Non-null to short-circuit.
+			 * @param string     $prompt Prompt.
+			 * @param string     $aspect_ratio Aspect ratio.
+			 */
+			$override = apply_filters( 'pre_ahentic_ai_generate_image', null, $prompt, $aspect_ratio );
+			if ( null !== $override ) {
+				return $override;
+			}
+
+			try {
+				/*
+				 * Core WP_AI_Client_Prompt_Builder exposes snake_case via __call —
+				 * never gate on method_exists() (same rule as complete_via_core).
+				 * CamelCase generateImage() is NOT in Core's generating-method map, so
+				 * provider failures return the builder itself instead of WP_Error.
+				 */
+				if ( function_exists( 'wp_ai_client_prompt' ) ) {
+					$builder = wp_ai_client_prompt( $prompt );
+					if ( ! is_object( $builder ) ) {
+						return new WP_Error( 'ahentic_ai_api', __( 'Unexpected AI client API shape.', 'ahentic' ) );
+					}
+
+					// Image generation commonly exceeds Core's 30s default HTTP timeout.
+					if ( class_exists( '\WordPress\AiClient\Providers\Http\DTO\RequestOptions' ) ) {
+						$builder = $builder->using_request_options(
+							\WordPress\AiClient\Providers\Http\DTO\RequestOptions::fromArray(
+								array(
+									\WordPress\AiClient\Providers\Http\DTO\RequestOptions::KEY_TIMEOUT => 120.0,
+								)
+							)
+						);
+					}
+
+					$builder = $builder->as_output_media_aspect_ratio( $aspect_ratio );
+					$file    = $builder->generate_image();
+
+					if ( is_wp_error( $file ) ) {
+						return self::image_gen_provider_error( $file );
+					}
+
+					return self::file_dto_to_generated( $file );
+				}
+
+				if ( class_exists( '\WordPress\AiClient\AiClient' ) ) {
+					$builder = \WordPress\AiClient\AiClient::prompt( $prompt );
+					if ( method_exists( $builder, 'asOutputMediaAspectRatio' ) ) {
+						$builder = $builder->asOutputMediaAspectRatio( $aspect_ratio );
+					}
+					$file = $builder->generateImage();
+					return self::file_dto_to_generated( $file );
+				}
+
+				return new WP_Error(
+					'ahentic_ai_unavailable',
+					__( 'No AI client is available. Install and configure the WordPress AI plugin (Settings → AI / Connectors).', 'ahentic' )
+				);
+			} catch ( Exception $e ) {
+				return self::image_gen_provider_error( $e );
+			} catch ( Throwable $e ) {
+				return self::image_gen_provider_error( $e );
+			}
+		}
+
+		/**
+		 * @param mixed $result Generative result or string.
+		 * @return string
+		 */
+		private static function result_to_text( $result ) {
+			if ( is_string( $result ) ) {
+				return $result;
+			}
+			if ( is_object( $result ) && method_exists( $result, 'to_text' ) ) {
+				return (string) $result->to_text();
+			}
+			if ( is_object( $result ) && method_exists( $result, 'toText' ) ) {
+				return (string) $result->toText();
+			}
+			$normalized = self::normalize_result( $result );
+			return is_array( $normalized ) && isset( $normalized['text'] ) ? (string) $normalized['text'] : '';
+		}
+
+		/**
+		 * @param string $text JSON text.
+		 * @return array|\WP_Error
+		 */
+		private static function parse_describe_json( $text ) {
+			$text = trim( (string) $text );
+			$data = json_decode( $text, true );
+			if ( ! is_array( $data ) ) {
+				// Try extract object.
+				if ( preg_match( '/\{[\s\S]*\}/', $text, $m ) ) {
+					$data = json_decode( $m[0], true );
+				}
+			}
+			if ( ! is_array( $data ) || ! isset( $data['description'], $data['alt_text_suggestion'] ) ) {
+				return new WP_Error(
+					'ahentic_describe_image_parse',
+					__( 'AI returned an unexpected description format.', 'ahentic' )
+				);
+			}
+			return array(
+				'description'         => (string) $data['description'],
+				'alt_text_suggestion' => (string) $data['alt_text_suggestion'],
+			);
+		}
+
+		/**
+		 * @param mixed $file File DTO.
+		 * @return array|\WP_Error
+		 */
+		private static function file_dto_to_generated( $file ) {
+			if ( is_wp_error( $file ) ) {
+				return self::image_gen_provider_error( $file );
+			}
+			if ( ! is_object( $file ) || ! method_exists( $file, 'getDataUri' ) ) {
+				return new WP_Error( 'ahentic_image_gen_empty', __( 'No image was generated.', 'ahentic' ) );
+			}
+			$data_uri = $file->getDataUri();
+			$mime     = method_exists( $file, 'getMimeType' ) ? (string) $file->getMimeType() : 'image/png';
+			if ( ! is_string( $data_uri ) || '' === $data_uri ) {
+				return new WP_Error( 'ahentic_image_gen_empty', __( 'Generated image had no data URI.', 'ahentic' ) );
+			}
+			return array(
+				'data_uri'  => $data_uri,
+				'mime_type' => $mime ? $mime : 'image/png',
+				'width'     => 0,
+				'height'    => 0,
+			);
+		}
+
+		/**
+		 * @param mixed $err Error or throwable.
+		 * @return \WP_Error
+		 */
+		private static function vision_provider_error( $err ) {
+			if ( is_wp_error( $err ) ) {
+				return new WP_Error(
+					'ahentic_vision_unsupported',
+					__( 'Your configured AI provider doesn\'t support image understanding — check Settings → Connectors.', 'ahentic' ),
+					array( 'previous' => $err->get_error_message() )
+				);
+			}
+			return new WP_Error(
+				'ahentic_vision_unsupported',
+				__( 'Your configured AI provider doesn\'t support image understanding — check Settings → Connectors.', 'ahentic' ),
+				array( 'previous' => method_exists( $err, 'getMessage' ) ? $err->getMessage() : '' )
+			);
+		}
+
+		/**
+		 * @param mixed $err Throwable or WP_Error.
+		 * @return \WP_Error
+		 */
+		private static function image_gen_provider_error( $err ) {
+			$previous = '';
+			if ( is_wp_error( $err ) ) {
+				$previous = $err->get_error_message();
+			} elseif ( is_object( $err ) && method_exists( $err, 'getMessage' ) ) {
+				$previous = $err->getMessage();
+			}
+
+			$message = __( 'Your configured AI provider doesn\'t support image generation — check Settings → Connectors.', 'ahentic' );
+			if ( '' !== $previous ) {
+				/* translators: %s: underlying provider/network error */
+				$message = sprintf( __( 'Image generation failed: %s', 'ahentic' ), $previous );
+			}
+
+			return new WP_Error(
+				'ahentic_image_gen_failed',
+				$message,
+				array( 'previous' => $previous )
+			);
+		}
+
+		/**
 		 * Mark LLM in-flight: scheduled keepalive + WP HTTP curl progress ticks.
 		 *
 		 * @param int $session_id Session ID.
@@ -216,6 +485,24 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 				}
 
 				$result = $builder->generate_text_result();
+
+				/*
+				 * Core maps “no candidate models for these options” to prompt_invalid_argument
+				 * with a misleading “doesn't support text_generation” message (see php-ai-client
+				 * model selection). Retry without max_tokens — some connectors advertise
+				 * text_generation but not maxTokens, and image-gen turns can refresh metadata.
+				 */
+				if (
+					is_wp_error( $result )
+					&& in_array( $result->get_error_code(), array( 'prompt_invalid_argument', 'prompt_builder_error' ), true )
+					&& $max_tokens > 0
+				) {
+					$retry = wp_ai_client_prompt( $prompt_text );
+					if ( is_object( $retry ) ) {
+						$retry  = $retry->using_system_instruction( (string) $system );
+						$result = $retry->generate_text_result();
+					}
+				}
 
 				if ( is_wp_error( $result ) ) {
 					return $result;

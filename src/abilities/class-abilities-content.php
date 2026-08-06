@@ -16,6 +16,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		const LIST      = 'ahentic/list-content';
 		const GET       = 'ahentic/get-content';
 		const SEARCH    = 'ahentic/search-content';
+		const LIST_POST_TYPES = 'ahentic/list-post-types';
+		const REPLACE_IN_CONTENT = 'ahentic/replace-in-content';
+		const LIST_REVISIONS = 'ahentic/list-revisions';
+		const RESTORE_REVISION = 'ahentic/restore-revision';
 		const CREATE    = 'ahentic/create-post';
 		const UPDATE    = 'ahentic/update-post';
 		const SET_STATUS = 'ahentic/set-post-status';
@@ -26,6 +30,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		const MAX_META_KEYS     = 80;
 		const MAX_META_VALUE    = 2000;
 		const MAX_SNIPPET       = 200;
+		const MAX_POST_TYPES    = 40;
+		const MAX_REVISIONS     = 20;
+		const MAX_REPLACE       = 50;
 
 		/**
 		 * Ability names provided by this module.
@@ -33,7 +40,18 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string[]
 		 */
 		public static function names() {
-			return array( self::LIST, self::GET, self::SEARCH, self::CREATE, self::UPDATE, self::SET_STATUS );
+			return array(
+				self::LIST,
+				self::GET,
+				self::SEARCH,
+				self::LIST_POST_TYPES,
+				self::REPLACE_IN_CONTENT,
+				self::LIST_REVISIONS,
+				self::RESTORE_REVISION,
+				self::CREATE,
+				self::UPDATE,
+				self::SET_STATUS,
+			);
 		}
 
 		/**
@@ -42,7 +60,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string[]
 		 */
 		public static function write_names() {
-			return array( self::CREATE, self::UPDATE, self::SET_STATUS );
+			return array( self::CREATE, self::UPDATE, self::SET_STATUS, self::REPLACE_IN_CONTENT, self::RESTORE_REVISION );
 		}
 
 		/**
@@ -61,7 +79,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string[]
 		 */
 		public static function hitl_names() {
-			return array( self::CREATE, self::UPDATE, self::SET_STATUS );
+			return array( self::CREATE, self::UPDATE, self::SET_STATUS, self::REPLACE_IN_CONTENT, self::RESTORE_REVISION );
 		}
 
 		/**
@@ -81,6 +99,37 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 */
 		public static function hitl_summary( $name, $input = array() ) {
 			$input = is_array( $input ) ? $input : array();
+
+			if ( self::REPLACE_IN_CONTENT === $name ) {
+				$find    = isset( $input['find'] ) ? (string) $input['find'] : '';
+				$replace = isset( $input['replace'] ) ? (string) $input['replace'] : '';
+				$dry     = ! isset( $input['dry_run'] ) || (bool) $input['dry_run'];
+				if ( $dry ) {
+					return sprintf(
+						/* translators: 1: find string, 2: replace string */
+						__( 'Preview replace “%1$s” → “%2$s” in content', 'ahentic' ),
+						self::truncate_for_summary( $find ),
+						self::truncate_for_summary( $replace )
+					);
+				}
+				return sprintf(
+					/* translators: 1: find string, 2: replace string */
+					__( 'Replace “%1$s” → “%2$s” in content', 'ahentic' ),
+					self::truncate_for_summary( $find ),
+					self::truncate_for_summary( $replace )
+				);
+			}
+
+			if ( self::RESTORE_REVISION === $name ) {
+				$post_id     = isset( $input['post_id'] ) ? (int) $input['post_id'] : 0;
+				$revision_id = isset( $input['revision_id'] ) ? (int) $input['revision_id'] : 0;
+				return sprintf(
+					/* translators: 1: post ID, 2: revision ID */
+					__( 'Restore post #%1$d from revision #%2$d', 'ahentic' ),
+					$post_id,
+					$revision_id
+				);
+			}
 
 			if ( self::CREATE === $name ) {
 				$post_type = isset( $input['post_type'] ) ? sanitize_key( (string) $input['post_type'] ) : 'post';
@@ -468,6 +517,118 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					'meta'                => $destructive_meta,
 				)
 			);
+
+			wp_register_ability(
+				self::LIST_POST_TYPES,
+				array(
+					'label'               => __( 'List post types', 'ahentic' ),
+					'description'         => __( 'Lists agent-relevant registered post types with labels, public/REST flags, and publish+draft counts.', 'ahentic' ),
+					'category'            => 'ahentic-content',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'properties' => array(),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_list_post_types' ),
+					'permission_callback' => $permission,
+					'meta'                => $meta,
+				)
+			);
+
+			wp_register_ability(
+				self::LIST_REVISIONS,
+				array(
+					'label'               => __( 'List revisions', 'ahentic' ),
+					'description'         => __( 'Lists recent revisions for a post (newest first).', 'ahentic' ),
+					'category'            => 'ahentic-content',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'post_id' ),
+						'properties' => array(
+							'post_id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Post ID.', 'ahentic' ),
+							),
+							'limit'   => array(
+								'type'        => 'integer',
+								'description' => __( 'Max revisions to return (1–20).', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_list_revisions' ),
+					'permission_callback' => $permission,
+					'meta'                => $meta,
+				)
+			);
+
+			wp_register_ability(
+				self::REPLACE_IN_CONTENT,
+				array(
+					'label'               => __( 'Replace in content', 'ahentic' ),
+					'description'         => __( 'Find-and-replace across post titles/content. Default dry_run:true previews matches; dry_run:false writes. Requires human approval in Ahentic for real runs.', 'ahentic' ),
+					'category'            => 'ahentic-content',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'find', 'replace' ),
+						'properties' => array(
+							'find'      => array(
+								'type'        => 'string',
+								'description' => __( 'Literal substring to find (case-sensitive).', 'ahentic' ),
+							),
+							'replace'   => array(
+								'type'        => 'string',
+								'description' => __( 'Replacement substring.', 'ahentic' ),
+							),
+							'dry_run'   => array(
+								'type'        => 'boolean',
+								'description' => __( 'When true (default), preview only — never writes.', 'ahentic' ),
+							),
+							'post_type' => array(
+								'description' => __( 'Post type or list of types (default: post, page).', 'ahentic' ),
+							),
+							'status'    => array(
+								'description' => __( 'Post status or list (default: editable statuses).', 'ahentic' ),
+							),
+							'limit'     => array(
+								'type'        => 'integer',
+								'description' => __( 'Max posts to scan/update (1–50).', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_replace_in_content' ),
+					'permission_callback' => $permission,
+					'meta'                => $mutate_meta,
+				)
+			);
+
+			wp_register_ability(
+				self::RESTORE_REVISION,
+				array(
+					'label'               => __( 'Restore revision', 'ahentic' ),
+					'description'         => __( 'Restores a post from a WordPress revision of that post. Requires human approval in Ahentic.', 'ahentic' ),
+					'category'            => 'ahentic-content',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'post_id', 'revision_id' ),
+						'properties' => array(
+							'post_id'     => array(
+								'type'        => 'integer',
+								'description' => __( 'Post ID to restore into.', 'ahentic' ),
+							),
+							'revision_id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Revision ID that must belong to post_id.', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_restore_revision' ),
+					'permission_callback' => $permission,
+					'meta'                => $destructive_meta,
+				)
+			);
 		}
 
 		/**
@@ -485,6 +646,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					return self::execute_get_content( $input );
 				case self::SEARCH:
 					return self::execute_search_content( $input );
+				case self::LIST_POST_TYPES:
+					return self::execute_list_post_types( $input );
+				case self::REPLACE_IN_CONTENT:
+					return self::execute_replace_in_content( $input );
+				case self::LIST_REVISIONS:
+					return self::execute_list_revisions( $input );
+				case self::RESTORE_REVISION:
+					return self::execute_restore_revision( $input );
 				case self::CREATE:
 					return self::execute_create_post( $input );
 				case self::UPDATE:
@@ -494,6 +663,353 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				default:
 					return new WP_Error( 'ahentic_ability_unknown', __( 'Unknown content ability.', 'ahentic' ) );
 			}
+		}
+
+		/**
+		 * List agent-relevant post types with counts.
+		 *
+		 * @param mixed $input Unused.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_list_post_types( $input = array() ) {
+			unset( $input );
+
+			$blocked = self::blocked_post_types();
+			$objects = get_post_types( array(), 'objects' );
+			$items   = array();
+
+			foreach ( $objects as $name => $obj ) {
+				$name = (string) $name;
+				if ( '' === $name || in_array( $name, $blocked, true ) ) {
+					continue;
+				}
+				if ( ! ( $obj instanceof WP_Post_Type ) ) {
+					continue;
+				}
+				$show_in_rest = ! empty( $obj->show_in_rest );
+				$public       = ! empty( $obj->public );
+				// Prefer REST-visible types; also keep public labeled types for tours.
+				if ( ! $show_in_rest && ! $public ) {
+					continue;
+				}
+
+				$counts    = wp_count_posts( $name );
+				$publish   = ( is_object( $counts ) && isset( $counts->publish ) ) ? (int) $counts->publish : 0;
+				$draft     = ( is_object( $counts ) && isset( $counts->draft ) ) ? (int) $counts->draft : 0;
+				$items[]   = array(
+					'name'         => $name,
+					'label'        => isset( $obj->labels->name ) ? (string) $obj->labels->name : $name,
+					'public'       => $public,
+					'hierarchical' => ! empty( $obj->hierarchical ),
+					'show_in_rest' => $show_in_rest,
+					'count'        => $publish + $draft,
+				);
+
+				if ( count( $items ) >= self::MAX_POST_TYPES ) {
+					break;
+				}
+			}
+
+			usort(
+				$items,
+				static function ( $a, $b ) {
+					return strcasecmp( $a['name'], $b['name'] );
+				}
+			);
+
+			return array(
+				'ok'         => true,
+				'count'      => count( $items ),
+				'post_types' => $items,
+			);
+		}
+
+		/**
+		 * Count case-sensitive literal substring occurrences.
+		 *
+		 * @param string $haystack Text.
+		 * @param string $needle   Find string.
+		 * @return int
+		 */
+		public static function count_literal_occurrences( $haystack, $needle ) {
+			$haystack = (string) $haystack;
+			$needle   = (string) $needle;
+			if ( '' === $needle || '' === $haystack ) {
+				return 0;
+			}
+			return substr_count( $haystack, $needle );
+		}
+
+		/**
+		 * Apply case-sensitive literal replace.
+		 *
+		 * @param string $haystack Text.
+		 * @param string $find     Find.
+		 * @param string $replace  Replace.
+		 * @return string
+		 */
+		public static function apply_literal_replace( $haystack, $find, $replace ) {
+			$find = (string) $find;
+			if ( '' === $find ) {
+				return (string) $haystack;
+			}
+			return str_replace( $find, (string) $replace, (string) $haystack );
+		}
+
+		/**
+		 * Dry-run or execute site-wide find/replace in title + content.
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_replace_in_content( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$find  = isset( $input['find'] ) ? (string) $input['find'] : '';
+			if ( '' === $find ) {
+				return new WP_Error( 'ahentic_missing_find', __( 'A non-empty find string is required.', 'ahentic' ) );
+			}
+			$replace = isset( $input['replace'] ) ? (string) $input['replace'] : '';
+			$dry_run = ! isset( $input['dry_run'] ) || (bool) $input['dry_run'];
+			$limit   = isset( $input['limit'] ) ? (int) $input['limit'] : self::MAX_REPLACE;
+			$limit   = max( 1, min( self::MAX_REPLACE, $limit ) );
+
+			$post_types = self::normalize_post_types( isset( $input['post_type'] ) ? $input['post_type'] : null );
+			$statuses   = self::normalize_statuses( isset( $input['status'] ) ? $input['status'] : null );
+			$blocked    = self::blocked_post_types();
+			$post_types = array_values(
+				array_filter(
+					$post_types,
+					static function ( $type ) use ( $blocked ) {
+						return ! in_array( $type, $blocked, true );
+					}
+				)
+			);
+			if ( empty( $post_types ) ) {
+				return new WP_Error( 'ahentic_no_post_types', __( 'No allowed post types to scan.', 'ahentic' ) );
+			}
+
+			$wpq = new WP_Query(
+				array(
+					's'              => $find,
+					'post_type'      => $post_types,
+					'post_status'    => $statuses,
+					'posts_per_page' => $limit,
+					'orderby'        => 'ID',
+					'order'          => 'DESC',
+					'no_found_rows'  => true,
+				)
+			);
+
+			$matches  = array();
+			$updated  = array();
+			$skipped  = array();
+			$failed   = array();
+			$match_n  = 0;
+
+			foreach ( $wpq->posts as $post ) {
+				if ( ! ( $post instanceof WP_Post ) ) {
+					continue;
+				}
+				if ( in_array( $post->post_type, $blocked, true ) ) {
+					$skipped[] = array(
+						'id'     => (int) $post->ID,
+						'reason' => 'blocked_post_type',
+					);
+					continue;
+				}
+				if ( ! current_user_can( 'edit_post', $post->ID ) ) {
+					$skipped[] = array(
+						'id'     => (int) $post->ID,
+						'reason' => 'cannot_edit',
+					);
+					continue;
+				}
+
+				$title_occ   = self::count_literal_occurrences( $post->post_title, $find );
+				$content_occ = self::count_literal_occurrences( $post->post_content, $find );
+				$occ         = $title_occ + $content_occ;
+				if ( $occ < 1 ) {
+					continue;
+				}
+				$match_n += $occ;
+
+				$before = self::make_snippet( $post->post_title . "\n" . $post->post_content, $find, self::MAX_SNIPPET );
+				$after_title   = self::apply_literal_replace( $post->post_title, $find, $replace );
+				$after_content = self::apply_literal_replace( $post->post_content, $find, $replace );
+				$after         = self::make_snippet( $after_title . "\n" . $after_content, $replace !== '' ? $replace : $find, self::MAX_SNIPPET );
+				$edit          = get_edit_post_link( $post->ID, 'raw' );
+
+				$row = array(
+					'id'             => (int) $post->ID,
+					'title'          => get_the_title( $post ),
+					'edit_url'       => $edit ? $edit : '',
+					'occurrences'    => $occ,
+					'before_snippet' => $before,
+					'after_snippet'  => $after,
+				);
+
+				if ( $dry_run ) {
+					$matches[] = $row;
+					continue;
+				}
+
+				$result = wp_update_post(
+					array(
+						'ID'           => $post->ID,
+						'post_title'   => $after_title,
+						'post_content' => $after_content,
+					),
+					true
+				);
+				if ( is_wp_error( $result ) ) {
+					$failed[] = array(
+						'id'      => (int) $post->ID,
+						'error'   => $result->get_error_code(),
+						'message' => $result->get_error_message(),
+					);
+					continue;
+				}
+				$updated[] = $row;
+			}
+
+			if ( $dry_run ) {
+				return array(
+					'ok'           => true,
+					'dry_run'      => true,
+					'find'         => $find,
+					'replace'      => $replace,
+					'match_count'  => $match_n,
+					'post_count'   => count( $matches ),
+					'matches'      => $matches,
+					'skipped'      => $skipped,
+				);
+			}
+
+			return array(
+				'ok'          => true,
+				'dry_run'     => false,
+				'find'        => $find,
+				'replace'     => $replace,
+				'match_count' => $match_n,
+				'updated'     => $updated,
+				'skipped'     => $skipped,
+				'failed'      => $failed,
+			);
+		}
+
+		/**
+		 * List revisions for a post.
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_list_revisions( $input = array() ) {
+			$input   = is_array( $input ) ? $input : array();
+			$post_id = isset( $input['post_id'] ) ? (int) $input['post_id'] : 0;
+			if ( $post_id <= 0 ) {
+				return new WP_Error( 'ahentic_missing_post_id', __( 'A valid post_id is required.', 'ahentic' ) );
+			}
+			$post = get_post( $post_id );
+			if ( ! ( $post instanceof WP_Post ) ) {
+				return new WP_Error( 'ahentic_post_not_found', __( 'Post not found.', 'ahentic' ) );
+			}
+			if ( ! current_user_can( 'edit_post', $post_id ) ) {
+				return new WP_Error( 'ahentic_forbidden', __( 'You cannot edit this post.', 'ahentic' ) );
+			}
+
+			$limit = isset( $input['limit'] ) ? (int) $input['limit'] : self::MAX_REVISIONS;
+			$limit = max( 1, min( self::MAX_REVISIONS, $limit ) );
+
+			$revisions = wp_get_post_revisions(
+				$post_id,
+				array(
+					'order'          => 'DESC',
+					'orderby'        => 'date ID',
+					'posts_per_page' => $limit,
+					'check_enabled'  => false,
+				)
+			);
+
+			$items = array();
+			foreach ( $revisions as $revision ) {
+				if ( ! ( $revision instanceof WP_Post ) ) {
+					continue;
+				}
+				$items[] = array(
+					'id'         => (int) $revision->ID,
+					'author'     => (int) $revision->post_author,
+					'date'       => $revision->post_date_gmt ? $revision->post_date_gmt . 'Z' : $revision->post_date,
+					'is_autosave' => function_exists( 'wp_is_post_autosave' ) ? (bool) wp_is_post_autosave( $revision ) : false,
+				);
+			}
+
+			return array(
+				'ok'        => true,
+				'post_id'   => $post_id,
+				'count'     => count( $items ),
+				'revisions' => $items,
+			);
+		}
+
+		/**
+		 * Restore a post from one of its revisions.
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_restore_revision( $input = array() ) {
+			$input       = is_array( $input ) ? $input : array();
+			$post_id     = isset( $input['post_id'] ) ? (int) $input['post_id'] : 0;
+			$revision_id = isset( $input['revision_id'] ) ? (int) $input['revision_id'] : 0;
+			if ( $post_id <= 0 || $revision_id <= 0 ) {
+				return new WP_Error( 'ahentic_missing_ids', __( 'post_id and revision_id are required.', 'ahentic' ) );
+			}
+
+			$post = get_post( $post_id );
+			if ( ! ( $post instanceof WP_Post ) ) {
+				return new WP_Error( 'ahentic_post_not_found', __( 'Post not found.', 'ahentic' ) );
+			}
+			if ( ! current_user_can( 'edit_post', $post_id ) ) {
+				return new WP_Error( 'ahentic_forbidden', __( 'You cannot edit this post.', 'ahentic' ) );
+			}
+
+			$revisions = wp_get_post_revisions( $post_id, array( 'check_enabled' => false ) );
+			if ( ! isset( $revisions[ $revision_id ] ) ) {
+				return new WP_Error(
+					'ahentic_revision_mismatch',
+					__( 'That revision_id does not belong to the given post_id.', 'ahentic' )
+				);
+			}
+
+			$restored = wp_restore_post_revision( $revision_id );
+			if ( ! $restored || is_wp_error( $restored ) ) {
+				$message = is_wp_error( $restored ) ? $restored->get_error_message() : __( 'Could not restore revision.', 'ahentic' );
+				return new WP_Error( 'ahentic_restore_failed', $message );
+			}
+
+			$fresh = get_post( $post_id );
+			if ( ! ( $fresh instanceof WP_Post ) ) {
+				return new WP_Error( 'ahentic_post_not_found', __( 'Post not found after restore.', 'ahentic' ) );
+			}
+
+			$summary               = self::summarize_post( $fresh, true );
+			$summary['ok']         = true;
+			$summary['restored_from_revision'] = $revision_id;
+			return $summary;
+		}
+
+		/**
+		 * Truncate a string for HITL summaries.
+		 *
+		 * @param string $text Text.
+		 * @return string
+		 */
+		private static function truncate_for_summary( $text ) {
+			$text = trim( (string) $text );
+			if ( self::strlen( $text ) <= 40 ) {
+				return $text;
+			}
+			return self::substr( $text, 0, 37 ) . '…';
 		}
 
 		/**

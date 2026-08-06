@@ -283,6 +283,9 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			if ( class_exists( 'Ahentic_Abilities_Content' ) && ! Ahentic_Abilities_Content::is_readonly( $name ) ) {
 				return false;
 			}
+			if ( class_exists( 'Ahentic_Abilities_Media' ) && ! Ahentic_Abilities_Media::is_readonly( $name ) ) {
+				return false;
+			}
 			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) && ! Ahentic_Abilities_Taxonomy::is_readonly( $name ) ) {
 				return false;
 			}
@@ -337,6 +340,9 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			if ( class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::requires_hitl( $name ) ) {
 				return true;
 			}
+			if ( class_exists( 'Ahentic_Abilities_Media' ) && Ahentic_Abilities_Media::requires_hitl( $name ) ) {
+				return true;
+			}
 			return false;
 		}
 
@@ -359,6 +365,9 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			}
 			if ( class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::requires_hitl( $name ) ) {
 				return Ahentic_Abilities_Browser::hitl_summary( $name, $input );
+			}
+			if ( class_exists( 'Ahentic_Abilities_Media' ) && Ahentic_Abilities_Media::requires_hitl( $name ) ) {
+				return Ahentic_Abilities_Media::hitl_summary( $name, $input );
 			}
 			return (string) $name;
 		}

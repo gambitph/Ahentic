@@ -15,6 +15,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 	class Ahentic_Abilities_Plugins {
 		const LIST       = 'ahentic/list-plugins';
 		const SEARCH     = 'ahentic/search-plugins';
+		const ANALYZE    = 'ahentic/analyze-plugins';
 		const INSTALL    = 'ahentic/install-plugin';
 		const ACTIVATE   = 'ahentic/activate-plugin';
 		const DEACTIVATE = 'ahentic/deactivate-plugin';
@@ -24,7 +25,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 		 * @return string[]
 		 */
 		public static function names() {
-			return array( self::LIST, self::SEARCH, self::INSTALL, self::ACTIVATE, self::DEACTIVATE, self::UNINSTALL );
+			return array( self::LIST, self::SEARCH, self::ANALYZE, self::INSTALL, self::ACTIVATE, self::DEACTIVATE, self::UNINSTALL );
 		}
 
 		/**
@@ -42,6 +43,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 		 */
 		public static function requires_hitl( $name ) {
 			return in_array( (string) $name, self::hitl_names(), true );
+		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function is_readonly( $name ) {
+			return in_array( (string) $name, self::names(), true ) && ! self::requires_hitl( $name );
 		}
 
 		/**
@@ -139,6 +148,29 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 					),
 					'output_schema'       => array( 'type' => 'object' ),
 					'execute_callback'    => array( __CLASS__, 'execute_search_plugins' ),
+					'permission_callback' => $can_manage,
+					'meta'                => $readonly_meta,
+				)
+			);
+
+			wp_register_ability(
+				self::ANALYZE,
+				array(
+					'label'               => __( 'Analyze plugins', 'ahentic' ),
+					'description'         => __( 'Flags installed plugins that look inactive, overlapping (SEO/cache/security), or have an available update. Analysis only — does not deactivate.', 'ahentic' ),
+					'category'            => 'ahentic-plugins',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'properties' => array(
+							'status' => array(
+								'type'        => 'string',
+								'enum'        => array( 'all', 'active', 'inactive' ),
+								'description' => __( 'Filter by active state (default: all).', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_analyze_plugins' ),
 					'permission_callback' => $can_manage,
 					'meta'                => $readonly_meta,
 				)
@@ -264,6 +296,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 					return self::execute_list_plugins( $input );
 				case self::SEARCH:
 					return self::execute_search_plugins( $input );
+				case self::ANALYZE:
+					return self::execute_analyze_plugins( $input );
 				case self::INSTALL:
 					return self::execute_install_plugin( $input );
 				case self::ACTIVATE:
@@ -377,6 +411,130 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				'active_count'  => count( $active ),
 				'plugins'       => $items,
 				'plugins_url'   => admin_url( 'plugins.php' ),
+			);
+		}
+
+		/**
+		 * Known slug categories for overlap detection (active plugins only).
+		 *
+		 * @return array<string, string[]> category => slugs
+		 */
+		public static function plugin_overlap_categories() {
+			return array(
+				'seo'      => array( 'wordpress-seo', 'seo-by-rank-math', 'all-in-one-seo-pack', 'the-seo-framework', 'squirrly-seo' ),
+				'caching'  => array( 'wp-super-cache', 'w3-total-cache', 'litespeed-cache', 'wp-rocket', 'autoptimize', 'sg-cachepress' ),
+				'security' => array( 'wordfence', 'better-wp-security', 'sucuri-scanner', 'all-in-one-wp-security-and-firewall', 'jetpack' ),
+			);
+		}
+
+		/**
+		 * Pure heuristic flagging over a list-plugins-shaped plugin list.
+		 *
+		 * @param array $plugins Plugin rows with slug/file/active/name.
+		 * @param array $update_response Response->response map from update_plugins transient (file => object).
+		 * @return array{ plugins: array, summary: array }
+		 */
+		public static function flag_plugins_for_analysis( array $plugins, $update_response = array() ) {
+			$update_response = is_array( $update_response ) ? $update_response : array();
+			$categories      = self::plugin_overlap_categories();
+			$slug_to_cat     = array();
+			foreach ( $categories as $cat => $slugs ) {
+				foreach ( $slugs as $slug ) {
+					$slug_to_cat[ $slug ] = $cat;
+				}
+			}
+
+			$active_by_cat = array();
+			foreach ( $plugins as $plugin ) {
+				if ( empty( $plugin['active'] ) ) {
+					continue;
+				}
+				$slug = isset( $plugin['slug'] ) ? (string) $plugin['slug'] : '';
+				if ( '' === $slug || ! isset( $slug_to_cat[ $slug ] ) ) {
+					continue;
+				}
+				$cat = $slug_to_cat[ $slug ];
+				if ( ! isset( $active_by_cat[ $cat ] ) ) {
+					$active_by_cat[ $cat ] = array();
+				}
+				$active_by_cat[ $cat ][] = $slug;
+			}
+
+			$summary = array(
+				'inactive'            => 0,
+				'overlap'             => 0,
+				'has_available_update' => 0,
+			);
+			$out = array();
+
+			foreach ( $plugins as $plugin ) {
+				$flags = array();
+				$slug  = isset( $plugin['slug'] ) ? (string) $plugin['slug'] : '';
+				$file  = isset( $plugin['file'] ) ? (string) $plugin['file'] : '';
+				$active = ! empty( $plugin['active'] );
+
+				if ( ! $active ) {
+					$flags[] = 'inactive';
+					++$summary['inactive'];
+				}
+
+				if ( $active && '' !== $slug && isset( $slug_to_cat[ $slug ] ) ) {
+					$cat   = $slug_to_cat[ $slug ];
+					$peers = isset( $active_by_cat[ $cat ] ) ? $active_by_cat[ $cat ] : array();
+					foreach ( $peers as $peer ) {
+						if ( $peer === $slug ) {
+							continue;
+						}
+						$flags[] = 'overlaps_with:' . $peer;
+					}
+					if ( count( $peers ) > 1 ) {
+						++$summary['overlap'];
+					}
+				}
+
+				if ( '' !== $file && isset( $update_response[ $file ] ) ) {
+					$flags[] = 'has_available_update';
+					++$summary['has_available_update'];
+				}
+
+				$row          = $plugin;
+				$row['flags'] = array_values( array_unique( $flags ) );
+				$out[]        = $row;
+			}
+
+			return array(
+				'plugins' => $out,
+				'summary' => $summary,
+			);
+		}
+
+		/**
+		 * Analyze installed plugins with cheap local heuristics.
+		 *
+		 * @param mixed $input Input.
+		 * @return array
+		 */
+		public static function execute_analyze_plugins( $input = array() ) {
+			$list = self::execute_list_plugins( $input );
+			$update_response = array();
+			$transient       = get_site_transient( 'update_plugins' );
+			if ( is_object( $transient ) && isset( $transient->response ) && is_array( $transient->response ) ) {
+				$update_response = $transient->response;
+			}
+
+			$flagged = self::flag_plugins_for_analysis(
+				isset( $list['plugins'] ) && is_array( $list['plugins'] ) ? $list['plugins'] : array(),
+				$update_response
+			);
+
+			return array(
+				'ok'           => true,
+				'status'       => isset( $list['status'] ) ? $list['status'] : 'all',
+				'count'        => count( $flagged['plugins'] ),
+				'active_count' => isset( $list['active_count'] ) ? (int) $list['active_count'] : 0,
+				'summary'      => $flagged['summary'],
+				'plugins'      => $flagged['plugins'],
+				'plugins_url'  => isset( $list['plugins_url'] ) ? $list['plugins_url'] : '',
 			);
 		}
 

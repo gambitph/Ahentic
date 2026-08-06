@@ -38,12 +38,16 @@ add_action(
 				'callback'            => 'ahentic_e2e_run_ability',
 				'permission_callback' => 'ahentic_e2e_permission_check',
 				'args'                => array(
-					'name'  => array(
+					'name'       => array(
 						'type'     => 'string',
 						'required' => true,
 					),
-					'input' => array(
+					'input'      => array(
 						'type'     => 'object',
+						'required' => false,
+					),
+					'session_id' => array(
+						'type'     => 'integer',
 						'required' => false,
 					),
 				),
@@ -125,9 +129,10 @@ function ahentic_e2e_permission_check() {
  * @return WP_REST_Response
  */
 function ahentic_e2e_run_ability( WP_REST_Request $request ) {
-	$name  = (string) $request->get_param( 'name' );
-	$input = $request->get_param( 'input' );
-	$input = is_array( $input ) ? $input : array();
+	$name       = (string) $request->get_param( 'name' );
+	$input      = $request->get_param( 'input' );
+	$input      = is_array( $input ) ? $input : array();
+	$session_id = (int) $request->get_param( 'session_id' );
 
 	if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		return new WP_REST_Response(
@@ -140,7 +145,15 @@ function ahentic_e2e_run_ability( WP_REST_Request $request ) {
 		);
 	}
 
-	$result = Ahentic_Abilities::execute( $name, $input );
+	$run = static function () use ( $name, $input ) {
+		return Ahentic_Abilities::execute( $name, $input );
+	};
+
+	if ( $session_id > 0 && class_exists( 'Ahentic_Orchestrator' ) && method_exists( 'Ahentic_Orchestrator', 'with_current_session' ) ) {
+		$result = Ahentic_Orchestrator::with_current_session( $session_id, $run );
+	} else {
+		$result = $run();
+	}
 
 	if ( is_wp_error( $result ) ) {
 		return new WP_REST_Response(
@@ -293,6 +306,48 @@ function ahentic_e2e_ai_override( $override ) {
 	return ahentic_e2e_normalize_ai_result( $next );
 }
 add_filter( 'pre_ahentic_ai_complete_chat', 'ahentic_e2e_ai_override' );
+
+/**
+ * Always mock vision in the e2e Playground (no real provider).
+ *
+ * @param mixed  $override Existing override.
+ * @param string $file_or_url Unused.
+ * @param string $mime_type Unused.
+ * @return array
+ */
+function ahentic_e2e_describe_image_override( $override, $file_or_url = '', $mime_type = '' ) {
+	unset( $file_or_url, $mime_type );
+	if ( null !== $override ) {
+		return $override;
+	}
+	return array(
+		'description'         => 'A solid blue square used in Ahentic e2e tests.',
+		'alt_text_suggestion' => 'Blue square',
+	);
+}
+add_filter( 'pre_ahentic_ai_describe_image', 'ahentic_e2e_describe_image_override', 10, 3 );
+
+/**
+ * Always mock image generation in the e2e Playground (1×1 PNG).
+ *
+ * @param mixed  $override Existing override.
+ * @param string $prompt Unused.
+ * @param string $aspect_ratio Unused.
+ * @return array
+ */
+function ahentic_e2e_generate_image_override( $override, $prompt = '', $aspect_ratio = '' ) {
+	unset( $prompt, $aspect_ratio );
+	if ( null !== $override ) {
+		return $override;
+	}
+	return array(
+		'data_uri'  => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+		'mime_type' => 'image/png',
+		'width'     => 1,
+		'height'    => 1,
+	);
+}
+add_filter( 'pre_ahentic_ai_generate_image', 'ahentic_e2e_generate_image_override', 10, 3 );
 
 /**
  * `pre_ahentic_ai_status` handler: always report the sidebar as ready to

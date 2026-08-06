@@ -18,6 +18,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 		const HTTP_FETCH    = 'ahentic/http-fetch';
 		const DEBUG_LOG     = 'ahentic/get-debug-log';
 		const ADMIN_CONTEXT = 'ahentic/get-admin-context';
+		const LIST_THEMES   = 'ahentic/list-themes';
 
 		const HTTP_MAX_BYTES     = 32768;
 		const HTTP_TIMEOUT       = 12;
@@ -64,7 +65,28 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 				self::HTTP_FETCH,
 				self::DEBUG_LOG,
 				self::ADMIN_CONTEXT,
+				self::LIST_THEMES,
 			);
+		}
+
+		/**
+		 * Whether a theme is a block theme (shared with settings discovery later).
+		 *
+		 * @param \WP_Theme $theme Theme.
+		 * @return bool
+		 */
+		public static function theme_is_block_theme( $theme ) {
+			if ( ! ( $theme instanceof WP_Theme ) ) {
+				return false;
+			}
+			if ( method_exists( $theme, 'is_block_theme' ) ) {
+				return (bool) $theme->is_block_theme();
+			}
+			if ( function_exists( 'wp_theme_has_theme_json' ) ) {
+				$stylesheet = $theme->get_stylesheet();
+				return (bool) wp_theme_has_theme_json( $stylesheet );
+			}
+			return false;
 		}
 
 		/**
@@ -213,6 +235,23 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 					'meta'                => $meta,
 				)
 			);
+
+			wp_register_ability(
+				self::LIST_THEMES,
+				array(
+					'label'               => __( 'List themes', 'ahentic' ),
+					'description'         => __( 'Lists installed themes with active flag and block vs classic detection.', 'ahentic' ),
+					'category'            => 'ahentic-site-ops',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'properties' => array(),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_list_themes' ),
+					'permission_callback' => $permission,
+					'meta'                => $meta,
+				)
+			);
 		}
 
 		/**
@@ -232,9 +271,57 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 					return self::execute_get_debug_log( $input );
 				case self::ADMIN_CONTEXT:
 					return self::execute_get_admin_context( $input );
+				case self::LIST_THEMES:
+					return self::execute_list_themes( $input );
 				default:
 					return new WP_Error( 'ahentic_ability_unknown', __( 'Unknown site ability.', 'ahentic' ) );
 			}
+		}
+
+		/**
+		 * List installed themes.
+		 *
+		 * @param mixed $input Unused.
+		 * @return array
+		 */
+		public static function execute_list_themes( $input = array() ) {
+			unset( $input );
+
+			$active = get_stylesheet();
+			$themes = wp_get_themes();
+			$items  = array();
+
+			foreach ( $themes as $stylesheet => $theme ) {
+				if ( ! ( $theme instanceof WP_Theme ) ) {
+					continue;
+				}
+				$parent = $theme->parent();
+				$items[] = array(
+					'stylesheet'    => (string) $stylesheet,
+					'name'          => (string) $theme->get( 'Name' ),
+					'version'       => (string) $theme->get( 'Version' ),
+					'is_active'     => ( (string) $stylesheet === (string) $active ),
+					'parent'        => $parent instanceof WP_Theme ? (string) $parent->get_stylesheet() : '',
+					'is_block_theme' => self::theme_is_block_theme( $theme ),
+				);
+			}
+
+			usort(
+				$items,
+				static function ( $a, $b ) {
+					if ( $a['is_active'] !== $b['is_active'] ) {
+						return $a['is_active'] ? -1 : 1;
+					}
+					return strcasecmp( $a['stylesheet'], $b['stylesheet'] );
+				}
+			);
+
+			return array(
+				'ok'     => true,
+				'count'  => count( $items ),
+				'active' => (string) $active,
+				'themes' => $items,
+			);
 		}
 
 		/**
@@ -809,7 +896,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 		 * @param string $host Hostname.
 		 * @return bool
 		 */
-		private static function host_is_publicly_fetchable( $host ) {
+		public static function host_is_publicly_fetchable( $host ) {
 			$host = strtolower( trim( $host ) );
 			if ( '' === $host ) {
 				return false;

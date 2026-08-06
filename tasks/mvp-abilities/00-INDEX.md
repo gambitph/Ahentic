@@ -50,7 +50,8 @@ None of these exist in code today — only referenced in docs. No dependency on 
 
 | # | Task |
 | --- | --- |
-| [13](./13-media-abilities.md) | `update-media`, `set-featured-image`, `upload-media`, `delete-media` (quarantine), `replace-media-file` |
+| [13](./13-media-abilities.md) | `update-media`, `set-featured-image` (server), `upload-media`, `delete-media` (quarantine), `replace-media-file` |
+| [16](./16-ability-browser-set-featured-image.md) | `ahentic-browser/set-featured-image` (editor-open live panel; pairs with 13) |
 
 ## Suggested order
 
@@ -58,4 +59,4 @@ None of these exist in code today — only referenced in docs. No dependency on 
 2. Track B (02–06, 14, 15 parts 1–2) — independent, can interleave with A/C at will, no new infra needed
 3. Track C (07 → 08 → 09 → 10 → 11) — discovery before writes; template-part (10) last, it's the biggest build
 4. Track D (12)
-5. Track E (13), then 15 part 3 (`upload-media` `from_memory` wiring — needs 13's `upload-media` to exist first)
+5. Track E (13), then 16 (browser featured-image; can land with or right after 13’s server twin), then 15 part 3 (`upload-media` `from_memory` wiring — needs 13's `upload-media` to exist first)

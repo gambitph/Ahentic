@@ -38,13 +38,21 @@ class AbilityPolicyTest extends TestCase {
 		$this->assertTrue( Ahentic_Abilities_Content::requires_hitl( 'ahentic/create-post' ) );
 		$this->assertTrue( Ahentic_Abilities_Content::requires_hitl( 'ahentic/update-post' ) );
 		$this->assertTrue( Ahentic_Abilities_Content::requires_hitl( 'ahentic/set-post-status' ) );
+		$this->assertTrue( Ahentic_Abilities_Content::requires_hitl( 'ahentic/replace-in-content' ) );
+		$this->assertTrue( Ahentic_Abilities_Content::requires_hitl( 'ahentic/restore-revision' ) );
 
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/list-content' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/get-content' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/search-content' ) );
+		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/list-post-types' ) );
+		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/list-revisions' ) );
 
 		$this->assertTrue( Ahentic_Abilities_Content::is_readonly( 'ahentic/list-content' ) );
+		$this->assertTrue( Ahentic_Abilities_Content::is_readonly( 'ahentic/list-post-types' ) );
+		$this->assertTrue( Ahentic_Abilities_Content::is_readonly( 'ahentic/list-revisions' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::is_readonly( 'ahentic/create-post' ) );
+		$this->assertFalse( Ahentic_Abilities_Content::is_readonly( 'ahentic/replace-in-content' ) );
+		$this->assertFalse( Ahentic_Abilities_Content::is_readonly( 'ahentic/restore-revision' ) );
 	}
 
 	/**
@@ -58,6 +66,27 @@ class AbilityPolicyTest extends TestCase {
 
 		$this->assertFalse( Ahentic_Abilities_Plugins::requires_hitl( 'ahentic/list-plugins' ) );
 		$this->assertFalse( Ahentic_Abilities_Plugins::requires_hitl( 'ahentic/search-plugins' ) );
+		$this->assertFalse( Ahentic_Abilities_Plugins::requires_hitl( 'ahentic/analyze-plugins' ) );
+		$this->assertTrue( Ahentic_Abilities_Plugins::is_readonly( 'ahentic/analyze-plugins' ) );
+	}
+
+	/**
+	 * Site list-themes and media vision/generation are readonly (no HITL).
+	 */
+	public function test_site_and_media_track_b_readonly_flags() {
+		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-site.php';
+		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-media.php';
+
+		$this->assertContains( 'ahentic/list-themes', Ahentic_Abilities_Site::names() );
+		$this->assertContains( 'ahentic/describe-image', Ahentic_Abilities_Media::names() );
+		$this->assertContains( 'ahentic/generate-image', Ahentic_Abilities_Media::names() );
+		$this->assertContains( 'ahentic/upload-media', Ahentic_Abilities_Media::names() );
+		$this->assertTrue( Ahentic_Abilities_Media::is_readonly( 'ahentic/describe-image' ) );
+		$this->assertTrue( Ahentic_Abilities_Media::is_readonly( 'ahentic/generate-image' ) );
+		$this->assertFalse( Ahentic_Abilities_Media::is_readonly( 'ahentic/upload-media' ) );
+		$this->assertFalse( Ahentic_Abilities_Media::requires_hitl( 'ahentic/describe-image' ) );
+		$this->assertFalse( Ahentic_Abilities_Media::requires_hitl( 'ahentic/generate-image' ) );
+		$this->assertTrue( Ahentic_Abilities_Media::requires_hitl( 'ahentic/upload-media' ) );
 	}
 
 	/**
@@ -81,6 +110,7 @@ class AbilityPolicyTest extends TestCase {
 		$this->assertTrue( Ahentic_Abilities::requires_hitl( 'ahentic/create-post' ) );
 		$this->assertTrue( Ahentic_Abilities::requires_hitl( 'ahentic/install-plugin' ) );
 		$this->assertTrue( Ahentic_Abilities::requires_hitl( 'ahentic-browser/save-post' ) );
+		$this->assertTrue( Ahentic_Abilities::requires_hitl( 'ahentic/upload-media' ) );
 
 		$this->assertFalse( Ahentic_Abilities::requires_hitl( 'ahentic/get-site-snapshot' ) );
 		$this->assertFalse( Ahentic_Abilities::requires_hitl( 'ahentic-browser/get-current-page' ) );

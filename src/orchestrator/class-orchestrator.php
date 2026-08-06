@@ -1124,6 +1124,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					sprintf( 'LLM failed after %dms', $elapsed_ms ),
 					array(
 						'code'        => $result->get_error_code(),
+						'message'     => $result->get_error_message(),
 						'duration_ms' => $elapsed_ms,
 					),
 					$step
@@ -2227,6 +2228,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'ahentic-browser/save-post'                   => __( 'Saving the post…', 'ahentic' ),
 				'ahentic/search-content'                     => __( 'Searching site content…', 'ahentic' ),
 				'ahentic/list-content'                       => __( 'Listing posts and pages…', 'ahentic' ),
+				'ahentic/generate-image'                     => __( 'Generating an image…', 'ahentic' ),
+				'ahentic/upload-media'                       => __( 'Uploading media…', 'ahentic' ),
+				'ahentic/describe-image'                     => __( 'Describing image…', 'ahentic' ),
 				'ahentic/get-content'                        => __( 'Reading post content…', 'ahentic' ),
 				'ahentic/create-post'                        => __( 'Creating a draft post…', 'ahentic' ),
 				'ahentic/update-post'                        => __( 'Updating post content…', 'ahentic' ),
@@ -3172,6 +3176,7 @@ Rules:
 				. '(WooCommerce simple products typically use _regular_price and _price). Never invent top-level fields like "price". '
 				. 'Always pass tools_planned as objects with input when a tool needs args (e.g. {"name":"ahentic/get-content","input":{"id":123}}), not bare ability name strings. '
 				. 'Prefer ahentic/find-unused-media to scan the media library for images that look unused (not featured/logo/icon/in content). '
+				. 'To place a generated image in the open post: ahentic/generate-image → ahentic/upload-media {"from_memory":"<artifact_key>"} (allow HITL) → ahentic-browser/insert-blocks with core/image {id,url,alt} (index 0 or before_ref of the first block). Never from_memory on insert-blocks for image artifacts. '
 				. 'Prefer ahentic/update-term (Agent mode) to change an existing category/tag/custom taxonomy term: pass taxonomy plus term_id or term (ID/slug/name), then name/slug/description/parent and/or meta. '
 				. 'Use edit_url / view_url / media_library_url / plugins_url from those results when linking the user. '
 				. 'Do not claim you ran a tool that is not in the available list. ';
@@ -4422,6 +4427,10 @@ Rules:
 			}
 			if ( isset( $out['content'] ) && is_string( $out['content'] ) && strlen( $out['content'] ) > 240 ) {
 				$out['content'] = self::excerpt( $out['content'], 240 );
+			}
+			// Never dump local filesystem paths into traces.
+			if ( isset( $out['source_path'] ) ) {
+				$out['source_path'] = '[local]';
 			}
 			return $out;
 		}

@@ -18,13 +18,19 @@
  * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils The `requestUtils` fixture.
  * @param {string}                                                      name         Ability name, e.g. "ahentic/get-site-snapshot".
  * @param {Object}                                                      [input]      Ability input.
+ * @param {Object}                                                      [options]
+ * @param {number}                                                      [options.sessionId] Optional session id for Tool-runner-like current_session wrapping.
  * @return {Promise<{ok: boolean, data?: *, error?: string, message?: string}>} Parsed run-ability response.
  */
-async function runAbility( requestUtils, name, input = {} ) {
+async function runAbility( requestUtils, name, input = {}, { sessionId } = {} ) {
+	const data = { name, input }
+	if ( sessionId ) {
+		data.session_id = sessionId
+	}
 	return requestUtils.rest( {
 		path: '/ahentic-e2e/v1/run-ability',
 		method: 'POST',
-		data: { name, input },
+		data,
 	} )
 }
 

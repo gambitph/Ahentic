@@ -41,6 +41,7 @@ Extend `class-abilities-media.php` (or split into a dedicated module if it grows
 
 - Input: `post_id`, `attachment_id`.
 - `set_post_thumbnail()`. Snapshot the prior thumbnail id (or its absence) before setting.
+- **Editor open:** prefer the browser twin [`ahentic-browser/set-featured-image`](./16-ability-browser-set-featured-image.md) (Task 16) so the document panel updates live; this server ability is the path when the block editor is **not** open for that post (or for headless / Premium Agents). Optionally refuse or hint browser when page context shows editor open for `post_id` — same spirit as content body routing, without inventing a second ToolRunner pipeline.
 
 ### `ahentic/upload-media`
 
