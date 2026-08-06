@@ -35,6 +35,8 @@ Official refs: [Abilities API in WP 6.9](https://make.wordpress.org/core/2025/11
 
 Facade: `Ahentic_Abilities::init()` registers categories/abilities; `available_for_agent()` / `available_for_mode()` / `execute()` / `requires_hitl()` / `requires_browser_runtime()` feed the **Tool runner** (pipeline) and ability dispatch. Agent runs go through `Ahentic_Tool_Runner`; `execute()` is dispatch only — see [orchestrator CONTRACT](../orchestrator/CONTRACT.md).
 
+**v1 catalog:** only Ahentic-wired names. Foreign (other-plugin) WP Abilities are not in the agent catalog yet — planned for v2/v3; see [Abilities PRD](../../pro__premium_only/docs/prd/abilities.md) and [future-foreign-abilities.md](../../pro__premium_only/docs/future-foreign-abilities.md).
+
 ---
 
 ## How to write an ability (checklist)

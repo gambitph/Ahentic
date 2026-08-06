@@ -52,6 +52,14 @@ _Avoid_: todo list (UI-only), outline
 A named WordPress Abilities API unit (schema + permission + execute) that the agent may call as a tool.
 _Avoid_: tool (as the registration unit), action, skill
 
+**Ahentic-registered ability**:
+An ability Ahentic owns end-to-end: registered under `ahentic/…` or `ahentic-browser/…` and wired into Ahentic’s agent catalog (mode filters, HITL, browser flag, Tool runner).
+_Avoid_: first-party ability (vague), wrapped ability
+
+**Foreign ability**:
+A WordPress Ability registered by Core or another plugin that Ahentic did not author; usable by the agent only when product policy allows (planned: opt-in catalog, risk tier, HITL defaults) — Ahentic may lack deep product knowledge of it beyond the Abilities API metadata.
+_Avoid_: third-party tool, external ability, unlisted ability (v1 status name)
+
 **Server ability**:
 An ability whose work runs in PHP when the Tool runner reaches server execute (`Ahentic_Abilities::execute`).
 _Avoid_: REST tool, backend tool
