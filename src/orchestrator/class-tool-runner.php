@@ -4,7 +4,7 @@
  *
  * Owns the shared run path used by the step loop, HITL approval resume,
  * and browser result persist: auto-stage → from_memory → HITL/browser pause →
- * execute → assess → persist.
+ * execute → Finish gate assess → persist.
  */
 
 // Exit if accessed directly.
@@ -17,14 +17,15 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 	 * Deep pipeline module for one Ability run.
 	 *
 	 * Primary interface: run() and record_completed_result(). Pipeline helpers
-	 * (auto-stage, from_memory, preflight, assess, …) live here — not on the Orchestrator.
+	 * (auto-stage, from_memory, preflight, …) live here — not on the Orchestrator.
+	 * Write assessment is Ahentic_Finish_Gate::assess_write_payload.
 	 * Progress labels / session context remain on Ahentic_Orchestrator (shared with the step loop).
 	 */
 	class Ahentic_Tool_Runner {
 
 		/**
 		 * Run one available ability through the contract pipeline:
-		 * auto-stage → from_memory validate/expand → HITL pause → browser pause → PHP execute → assess → persist.
+		 * auto-stage → from_memory validate/expand → HITL pause → browser pause → PHP execute → Finish gate assess → persist.
 		 *
 		 * @param int    $session_id Session CPT ID.
 		 * @param string $name       Ability name (already known available for the mode).
@@ -198,7 +199,7 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 				Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
 			}
 
-			$payload = self::assess_write_payload( $session_id, $name, $payload, $ok );
+			$payload = Ahentic_Finish_Gate::assess_write_payload( $session_id, $name, $payload, $ok );
 
 			$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			if ( ! is_string( $content ) ) {
@@ -267,7 +268,7 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 				Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
 			}
 
-			$tool_payload = self::assess_write_payload( $session_id, $name, $tool_payload, $ok );
+			$tool_payload = Ahentic_Finish_Gate::assess_write_payload( $session_id, $name, $tool_payload, $ok );
 
 			$content = wp_json_encode( $tool_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			if ( ! is_string( $content ) ) {
@@ -510,89 +511,6 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 			}
 
 			return true;
-		}
-
-		/**
-		 * Mark thin writes / advance plan after a successful mutate (ADR-0003).
-		 *
-		 * @param int    $session_id Session ID.
-		 * @param string $name       Ability.
-		 * @param mixed  $payload    Tool payload.
-		 * @param bool   $ok         Whether the tool succeeded.
-		 * @return mixed
-		 */
-		public static function assess_write_payload( $session_id, $name, $payload, $ok ) {
-			if ( ! $ok || ! class_exists( 'Ahentic_Abilities' ) ) {
-				return $payload;
-			}
-			$name = (string) $name;
-			if ( Ahentic_Abilities::is_readonly( $name ) ) {
-				return $payload;
-			}
-			if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::is_artifact_ability( $name ) ) {
-				return $payload;
-			}
-
-			Ahentic_Orchestrator::advance_plan_after_tool( $session_id, $name );
-
-			if ( ! is_array( $payload ) || ! self::ability_writes_body( $name ) ) {
-				return $payload;
-			}
-			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) || ! Ahentic_Session_Artifacts::session_has_content_work( $session_id ) ) {
-				return $payload;
-			}
-
-			$min_chars = (int) Ahentic_Orchestrator::LONG_FORM_MIN_CHARS;
-
-			$chars  = self::body_chars_from_write_payload( $payload );
-			$target = self::write_target_key( $name, $payload );
-
-			// A later write to the same document supersedes what an earlier one reported.
-			$findings = array();
-			foreach ( Ahentic_Session_Repository::get_verify_pending( $session_id ) as $item ) {
-				if ( isset( $item['target'] ) && (string) $item['target'] === $target ) {
-					continue;
-				}
-				$findings[] = $item;
-			}
-
-			$thin = ( $chars >= 0 && $chars < $min_chars )
-				|| self::write_payload_looks_like_placeholder( $payload );
-
-			if ( $thin ) {
-				$payload['thin']        = true;
-				$payload['thin_reason'] = sprintf(
-					/* translators: 1: measured characters, 2: required characters */
-					__( 'This document holds %1$d characters of text; the long-form work requested needs at least %2$d. Keep writing — expand it with real sections instead of replying.', 'ahentic' ),
-					max( 0, $chars ),
-					$min_chars
-				);
-				$findings[] = array(
-					'ability' => $name,
-					'target'  => $target,
-					'at'      => gmdate( 'c' ),
-					'chars'   => max( 0, $chars ),
-				);
-			}
-
-			Ahentic_Session_Repository::set_verify_pending( $session_id, $findings );
-
-			if ( $thin ) {
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'verify_thin',
-					sprintf( 'Thin body after %s', $name ),
-					array(
-						'ability' => $name,
-						'target'  => $target,
-						'chars'   => max( 0, $chars ),
-						'minimum' => $min_chars,
-					),
-					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
-				);
-			}
-
-			return $payload;
 		}
 
 		/**
@@ -925,91 +843,6 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 				'Queued remaining browser tools to run after the pause',
 				array( 'tools' => $names ),
 				$step
-			);
-		}
-
-		/**
-		 * Writes whose payload reports a body worth measuring.
-		 *
-		 * @param string $name Ability.
-		 * @return bool
-		 */
-		private static function ability_writes_body( $name ) {
-			return in_array(
-				(string) $name,
-				array(
-					'ahentic/create-post',
-					'ahentic/update-post',
-					'ahentic-browser/set-blocks',
-					'ahentic-browser/insert-blocks',
-					'ahentic-browser/replace-blocks',
-				),
-				true
-			);
-		}
-
-		/**
-		 * Which document a write landed on, so a later write can supersede its finding.
-		 *
-		 * @param string $name    Ability.
-		 * @param array  $payload Payload.
-		 * @return string
-		 */
-		private static function write_target_key( $name, array $payload ) {
-			if ( 0 === strpos( (string) $name, 'ahentic-browser/' ) ) {
-				return 'editor';
-			}
-			$post_id = 0;
-			if ( ! empty( $payload['id'] ) ) {
-				$post_id = (int) $payload['id'];
-			} elseif ( ! empty( $payload['post_id'] ) ) {
-				$post_id = (int) $payload['post_id'];
-			}
-			return 'post:' . $post_id;
-		}
-
-		/**
-		 * Plain-text size of the document a write left behind, or -1 when it did not report one.
-		 *
-		 * @param array $payload Payload.
-		 * @return int
-		 */
-		private static function body_chars_from_write_payload( array $payload ) {
-			$sources = array( $payload );
-			if ( isset( $payload['post'] ) && is_array( $payload['post'] ) ) {
-				$sources[] = $payload['post'];
-			}
-			foreach ( $sources as $source ) {
-				if ( isset( $source['text_chars'] ) ) {
-					return (int) $source['text_chars'];
-				}
-				if ( isset( $source['content_text_chars'] ) ) {
-					return (int) $source['content_text_chars'];
-				}
-			}
-			return -1;
-		}
-
-		/**
-		 * Leading placeholder prose in the body a write reported back.
-		 *
-		 * @param array $payload Payload.
-		 * @return bool
-		 */
-		private static function write_payload_looks_like_placeholder( array $payload ) {
-			$preview = '';
-			if ( isset( $payload['content_preview'] ) ) {
-				$preview = (string) $payload['content_preview'];
-			} elseif ( isset( $payload['post']['content_preview'] ) ) {
-				$preview = (string) $payload['post']['content_preview'];
-			}
-			if ( '' === trim( $preview ) ) {
-				return false;
-			}
-			$stripped = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $preview ) : strip_tags( $preview );
-			return (bool) preg_match(
-				'/^\s*(lorem ipsum|placeholder|\[full article\]|todo:?\s*write|coming soon)/i',
-				$stripped
 			);
 		}
 

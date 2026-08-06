@@ -74,6 +74,7 @@ require_once __DIR__ . '/src/playbooks/class-playbooks.php';
 require_once __DIR__ . '/src/orchestrator/class-usage.php';
 require_once __DIR__ . '/src/orchestrator/class-queue.php';
 require_once __DIR__ . '/src/orchestrator/class-ai.php';
+require_once __DIR__ . '/src/orchestrator/class-finish-gate.php';
 require_once __DIR__ . '/src/orchestrator/class-tool-runner.php';
 require_once __DIR__ . '/src/orchestrator/class-orchestrator.php';
 require_once __DIR__ . '/src/admin/class-rest.php';

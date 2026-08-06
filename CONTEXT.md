@@ -29,8 +29,12 @@ The PHP agent loop that thinks, runs tools, pauses for humans or the browser, an
 _Avoid_: brain (in code), agent runtime (when referring to the class), tool loop owner in JS
 
 **Tool runner**:
-The module that runs one Ability through the shared pipeline (Working memory / `from_memory` → HITL → browser pause → execute → assess → persist). The Orchestrator calls it from the step loop, HITL approval resume, and related entry points so that order is not copy-pasted.
+The module that runs one Ability through the shared pipeline (Working memory / `from_memory` → HITL → browser pause → execute → Finish gate assess → persist). The Orchestrator calls it from the step loop, HITL approval resume, and related entry points so that order is not copy-pasted.
 _Avoid_: tool service, ability executor (as the product name)
+
+**Finish gate**:
+The module that decides whether a Session may idle after a reply: thin-body assessment on write payloads, forced apply of unapplied content Artifacts, verify repair think, and honest partial finish (ADR-0003).
+_Avoid_: verifier, completion service, read-after-write checker
 
 **Session**:
 One conversation / run workspace stored as an `ahentic-session` post; holds entries, status, plan, pending tool, artifacts, and page context.

@@ -35,6 +35,7 @@
 - Agent writes / multi-step: tool success is the verification. Must **not** call a readonly ability to confirm a write, and must not treat a page snapshot as proof of any change.
 - Long-form content runs: must not `idle` while a write payload reports a body under the long-form floor. One repair think, then an honest partial finish.
 - Never summarize as done while `awaiting_human` or `awaiting_browser`.
+- **Finish gate module:** `Ahentic_Finish_Gate` owns thin-body `assess_write_payload` (called from the Tool runner) and `evaluate_reply` before idle (unapplied artifacts → forced apply; verify repair / honest partial). The Orchestrator must not reimplement those ADR-0003 rules at call sites.
 
 ## Tool branches
 
@@ -44,9 +45,9 @@ Order of concerns for each planned tool (after the ability is available for the 
 2. `from_memory`: keep **key only** on pending; expand from session working memory at execute/browser (Working memory PRD). May auto-stage oversized payloads and rewrite to `from_memory`.  
 3. HITL pause if required (`awaiting_human`)  
 4. Browser pause if required (`awaiting_browser`) — **after** HITL when both apply  
-5. Else server `Ahentic_Abilities::execute` → assess write payload → persist tool entry  
+5. Else server `Ahentic_Abilities::execute` → `Ahentic_Finish_Gate::assess_write_payload` → persist tool entry  
 
-**Single pipeline module:** Steps 2–5 for agent-facing Ability runs are owned by `Ahentic_Tool_Runner` (`run()` / `record_completed_result()`). Pipeline helpers (auto-stage, `from_memory` expand, browser preflight/fallback, assess, tool failure persist, trace shaping) live **inside** that module — not as Orchestrator public helpers. Some helpers stay `public` so Orchestrator recovery (`recover_stale_browser`) and unit tests can call them without reimplementing. The Orchestrator must **not** reimplement HITL pause, browser pause, `from_memory` expand, execute, assess, or tool-entry persist at call sites. Do not invent a second execute path in REST handlers, ability modules, or ad-hoc Orchestrator helpers.
+**Single pipeline module:** Steps 2–5 for agent-facing Ability runs are owned by `Ahentic_Tool_Runner` (`run()` / `record_completed_result()`). Pipeline helpers (auto-stage, `from_memory` expand, browser preflight/fallback, tool failure persist, trace shaping) live **inside** that module — not as Orchestrator public helpers. Write assessment (`assess_write_payload`) is owned by `Ahentic_Finish_Gate` and invoked from the Tool runner. Some Tool runner helpers stay `public` so Orchestrator recovery (`recover_stale_browser`) and unit tests can call them without reimplementing. The Orchestrator must **not** reimplement HITL pause, browser pause, `from_memory` expand, execute, assess, or tool-entry persist at call sites. Do not invent a second execute path in REST handlers, ability modules, or ad-hoc Orchestrator helpers.
 
 `Ahentic_Abilities::execute` remains the ability **dispatch** seam (registration → `execute_*`). The Tool runner is the orchestrator **pipeline** around that dispatch. Orchestrator still owns step-loop concerns shared with prompts (e.g. `progress_label_for_tool`, plan advance after a tool, session `with_current_session`).
 

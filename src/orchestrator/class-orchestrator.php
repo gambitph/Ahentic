@@ -40,10 +40,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		const MAX_TOOL_RESULT_CHARS = 8000;
 		/** Cap for the newest live-editor snapshot; superseded copies are collapsed so one full read fits. */
 		const MAX_TOOL_RESULT_CHARS_SNAPSHOT = 24000;
-		/** Max repair-think cycles for a thin body before an honest partial finish. */
-		const MAX_VERIFY_ATTEMPTS = 1;
-		/** Plain-text characters a long-form body must reach before the agent may finish. */
-		const LONG_FORM_MIN_CHARS = 2000;
 
 		/**
 		 * Session currently being processed (for abilities that need page context).
@@ -550,9 +546,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			// After staging a ready draft without applying it in this batch, skip the next free
 			// LLM think and force from_memory apply (saves a full debug-retry cycle).
 			if ( 'agent' === $mode && class_exists( 'Ahentic_Session_Artifacts' ) ) {
-				$unapplied = self::ready_unapplied_content_artifacts( $session_id );
-				if ( ! empty( $unapplied ) && ! self::planned_includes_artifact_apply( $planned, $unapplied ) ) {
-					$apply_tools = self::build_forced_apply_tools( $session_id, $unapplied );
+				$unapplied = Ahentic_Finish_Gate::ready_unapplied_content_artifacts( $session_id );
+				if ( ! empty( $unapplied ) && ! Ahentic_Finish_Gate::planned_includes_artifact_apply( $planned, $unapplied ) ) {
+					$apply_tools = Ahentic_Finish_Gate::build_forced_apply_tools( $session_id, $unapplied );
 					if ( ! empty( $apply_tools ) ) {
 						Ahentic_Session_Repository::set_forced_tools( $session_id, $apply_tools );
 						Ahentic_Session_Repository::append_trace(
@@ -1263,54 +1259,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @return bool True when the run should continue (another step); false when finished.
 		 */
 		private static function try_finish_with_reply( $session_id, array $result, $debug = array() ) {
-			$mode = Ahentic_Session_Repository::get_mode( $session_id );
-
-			if ( 'agent' === $mode ) {
-				$unapplied = self::ready_unapplied_content_artifacts( $session_id );
-				if ( ! empty( $unapplied ) ) {
-					self::stash_pending_final( $session_id, $result, $debug );
-					$apply_tools = self::build_forced_apply_tools( $session_id, $unapplied );
-					if ( ! empty( $apply_tools ) ) {
-						Ahentic_Session_Repository::set_forced_tools( $session_id, $apply_tools );
-					}
-					$keys = implode( ', ', $unapplied );
-					Ahentic_Session_Repository::set_progress(
-						$session_id,
-						__( 'Applying staged draft…', 'ahentic' )
-					);
-					Ahentic_Session_Repository::set_thought(
-						$session_id,
-						sprintf(
-							/* translators: %s: artifact keys */
-							__( 'A draft is staged (%s) but not applied yet — applying via from_memory before finishing.', 'ahentic' ),
-							$keys
-						)
-					);
-					Ahentic_Session_Repository::append_trace(
-						$session_id,
-						'apply_required',
-						'Ready artifacts not applied — continuing',
-						array(
-							'keys'  => $unapplied,
-							'tools' => $apply_tools,
-						),
-						(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
-					);
-					return true;
-				}
-
-				if ( ! empty( Ahentic_Session_Repository::get_verify_pending( $session_id ) ) ) {
-					$gate = self::run_verification_gate( $session_id, $result, $debug );
-					if ( 'continue' === $gate ) {
-						return true;
-					}
-					if ( is_array( $gate ) && isset( $gate['result'] ) ) {
-						$result = $gate['result'];
-						$debug  = isset( $gate['debug'] ) ? $gate['debug'] : $debug;
-					}
-				}
+			$decision = Ahentic_Finish_Gate::evaluate_reply( $session_id, $result, $debug );
+			if ( ! empty( $decision['continue'] ) ) {
+				return true;
 			}
-
+			$result = isset( $decision['result'] ) && is_array( $decision['result'] ) ? $decision['result'] : $result;
+			$debug  = isset( $decision['debug'] ) && is_array( $decision['debug'] ) ? $decision['debug'] : $debug;
 			self::finish_with_reply( $session_id, $result, $debug );
 			return false;
 		}
@@ -3269,7 +3223,7 @@ Rules:
 		private static function verify_context_for_prompt( $session_id ) {
 			$notes = array();
 
-			$unapplied = self::ready_unapplied_content_artifacts( $session_id );
+			$unapplied = Ahentic_Finish_Gate::ready_unapplied_content_artifacts( $session_id );
 			if ( ! empty( $unapplied ) ) {
 				$notes[] = 'Ready artifacts not yet applied: '
 					. implode( ', ', $unapplied )
@@ -3287,7 +3241,7 @@ Rules:
 						. 'Keep writing: expand it with real sections via set-blocks / insert-blocks / update-post. '
 						. 'Do not set next="reply" until the body is complete. Do not call a readonly ability to re-check it — the write result reports the size.',
 					$chars,
-					self::LONG_FORM_MIN_CHARS
+					Ahentic_Finish_Gate::LONG_FORM_MIN_CHARS
 				);
 			}
 
@@ -3331,75 +3285,6 @@ Rules:
 				return true;
 			}
 			return false;
-		}
-
-		/**
-		 * Stash candidate closing prose so verify/apply continues do not drop it.
-		 *
-		 * @param int   $session_id Session ID.
-		 * @param array $result     LLM result.
-		 * @param array $debug      Debug meta.
-		 */
-		private static function stash_pending_final( $session_id, array $result, $debug = array() ) {
-			$text = isset( $result['text'] ) ? trim( (string) $result['text'] ) : '';
-			if ( ( '' === $text || self::reply_looks_like_process( $text ) ) && is_array( $debug ) && class_exists( 'Ahentic_AI' ) ) {
-				$fallback = trim( (string) Ahentic_AI::fallback_reply_from_debug( $debug ) );
-				if ( '' !== $fallback && ! self::reply_looks_like_process( $fallback ) ) {
-					$text = $fallback;
-				}
-			}
-			if ( '' === $text || self::reply_looks_like_process( $text ) ) {
-				return;
-			}
-
-			$existing = Ahentic_Session_Repository::get_pending_final( $session_id );
-			if ( is_array( $existing ) && ! empty( $existing['text'] ) ) {
-				// Keep the first good closing reply unless the new one is longer/better.
-				if ( strlen( $text ) < strlen( (string) $existing['text'] ) ) {
-					return;
-				}
-			}
-
-			Ahentic_Session_Repository::set_pending_final(
-				$session_id,
-				array(
-					'text'  => $text,
-					'model' => isset( $result['model'] ) ? (string) $result['model'] : '',
-					'debug' => is_array( $debug ) ? $debug : array(),
-				)
-			);
-		}
-
-		/**
-		 * Content artifacts that are ready but not yet applied to the site/editor.
-		 *
-		 * @param int $session_id Session ID.
-		 * @return array<int, string> Artifact keys.
-		 */
-		private static function ready_unapplied_content_artifacts( $session_id ) {
-			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
-				return array();
-			}
-			$content_kinds = array(
-				Ahentic_Session_Artifacts::KIND_BLOCKS,
-				Ahentic_Session_Artifacts::KIND_HTML,
-				Ahentic_Session_Artifacts::KIND_MARKDOWN,
-				Ahentic_Session_Artifacts::KIND_POST_CONTENT,
-			);
-			$keys = array();
-			foreach ( Ahentic_Session_Artifacts::list_pointers( $session_id ) as $p ) {
-				$status = isset( $p['status'] ) ? (string) $p['status'] : '';
-				$kind   = isset( $p['kind'] ) ? (string) $p['kind'] : '';
-				$key    = isset( $p['key'] ) ? (string) $p['key'] : '';
-				if ( '' === $key || Ahentic_Session_Artifacts::STATUS_READY !== $status ) {
-					continue;
-				}
-				if ( ! in_array( $kind, $content_kinds, true ) ) {
-					continue;
-				}
-				$keys[] = $key;
-			}
-			return $keys;
 		}
 
 		/**
@@ -3578,163 +3463,6 @@ Rules:
 				}
 			}
 			return __( 'Done.', 'ahentic' );
-		}
-
-		/**
-		 * @param int   $session_id Session ID.
-		 * @param array $result     Pending final reply.
-		 * @param array $debug      Debug.
-		 * @return string|array 'continue' or { result, debug }
-		 */
-		private static function run_verification_gate( $session_id, array $result, $debug ) {
-			$findings = Ahentic_Session_Repository::get_verify_pending( $session_id );
-			if ( empty( $findings ) ) {
-				return array(
-					'result' => $result,
-					'debug'  => $debug,
-				);
-			}
-
-			// Keep the model's closing prose so a repair think cannot lose it.
-			self::stash_pending_final( $session_id, $result, $debug );
-
-			$attempts = Ahentic_Session_Repository::bump_verify_attempts( $session_id );
-			$step     = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
-
-			if ( $attempts > self::MAX_VERIFY_ATTEMPTS ) {
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'verify_partial',
-					'Body still thin after a repair attempt — honest partial finish',
-					array(
-						'findings' => $findings,
-						'attempts' => $attempts,
-					),
-					$step
-				);
-				Ahentic_Session_Repository::clear_verify_pending( $session_id );
-				Ahentic_Session_Repository::clear_forced_tools( $session_id );
-
-				$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
-				$msg     = __(
-					'I applied a draft, but the body still looks thin or like a placeholder. Send Continue and I’ll expand it.',
-					'ahentic'
-				);
-				if ( is_array( $stashed ) && ! empty( $stashed['text'] ) && ! self::reply_looks_like_process( (string) $stashed['text'] ) ) {
-					$result['text'] = trim( (string) $stashed['text'] ) . "\n\n" . $msg;
-				} else {
-					$result['text'] = $msg;
-				}
-
-				return array(
-					'result' => $result,
-					'debug'  => $debug,
-				);
-			}
-
-			// No forced tools: the next step is a free repair think, never a read-back.
-			Ahentic_Session_Repository::append_trace(
-				$session_id,
-				'verify_required',
-				'Thin body — continuing to expand',
-				array(
-					'findings' => $findings,
-					'attempts' => $attempts,
-				),
-				$step
-			);
-			Ahentic_Session_Repository::set_progress( $session_id, __( 'Expanding draft…', 'ahentic' ), $step );
-			Ahentic_Session_Repository::set_thought(
-				$session_id,
-				__( 'The body written so far is too thin for long-form work — expanding it before finishing.', 'ahentic' )
-			);
-			return 'continue';
-		}
-
-		/**
-		 * Forced mutate to apply the first ready content artifact.
-		 *
-		 * @param int                $session_id Session ID.
-		 * @param array<int, string> $keys       Ready artifact keys.
-		 * @return array<int, array{name: string, input: array}>
-		 */
-		private static function build_forced_apply_tools( $session_id, array $keys ) {
-			if ( empty( $keys ) ) {
-				return array();
-			}
-			$key = (string) $keys[0];
-			$ctx = Ahentic_Session_Repository::get_page_context( $session_id );
-			$editor_open = ! empty( $ctx['is_block_editor'] );
-			$post_id     = ! empty( $ctx['post_id'] ) ? (int) $ctx['post_id'] : 0;
-
-			if ( $editor_open && class_exists( 'Ahentic_Abilities_Browser' ) ) {
-				return array(
-					array(
-						'name'  => Ahentic_Abilities_Browser::SET_BLOCKS,
-						'input' => array( 'from_memory' => $key ),
-					),
-				);
-			}
-
-			if ( $post_id > 0 && class_exists( 'Ahentic_Abilities_Content' ) ) {
-				return array(
-					array(
-						'name'  => Ahentic_Abilities_Content::UPDATE,
-						'input' => array(
-							'id'          => $post_id,
-							'from_memory' => $key,
-						),
-					),
-				);
-			}
-
-			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {
-				return array(
-					array(
-						'name'  => Ahentic_Abilities_Content::CREATE,
-						'input' => array( 'from_memory' => $key ),
-					),
-				);
-			}
-
-			return array();
-		}
-
-		/**
-		 * Whether this tool batch already applies one of the ready artifact keys.
-		 *
-		 * @param array              $planned Tool calls.
-		 * @param array<int, string> $keys    Ready keys.
-		 * @return bool
-		 */
-		private static function planned_includes_artifact_apply( array $planned, array $keys ) {
-			$key_lookup = array();
-			foreach ( $keys as $k ) {
-				$key_lookup[ (string) $k ] = true;
-			}
-			$apply_names = array();
-			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
-				$apply_names[] = Ahentic_Abilities_Browser::SET_BLOCKS;
-			}
-			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {
-				$apply_names[] = Ahentic_Abilities_Content::CREATE;
-				$apply_names[] = Ahentic_Abilities_Content::UPDATE;
-			}
-			foreach ( $planned as $call ) {
-				if ( ! is_array( $call ) ) {
-					continue;
-				}
-				$name  = isset( $call['name'] ) ? (string) $call['name'] : '';
-				$input = isset( $call['input'] ) && is_array( $call['input'] ) ? $call['input'] : array();
-				if ( ! in_array( $name, $apply_names, true ) ) {
-					continue;
-				}
-				$mem = isset( $input['from_memory'] ) ? (string) $input['from_memory'] : '';
-				if ( '' !== $mem && isset( $key_lookup[ $mem ] ) ) {
-					return true;
-				}
-			}
-			return false;
 		}
 
 		/**
