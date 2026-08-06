@@ -54,6 +54,11 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      # Browser-driven specs need the React sidebar under build/admin/ (gitignored).
+      # Without this, class-script-loader.php skips enqueue and openWithSession hangs.
+      - name: Build plugin assets
+        run: npx wp-scripts build
+
       # No Docker / wp-env involved: playwright.config.js's `webServer` spawns
       # `@wp-playground/cli` (WASM PHP + SQLite) itself and tears it down after
       # the run — see tests/e2e/README.md.
