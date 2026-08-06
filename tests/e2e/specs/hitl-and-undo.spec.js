@@ -6,6 +6,7 @@
  *
  * Full Task 01 (non-preallowable + undo) coverage lands in this file later.
  */
+/* eslint-disable camelcase -- Ability / REST I/O matches PHP schema snake_case. */
 const { test, expect } = require( '../fixtures/test' )
 const { mockReply } = require( '../fixtures/ahentic-sidebar' )
 const { waitForSession, mockUseTools } = require( '../utils/session-client' )
@@ -31,8 +32,12 @@ test.describe( 'Sidebar HITL approval card', () => {
 					plan: {
 						title: 'Create draft',
 						steps: [
-							{ id: '1', content: 'Create the draft', status: 'in_progress' },
-							{ id: '2', content: 'Confirm', status: 'pending' },
+							{
+								id: '1', content: 'Create the draft', status: 'in_progress',
+							},
+							{
+								id: '2', content: 'Confirm', status: 'pending',
+							},
 						],
 					},
 				}

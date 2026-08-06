@@ -12,6 +12,7 @@
  * that + navigating is sufficient to land on an already-open session with no
  * keyboard shortcut or admin-bar click needed.
  */
+/* eslint-disable camelcase -- HITL decision keys match REST / orchestrator wire format. */
 const { seedAiResponses, resetAiResponses } = require( '../utils/ability-client' )
 
 const STORAGE_KEY = 'ahentic.sidebar.v1'

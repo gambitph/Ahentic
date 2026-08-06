@@ -6,6 +6,7 @@
  * tool pipeline (HITL → browser → execute) that a future ToolRunner extract
  * must preserve — see tests/e2e/specs/orchestrator-pipeline.spec.js.
  */
+/* eslint-disable camelcase -- Ability / REST I/O matches PHP schema snake_case. */
 const { seedAiResponses, resetAiResponses } = require( './ability-client' )
 const { mockReply } = require( '../fixtures/ahentic-sidebar' )
 
@@ -148,11 +149,11 @@ async function waitForSession( requestUtils, sessionId, predicate, {
  *
  * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils
  * @param {Object}                                                      options
- * @param {Array<string>}                                               options.aiReplies   Raw mockReply() strings (or complete_chat shapes).
+ * @param {Array<string>}                                               options.aiReplies     Raw mockReply() strings (or complete_chat shapes).
  * @param {string}                                                      [options.content]
  * @param {string}                                                      [options.mode]
  * @param {Object|null}                                                 [options.pageContext] Pass null to omit; default is a fresh admin context.
- * @return {Promise<{ session: Object, sessionId: number }>}
+ * @return {Promise<{ session: Object, sessionId: number }>} Created session and its id.
  */
 async function startRun( requestUtils, {
 	aiReplies,
@@ -179,9 +180,9 @@ async function startRun( requestUtils, {
 /**
  * Build a use_tools control-block turn.
  *
- * @param {string}               text          User-facing text.
- * @param {Array<Object|string>} toolsPlanned  Tools for this think.
- * @param {Object}               [debugExtra]  Extra debug fields (e.g. plan).
+ * @param {string}               text         User-facing text.
+ * @param {Array<Object|string>} toolsPlanned Tools for this think.
+ * @param {Object}               [debugExtra] Extra debug fields (e.g. plan).
  * @return {string} mockReply wire text.
  */
 function mockUseTools( text, toolsPlanned, debugExtra = {} ) {
@@ -199,7 +200,7 @@ function mockUseTools( text, toolsPlanned, debugExtra = {} ) {
  * not `entries` — see Ahentic_Session_Repository::to_rest).
  *
  * @param {Object} session
- * @return {Array<Object>}
+ * @return {Array<Object>} Message entries from the session payload.
  */
 function sessionMessages( session ) {
 	if ( Array.isArray( session?.messages ) ) {
@@ -216,7 +217,7 @@ function sessionMessages( session ) {
  *
  * @param {Object} session
  * @param {string} abilityName
- * @return {Array<Object>}
+ * @return {Array<Object>} Tool-role messages for the given ability.
  */
 function toolEntriesFor( session, abilityName ) {
 	return sessionMessages( session ).filter(

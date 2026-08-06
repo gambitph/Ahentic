@@ -9,6 +9,7 @@
  * mu-plugin, production approvals / browser-results routes. Prefer this over
  * browser-driven specs for pipeline invariants (see docs/agents/testing.md).
  */
+/* eslint-disable camelcase -- Ability / REST I/O matches PHP schema snake_case. */
 const { test, expect } = require( '@wordpress/e2e-test-utils-playwright' )
 const {
 	startRun,
@@ -22,7 +23,9 @@ const {
 	sessionMessages,
 	DEFAULT_PAGE_CONTEXT,
 } = require( '../utils/session-client' )
-const { resetAiResponses, runAbility, seedAiResponses } = require( '../utils/ability-client' )
+const {
+	resetAiResponses, runAbility, seedAiResponses,
+} = require( '../utils/ability-client' )
 
 test.describe.configure( { mode: 'serial', timeout: 90_000 } )
 
@@ -68,13 +71,21 @@ test.describe( 'Orchestrator tool pipeline (architecture characterization)', () 
 			aiReplies: [
 				mockUseTools(
 					'Creating a draft…',
-					[ { name: 'ahentic/create-post', input: { title, post_type: 'post', status: 'draft' } } ],
+					[ {
+						name: 'ahentic/create-post', input: {
+							title, post_type: 'post', status: 'draft',
+						},
+					} ],
 					{
 						plan: {
 							title: 'Create draft',
 							steps: [
-								{ id: '1', content: 'Create the draft post', status: 'in_progress' },
-								{ id: '2', content: 'Confirm creation', status: 'pending' },
+								{
+									id: '1', content: 'Create the draft post', status: 'in_progress',
+								},
+								{
+									id: '2', content: 'Confirm creation', status: 'pending',
+								},
 							],
 						},
 					}
@@ -128,8 +139,12 @@ test.describe( 'Orchestrator tool pipeline (architecture characterization)', () 
 						plan: {
 							title: 'Create draft',
 							steps: [
-								{ id: '1', content: 'Create the draft', status: 'in_progress' },
-								{ id: '2', content: 'Done', status: 'pending' },
+								{
+									id: '1', content: 'Create the draft', status: 'in_progress',
+								},
+								{
+									id: '2', content: 'Done', status: 'pending',
+								},
 							],
 						},
 					}
@@ -176,8 +191,12 @@ test.describe( 'Orchestrator tool pipeline (architecture characterization)', () 
 						plan: {
 							title: 'Create drafts',
 							steps: [
-								{ id: '1', content: 'Create first draft', status: 'in_progress' },
-								{ id: '2', content: 'Create second draft', status: 'pending' },
+								{
+									id: '1', content: 'Create first draft', status: 'in_progress',
+								},
+								{
+									id: '2', content: 'Create second draft', status: 'pending',
+								},
 							],
 						},
 					}
@@ -199,8 +218,12 @@ test.describe( 'Orchestrator tool pipeline (architecture characterization)', () 
 					plan: {
 						title: 'Create second draft',
 						steps: [
-							{ id: '1', content: 'Create the draft', status: 'in_progress' },
-							{ id: '2', content: 'Confirm', status: 'pending' },
+							{
+								id: '1', content: 'Create the draft', status: 'in_progress',
+							},
+							{
+								id: '2', content: 'Confirm', status: 'pending',
+							},
 						],
 					},
 				}
