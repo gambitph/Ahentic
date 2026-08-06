@@ -38,13 +38,17 @@
 
 ## Tool branches
 
-Order of concerns for each planned tool:
+Order of concerns for each planned tool (after the ability is available for the mode):
 
-1. Availability + Ask readonly filter  
+1. Availability + Ask readonly filter (Orchestrator — before the shared pipeline)  
 2. `from_memory`: keep **key only** on pending; expand from session working memory at execute/browser (Working memory PRD). May auto-stage oversized payloads and rewrite to `from_memory`.  
 3. HITL pause if required (`awaiting_human`)  
 4. Browser pause if required (`awaiting_browser`) — **after** HITL when both apply  
-5. Else server `Ahentic_Abilities::execute`  
+5. Else server `Ahentic_Abilities::execute` → assess write payload → persist tool entry  
+
+**Single pipeline module:** Steps 2–5 for agent-facing Ability runs are owned by `Ahentic_Tool_Runner` (`run()` for the step loop / HITL allow / suggested actions; `record_completed_result()` after browser resume). The Orchestrator must **not** reimplement HITL pause, browser pause, `from_memory` expand, execute, assess, or tool-entry persist at call sites. Do not invent a second execute path in REST handlers, ability modules, or ad-hoc Orchestrator helpers.
+
+`Ahentic_Abilities::execute` remains the ability **dispatch** seam (registration → `execute_*`). The Tool runner is the orchestrator **pipeline** around that dispatch.
 
 ## Browser preflight & recovery
 
@@ -84,4 +88,5 @@ Order of concerns for each planned tool:
 ## Testing
 
 - Control-block parsing (`Ahentic_AI`) is pure PHP and covered in PHPUnit (`tests/unit/`).
-- Everything else here — HITL decisions, budgets, queue/locking — needs a real WordPress runtime and belongs in the `hitl-and-undo.spec.js` / relevant Playwright module spec, not PHPUnit. See [`docs/agents/testing.md`](../../docs/agents/testing.md).
+- Tool-pipeline characterization (HITL / browser / Ask / Tool runner) lives in `tests/e2e/specs/orchestrator-pipeline.spec.js` (+ browser HITL card in `hitl-and-undo.spec.js`). See [`docs/agents/testing.md`](../../docs/agents/testing.md).
+- Budgets, queue/locking, and Task 01 undo surface belong in the relevant Playwright module specs, not PHPUnit.

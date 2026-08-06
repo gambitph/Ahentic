@@ -63,9 +63,11 @@ tools aren't meant to be a public HTTP surface. Instead,
 Playground instance's `mu-plugins` directory (see `playwright.config.js`'s
 `webServer.command`) and exposes test-only routes under `ahentic-e2e/v1`.
 `POST /run-ability` delegates straight to `Ahentic_Abilities::execute( $name,
-$input )` — the exact seam the orchestrator's step worker calls. It adds no
-dispatch, permission, or HITL logic of its own, so it can't drift from
-production behaviour.
+$input )` — the ability **dispatch** seam the Tool runner calls after HITL /
+browser / `from_memory`. It does **not** run the Tool runner pipeline (use
+`orchestrator-pipeline.spec.js` + `session-client.js` for that). The route adds
+no dispatch of its own, so ability-body tests can't drift from production
+`execute_*` behaviour.
 
 ```js
 const { runAbility } = require( '../utils/ability-client' )
@@ -81,8 +83,9 @@ be slow, costly, and non-deterministic. Instead, `Ahentic_AI::complete_chat()`
 (`src/orchestrator/class-ai.php`) has a `pre_ahentic_ai_complete_chat` filter
 that, in production, nothing hooks (a no-op). The e2e mu-plugin hooks it and
 pops from a REST-seeded queue instead of calling a real provider — the
-orchestrator's real dispatch/tool/HITL logic still runs end-to-end; only the
-model call is faked. `src/admin/class-rest.php`'s `build_status_payload()`
+orchestrator + Tool runner pipeline (HITL / browser / execute / assess) still
+runs end-to-end; only the model call is faked. `src/admin/class-rest.php`'s
+`build_status_payload()`
 has an equivalent `pre_ahentic_ai_status` filter so the sidebar composer isn't
 disabled for lack of a real AI plugin/connector.
 

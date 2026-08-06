@@ -62,6 +62,23 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
+		 * Run a callback with current_session_id set (abilities / artifacts may read it).
+		 *
+		 * @param int      $session_id Session ID.
+		 * @param callable $callback   Callback.
+		 * @return mixed Callback return value.
+		 */
+		public static function with_current_session( $session_id, $callback ) {
+			$previous                 = self::$current_session_id;
+			self::$current_session_id = (int) $session_id;
+			try {
+				return call_user_func( $callback );
+			} finally {
+				self::$current_session_id = $previous;
+			}
+		}
+
+		/**
 		 * Accept a user message and start a run (async — sidebar polls for progress).
 		 *
 		 * @param int         $session_id Session ID.
@@ -498,236 +515,22 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 				$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 
-				// Oversized inline bodies → auto-stage + from_memory (pending stays key-only).
-				if ( class_exists( 'Ahentic_Session_Artifacts' ) ) {
-					$input = self::maybe_auto_stage_tool_input( $session_id, $name, $input, $step );
-				}
+				$run = Ahentic_Tool_Runner::run(
+					$session_id,
+					$name,
+					$input,
+					array(
+						'step'       => $step,
+						'debug'      => $debug,
+						'planned'    => $planned,
+						'call_index' => $call_index,
+					)
+				);
 
-				// Session artifacts: validate from_memory early; expand only for PHP execute.
-				// Pending HITL / browser keep key only (PRD); REST expands for the browser runner.
-				$artifact_key = '';
-				$needs_hitl   = Ahentic_Abilities::requires_hitl( $name ) && ! Ahentic_Session_Repository::hitl_is_preallowed( $session_id, $name );
-				$needs_browser = Ahentic_Abilities::requires_browser_runtime( $name, $input );
-				if ( class_exists( 'Ahentic_Session_Artifacts' ) && ! empty( $input['from_memory'] ) ) {
-					$artifact_key = Ahentic_Session_Artifacts::sanitize_artifact_key( (string) $input['from_memory'] );
-					if ( $needs_hitl || $needs_browser ) {
-						$valid = Ahentic_Session_Artifacts::validate_from_memory( $session_id, $name, $input );
-						if ( is_wp_error( $valid ) ) {
-							self::append_tool_failure( $session_id, $name, $valid, $step );
-							$ran_any = true;
-							continue;
-						}
-					} else {
-						$resolved = self::expand_from_memory( $session_id, $name, $input );
-						if ( is_wp_error( $resolved ) ) {
-							self::append_tool_failure( $session_id, $name, $resolved, $step );
-							$ran_any = true;
-							continue;
-						}
-						$input        = $resolved['input'];
-						$artifact_key = $resolved['artifact_key'];
-					}
-				}
-
-				// Mutating abilities pause for human approval unless already allowed.
-				// HITL must run before browser pause so save-post / convert-blocks can be approved first.
-				if ( $needs_hitl ) {
-					$summary = self::hitl_summary_for_pending( $session_id, $name, $input );
-					$pending = array(
-						'name'    => $name,
-						'input'   => $input,
-						'summary' => $summary,
-						'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
-					);
-					if ( $artifact_key ) {
-						$pending['artifact_key'] = $artifact_key;
-						$mem                    = self::memory_pointer_for_pending( $session_id, $artifact_key );
-						if ( $mem ) {
-							$pending['memory'] = $mem;
-						}
-					}
-					Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
-					Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_HUMAN );
-					Ahentic_Session_Repository::set_progress(
-						$session_id,
-						sprintf(
-							/* translators: %s: short action summary */
-							__( 'Waiting for your approval: %s', 'ahentic' ),
-							$summary
-						),
-						$step
-					);
-					Ahentic_Session_Repository::append_trace(
-						$session_id,
-						'hitl_pause',
-						$summary,
-						array(
-							'ability' => $name,
-							'input'   => self::trace_tool_input( $input ),
-						),
-						$step
-					);
+				if ( in_array( $run['outcome'], array( 'paused_hitl', 'paused_browser' ), true ) ) {
 					return false;
 				}
 
-				// Browser abilities (and http-fetch as_user) pause for the sidebar to run JS and POST the result.
-				if ( $needs_browser ) {
-					$preflight = self::browser_preflight( $session_id, $name, $input );
-					if ( is_wp_error( $preflight ) ) {
-						self::append_tool_failure( $session_id, $name, $preflight, $step );
-						$ran_any = true;
-						continue;
-					}
-					if ( is_array( $preflight ) && ! empty( $preflight['fallback'] ) ) {
-						$name         = (string) $preflight['fallback']['name'];
-						$input        = isset( $preflight['fallback']['input'] ) && is_array( $preflight['fallback']['input'] ) ? $preflight['fallback']['input'] : $input;
-						$needs_browser = false;
-						$needs_hitl   = Ahentic_Abilities::requires_hitl( $name ) && ! Ahentic_Session_Repository::hitl_is_preallowed( $session_id, $name );
-						if ( $needs_hitl ) {
-							// Re-enter HITL path for the server fallback ability.
-							$summary = self::hitl_summary_for_pending( $session_id, $name, $input );
-							$pending = array(
-								'name'    => $name,
-								'input'   => $input,
-								'summary' => $summary,
-								'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
-							);
-							if ( $artifact_key ) {
-								$pending['artifact_key'] = $artifact_key;
-							}
-							Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
-							Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_HUMAN );
-							Ahentic_Session_Repository::set_progress(
-								$session_id,
-								sprintf(
-									/* translators: %s: short action summary */
-									__( 'Waiting for your approval: %s', 'ahentic' ),
-									$summary
-								),
-								$step
-							);
-							Ahentic_Session_Repository::append_trace(
-								$session_id,
-								'hitl_pause',
-								$summary,
-								array(
-									'ability'  => $name,
-									'fallback' => true,
-									'input'    => self::trace_tool_input( $input ),
-								),
-								$step
-							);
-							return false;
-						}
-						// Fall through to PHP execute with rewritten ability.
-					} else {
-						$summary = Ahentic_Abilities::browser_summary( $name, $input );
-						$pending = array(
-							'name'    => $name,
-							'input'   => $input,
-							'summary' => $summary,
-							'runtime' => 'browser',
-							'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
-						);
-						if ( $artifact_key ) {
-							$pending['artifact_key'] = $artifact_key;
-							$mem                    = self::memory_pointer_for_pending( $session_id, $artifact_key );
-							if ( $mem ) {
-								$pending['memory'] = $mem;
-							}
-						}
-						Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
-						Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_BROWSER );
-						Ahentic_Session_Repository::touch_browser_paused_at( $session_id );
-						Ahentic_Session_Repository::set_progress(
-							$session_id,
-							sprintf(
-								/* translators: %s: tool / action label */
-								__( 'Waiting for this page to run: %s', 'ahentic' ),
-								self::progress_label_for_tool( $name, $debug )
-							),
-							$step
-						);
-						self::preserve_browser_batch_remainder( $session_id, $planned, $call_index, $step );
-						Ahentic_Session_Repository::append_trace(
-							$session_id,
-							'browser_pause',
-							$summary,
-							array(
-								'ability'      => $name,
-								'input'        => self::trace_tool_input( $input ),
-								'artifact_key' => $artifact_key,
-							),
-							$step
-						);
-						return false;
-					}
-				}
-
-				$label = self::progress_label_for_tool( $name, $debug );
-				Ahentic_Session_Repository::set_progress( $session_id, $label, $step );
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'tool_executed',
-					$label,
-					array(
-						'ability'      => $name,
-						'input'        => self::trace_tool_input( $input ),
-						'artifact_key' => $artifact_key,
-					),
-					$step
-				);
-
-				if ( class_exists( 'Ahentic_Session_Artifacts' ) && ! empty( $input['from_memory'] ) ) {
-					$resolved = self::expand_from_memory( $session_id, $name, $input );
-					if ( is_wp_error( $resolved ) ) {
-						self::append_tool_failure( $session_id, $name, $resolved, $step );
-						$ran_any = true;
-						continue;
-					}
-					$input        = $resolved['input'];
-					$artifact_key = $resolved['artifact_key'] ? $resolved['artifact_key'] : $artifact_key;
-				}
-
-				$tool_result = Ahentic_Abilities::execute( $name, $input );
-				Ahentic_Session_Repository::touch_heartbeat( $session_id );
-				$ok          = ! is_wp_error( $tool_result );
-				$payload     = $ok ? $tool_result : self::tool_error_payload( $tool_result );
-
-				if ( $ok && $artifact_key && class_exists( 'Ahentic_Session_Artifacts' ) ) {
-					Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
-				}
-
-				$payload = self::assess_write_payload( $session_id, $name, $payload, $ok );
-
-				$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-				if ( ! is_string( $content ) ) {
-					$content = '{}';
-				}
-
-				Ahentic_Session_Repository::append_entry(
-					$session_id,
-					array(
-						'role'    => 'tool',
-						'content' => $content,
-						'meta'    => array(
-							'ability'      => $name,
-							'ok'           => $ok,
-							'artifact_key' => $artifact_key ? $artifact_key : null,
-						),
-					)
-				);
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'tool_result',
-					$ok ? ( 'Result: ' . $name ) : ( 'Error: ' . $name ),
-					array(
-						'ability' => $name,
-						'ok'      => $ok,
-						'excerpt' => self::excerpt( $content, 240 ),
-					),
-					$step
-				);
 				$ran_any = true;
 			}
 
@@ -1685,72 +1488,23 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 
-			if ( Ahentic_Abilities::requires_hitl( $name ) && ! Ahentic_Session_Repository::hitl_is_preallowed( $session_id, $name ) ) {
-				$summary = Ahentic_Abilities::hitl_summary( $name, $input );
-				$pending = array(
-					'name'    => $name,
-					'input'   => $input,
-					'summary' => $summary,
-					'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
-					'source'  => 'suggested_action',
-				);
-				Ahentic_Session_Repository::set_pending_tool( $session_id, $pending );
-				Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_HUMAN );
-				Ahentic_Session_Repository::set_progress(
-					$session_id,
-					__( 'Waiting for your approval…', 'ahentic' ),
-					$step
-				);
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'hitl_pause',
-					$summary,
-					array(
-						'ability' => $name,
-						'input'   => $input,
-						'source'  => 'suggested_action',
-					),
-					$step
-				);
+			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
+
+			$run = Ahentic_Tool_Runner::run(
+				$session_id,
+				$name,
+				$input,
+				array(
+					'step'       => $step,
+					'source'     => 'suggested_action',
+					'auto_stage' => false,
+				)
+			);
+
+			if ( in_array( $run['outcome'], array( 'paused_hitl', 'paused_browser' ), true ) ) {
 				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 			}
 
-			// Non-HITL (or preallowed): run immediately and continue the agent loop.
-			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
-			$label = self::progress_label_for_tool( $name );
-			Ahentic_Session_Repository::set_progress( $session_id, $label, $step );
-			Ahentic_Session_Repository::append_trace(
-				$session_id,
-				'tool_executed',
-				$label,
-				array(
-					'ability' => $name,
-					'input'   => $input,
-					'source'  => 'suggested_action',
-				),
-				$step
-			);
-
-			$tool_result = Ahentic_Abilities::execute( $name, $input );
-			$ok          = ! is_wp_error( $tool_result );
-			$payload     = $ok ? $tool_result : self::tool_error_payload( $tool_result );
-			$content     = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-			if ( ! is_string( $content ) ) {
-				$content = '{}';
-			}
-
-			Ahentic_Session_Repository::append_entry(
-				$session_id,
-				array(
-					'role'    => 'tool',
-					'content' => $content,
-					'meta'    => array(
-						'ability' => $name,
-						'ok'      => $ok,
-						'source'  => 'suggested_action',
-					),
-				)
-			);
 			Ahentic_Session_Repository::set_progress( $session_id, __( 'Planning next steps…', 'ahentic' ), $step );
 			Ahentic_Step_Queue::enqueue_step( $session_id );
 			Ahentic_Step_Queue::schedule_interactive_run( $session_id );
@@ -1794,7 +1548,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @param \WP_Error $error Error from an ability.
 		 * @return array
 		 */
-		private static function tool_error_payload( $error ) {
+		public static function tool_error_payload( $error ) {
 			$payload = array(
 				'ok'      => false,
 				'error'   => $error->get_error_code(),
@@ -2440,7 +2194,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @param array  $debug Debug block.
 		 * @return string
 		 */
-		private static function progress_label_for_tool( $tool, $debug = array() ) {
+		public static function progress_label_for_tool( $tool, $debug = array() ) {
 			$map = array(
 				'ahentic/list-plugins'              => __( 'Checking installed plugins…', 'ahentic' ),
 				'ahentic/search-plugins'            => __( 'Searching the plugin directory…', 'ahentic' ),
@@ -2663,142 +2417,21 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				Ahentic_Session_Repository::add_hitl_session_allow( $session_id, $name );
 			}
 
-			$artifact_key = '';
-			if ( class_exists( 'Ahentic_Session_Artifacts' ) && ! empty( $input['from_memory'] ) ) {
-				$artifact_key = Ahentic_Session_Artifacts::sanitize_artifact_key( (string) $input['from_memory'] );
-				$valid        = Ahentic_Session_Artifacts::validate_from_memory( $session_id, $name, $input );
-				if ( is_wp_error( $valid ) ) {
-					Ahentic_Session_Repository::set_pending_tool( $session_id, null );
-					Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
-					self::append_tool_failure( $session_id, $name, $valid, $step );
-					Ahentic_Step_Queue::enqueue_step( $session_id );
-					Ahentic_Step_Queue::schedule_interactive_run( $session_id );
-					return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
-				}
-			}
-
-			// After approval: browser tools pause for sidebar JS (keep from_memory key-only).
-			if ( Ahentic_Abilities::requires_browser_runtime( $name, $input ) ) {
-				$summary = Ahentic_Abilities::browser_summary( $name, $input );
-				$pending_browser = array(
-					'name'     => $name,
-					'input'    => $input,
-					'summary'  => $summary,
-					'runtime'  => 'browser',
-					'call_id'  => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
-					'approved' => $choice,
-				);
-				if ( $artifact_key ) {
-					$pending_browser['artifact_key'] = $artifact_key;
-					$mem                             = self::memory_pointer_for_pending( $session_id, $artifact_key );
-					if ( $mem ) {
-						$pending_browser['memory'] = $mem;
-					}
-				}
-				Ahentic_Session_Repository::set_pending_tool( $session_id, $pending_browser );
-				Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_AWAITING_BROWSER );
-				Ahentic_Session_Repository::touch_browser_paused_at( $session_id );
-				Ahentic_Session_Repository::set_progress(
-					$session_id,
-					sprintf(
-						/* translators: %s: tool / action label */
-						__( 'Waiting for this page to run: %s', 'ahentic' ),
-						self::progress_label_for_tool( $name )
-					),
-					$step
-				);
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'browser_pause',
-					$summary,
-					array(
-						'ability'      => $name,
-						'input'        => self::trace_tool_input( $input ),
-						'approved'     => $choice,
-						'artifact_key' => $artifact_key,
-					),
-					$step
-				);
-				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
-			}
-
-			if ( class_exists( 'Ahentic_Session_Artifacts' ) && ! empty( $input['from_memory'] ) ) {
-				$resolved = self::expand_from_memory( $session_id, $name, $input );
-				if ( is_wp_error( $resolved ) ) {
-					Ahentic_Session_Repository::set_pending_tool( $session_id, null );
-					Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
-					self::append_tool_failure( $session_id, $name, $resolved, $step );
-					Ahentic_Step_Queue::enqueue_step( $session_id );
-					Ahentic_Step_Queue::schedule_interactive_run( $session_id );
-					return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
-				}
-				$input        = $resolved['input'];
-				$artifact_key = $resolved['artifact_key'];
-			}
-
-			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
-			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
-
-			$label = self::progress_label_for_tool( $name );
-			Ahentic_Session_Repository::set_progress( $session_id, $label, $step );
-			Ahentic_Session_Repository::append_trace(
+			$run = Ahentic_Tool_Runner::run(
 				$session_id,
-				'tool_executed',
-				$label,
+				$name,
+				$input,
 				array(
-					'ability'      => $name,
-					'input'        => self::trace_tool_input( $input ),
-					'approved'     => $choice,
-					'artifact_key' => $artifact_key,
-				),
-				$step
-			);
-
-			self::$current_session_id = $session_id;
-			try {
-				$tool_result = Ahentic_Abilities::execute( $name, $input );
-			} finally {
-				self::$current_session_id = 0;
-			}
-			Ahentic_Session_Repository::touch_heartbeat( $session_id );
-			$ok      = ! is_wp_error( $tool_result );
-			$payload = $ok ? $tool_result : self::tool_error_payload( $tool_result );
-
-			if ( $ok && $artifact_key && class_exists( 'Ahentic_Session_Artifacts' ) ) {
-				Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
-			}
-
-			$payload = self::assess_write_payload( $session_id, $name, $payload, $ok );
-
-			$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-			if ( ! is_string( $content ) ) {
-				$content = '{}';
-			}
-
-			Ahentic_Session_Repository::append_entry(
-				$session_id,
-				array(
-					'role'    => 'tool',
-					'content' => $content,
-					'meta'    => array(
-						'ability'      => $name,
-						'ok'           => $ok,
-						'approved'     => $choice,
-						'artifact_key' => $artifact_key ? $artifact_key : null,
-					),
+					'step'      => $step,
+					'skip_hitl' => true,
+					'approved'  => $choice,
+					'auto_stage' => false,
 				)
 			);
-			Ahentic_Session_Repository::append_trace(
-				$session_id,
-				'tool_result',
-				$ok ? ( 'Result: ' . $name ) : ( 'Error: ' . $name ),
-				array(
-					'ability' => $name,
-					'ok'      => $ok,
-					'excerpt' => self::excerpt( $content, 240 ),
-				),
-				$step
-			);
+
+			if ( 'paused_browser' === $run['outcome'] ) {
+				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
+			}
 
 			// Keep the approved tool's step label visible into the next think.
 			Ahentic_Step_Queue::enqueue_step( $session_id );
@@ -2860,48 +2493,19 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				);
 			}
 
-			if ( $ok && $artifact_key && class_exists( 'Ahentic_Session_Artifacts' ) ) {
-				Ahentic_Session_Artifacts::mark_applied( $session_id, $artifact_key );
-			}
-
-			$tool_payload = self::assess_write_payload( $session_id, $name, $tool_payload, $ok );
-
-			$content = wp_json_encode( $tool_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-			if ( ! is_string( $content ) ) {
-				$content = '{}';
-			}
-
-			Ahentic_Session_Repository::append_entry(
+			Ahentic_Tool_Runner::record_completed_result(
 				$session_id,
+				$name,
+				$tool_payload,
+				$ok,
 				array(
-					'role'    => 'tool',
-					'content' => $content,
-					'meta'    => array(
-						'ability'      => $name,
-						'ok'           => $ok,
-						'call_id'      => $call_id ? $call_id : ( isset( $pending['call_id'] ) ? (string) $pending['call_id'] : '' ),
-						'browser'      => true,
-						'artifact_key' => $artifact_key ? $artifact_key : null,
-					),
-				)
-			);
-			Ahentic_Session_Repository::append_trace(
-				$session_id,
-				'tool_result',
-				$ok ? ( 'Result: ' . $name ) : ( 'Error: ' . $name ),
-				array(
-					'ability' => $name,
-					'ok'      => $ok,
-					'browser' => true,
-					'excerpt' => self::excerpt( $content, 240 ),
+					'call_id'      => $call_id ? $call_id : ( isset( $pending['call_id'] ) ? (string) $pending['call_id'] : '' ),
+					'browser'      => true,
+					'artifact_key' => $artifact_key ? $artifact_key : null,
 				),
 				$step
 			);
 
-			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
-			Ahentic_Session_Repository::clear_browser_paused_at( $session_id );
-			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
-			Ahentic_Session_Repository::set_progress( $session_id, __( 'Planning next steps…', 'ahentic' ), $step );
 			Ahentic_Step_Queue::enqueue_step( $session_id );
 			Ahentic_Step_Queue::schedule_interactive_run( $session_id );
 
@@ -3739,7 +3343,7 @@ Rules:
 		 * @param bool   $ok         Success.
 		 * @return mixed Payload, marked with thin/thin_reason when the body is too small.
 		 */
-		private static function assess_write_payload( $session_id, $name, $payload, $ok ) {
+		public static function assess_write_payload( $session_id, $name, $payload, $ok ) {
 			if ( ! $ok || ! class_exists( 'Ahentic_Abilities' ) ) {
 				return $payload;
 			}
@@ -4332,7 +3936,7 @@ Rules:
 		 * @param array  $input      Input.
 		 * @return true|array{fallback: array}|\WP_Error
 		 */
-		private static function browser_preflight( $session_id, $name, array $input ) {
+		public static function browser_preflight( $session_id, $name, array $input ) {
 			$ctx     = Ahentic_Session_Repository::get_page_context( $session_id );
 			$updated = ! empty( $ctx['updatedAt'] ) ? strtotime( (string) $ctx['updatedAt'] ) : 0;
 			$fresh   = $updated && ( time() - $updated ) <= 180;
@@ -4390,7 +3994,7 @@ Rules:
 		 * @param array  $ctx   Page context.
 		 * @return array|null
 		 */
-		private static function server_fallback_for_browser( $name, array $input, array $ctx ) {
+		public static function server_fallback_for_browser( $name, array $input, array $ctx ) {
 			if ( ! class_exists( 'Ahentic_Abilities_Browser' ) || ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				return null;
 			}
@@ -4584,7 +4188,7 @@ Rules:
 		 * @param int    $step       Step.
 		 * @return array
 		 */
-		private static function maybe_auto_stage_tool_input( $session_id, $name, array $input, $step ) {
+		public static function maybe_auto_stage_tool_input( $session_id, $name, array $input, $step ) {
 			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				return $input;
 			}
@@ -4657,7 +4261,7 @@ Rules:
 		 * @param array  $input      Tool input.
 		 * @return string
 		 */
-		private static function hitl_summary_for_pending( $session_id, $name, array $input ) {
+		public static function hitl_summary_for_pending( $session_id, $name, array $input ) {
 			$summary = Ahentic_Abilities::hitl_summary( $name, $input );
 			if ( empty( $input['from_memory'] ) || ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				return $summary;
@@ -4687,7 +4291,7 @@ Rules:
 		 * @param string $key        Artifact key.
 		 * @return array|null
 		 */
-		private static function memory_pointer_for_pending( $session_id, $key ) {
+		public static function memory_pointer_for_pending( $session_id, $key ) {
 			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) || ! $key ) {
 				return null;
 			}
@@ -4702,7 +4306,7 @@ Rules:
 		 * @param array  $input      Tool input.
 		 * @return array{input: array, artifact_key: string}|\WP_Error
 		 */
-		private static function expand_from_memory( $session_id, $name, array $input ) {
+		public static function expand_from_memory( $session_id, $name, array $input ) {
 			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				return array(
 					'input'        => $input,
@@ -4727,7 +4331,7 @@ Rules:
 		 * @param \WP_Error $error     Error.
 		 * @param int      $step       Step.
 		 */
-		private static function append_tool_failure( $session_id, $name, $error, $step ) {
+		public static function append_tool_failure( $session_id, $name, $error, $step ) {
 			$payload = self::tool_error_payload( $error );
 			$content = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			if ( ! is_string( $content ) ) {
@@ -4771,7 +4375,7 @@ Rules:
 		 * @param int   $index      Index of the call that paused.
 		 * @param int   $step       Step number for the trace.
 		 */
-		private static function preserve_browser_batch_remainder( $session_id, array $planned, $index, $step ) {
+		public static function preserve_browser_batch_remainder( $session_id, array $planned, $index, $step ) {
 			$remaining = array_slice( $planned, (int) $index + 1 );
 			if ( empty( $remaining ) ) {
 				return;
@@ -4808,7 +4412,7 @@ Rules:
 		 * @param array $input Input.
 		 * @return array
 		 */
-		private static function trace_tool_input( array $input ) {
+		public static function trace_tool_input( array $input ) {
 			$out = $input;
 			if ( isset( $out['blocks'] ) && is_array( $out['blocks'] ) ) {
 				$out['blocks'] = array(
@@ -4891,7 +4495,7 @@ Rules:
 		 * @param int    $max  Max length.
 		 * @return string
 		 */
-		private static function excerpt( $text, $max = 120 ) {
+		public static function excerpt( $text, $max = 120 ) {
 			$text = trim( preg_replace( '/\s+/', ' ', (string) $text ) );
 			if ( strlen( $text ) <= $max ) {
 				return $text;

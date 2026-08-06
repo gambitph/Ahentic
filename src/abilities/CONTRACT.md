@@ -17,8 +17,11 @@
 
 | Flag / mechanism | Meaning |
 | --- | --- |
-| Server execute | Runs in PHP during orchestrator step |
-| `requires_browser_runtime()` | Orchestrator must pause; sidebar JS executes |
+| Agent tool run | Goes through `Ahentic_Tool_Runner` (HITL / browser / `from_memory` / assess / persist) — see [orchestrator CONTRACT](../orchestrator/CONTRACT.md) |
+| Server execute | Tool runner calls `Ahentic_Abilities::execute` (dispatch only) when PHP should run |
+| `requires_browser_runtime()` | Tool runner pauses; sidebar JS executes; resume via `record_completed_result` |
+
+`Ahentic_Abilities::execute` is ability dispatch (`execute_*`), not a second pipeline. Do not reimplement HITL/browser/assess around it in Orchestrator, REST, or modules.
 
 Browser abilities must not perform real work in PHP stubs beyond registration/metadata.
 
@@ -43,7 +46,7 @@ Browser abilities must not perform real work in PHP stubs beyond registration/me
 
 ## Artifacts
 
-- Abilities that accept large content should support `from_memory` where documented; orchestrator expands before execute.
+- Abilities that accept large content should support `from_memory` where documented; the Tool runner expands before execute.
 
 ## Settings snapshot + undo
 
@@ -56,5 +59,5 @@ Browser abilities must not perform real work in PHP stubs beyond registration/me
 
 ## Testing
 
-- Every new or changed ability lands with coverage in its `tasks/mvp-abilities`-track Playwright module spec (`tests/e2e/specs/`) — see [`docs/agents/testing.md`](../../docs/agents/testing.md) and [server-abilities.md § Testing](./server-abilities.md#testing-a-new-server-ability).
+- Every new or changed ability lands with coverage in its `tasks/mvp-abilities`-track Playwright module spec (`tests/e2e/specs/`) — see [`docs/agents/testing.md`](../../docs/agents/testing.md) and [server-abilities.md § Testing](./server-abilities.md#testing-a-new-server-ability). Module specs may call `run-ability` → `Ahentic_Abilities::execute` (ability seam); full pipeline (HITL / browser / assess) is covered by `orchestrator-pipeline.spec.js`, not reimplemented per ability.
 - Pure decision logic inside an ability (heuristics, diff previews, snapshot shaping) should be split out and covered in PHPUnit; PHPUnit never gets WordPress integration tests.

@@ -28,6 +28,10 @@ _Avoid_: edit mode, full access mode
 The PHP agent loop that thinks, runs tools, pauses for humans or the browser, and persists run state. It is not the LLM.
 _Avoid_: brain (in code), agent runtime (when referring to the class), tool loop owner in JS
 
+**Tool runner**:
+The module that runs one Ability through the shared pipeline (Working memory / `from_memory` → HITL → browser pause → execute → assess → persist). The Orchestrator calls it from the step loop, HITL approval resume, and related entry points so that order is not copy-pasted.
+_Avoid_: tool service, ability executor (as the product name)
+
 **Session**:
 One conversation / run workspace stored as an `ahentic-session` post; holds entries, status, plan, pending tool, artifacts, and page context.
 _Avoid_: chat thread (as storage), conversation ID alone
@@ -45,11 +49,11 @@ A named WordPress Abilities API unit (schema + permission + execute) that the ag
 _Avoid_: tool (as the registration unit), action, skill
 
 **Server ability**:
-An ability executed in PHP inside the orchestrator step worker.
+An ability whose work runs in PHP when the Tool runner reaches server execute (`Ahentic_Abilities::execute`).
 _Avoid_: REST tool, backend tool
 
 **Browser ability**:
-An ability that must run in the user’s browser (sidebar JS), typically Gutenberg or same-site authenticated UI.
+An ability that must run in the user’s browser (sidebar JS), typically Gutenberg or same-site authenticated UI; the Tool runner pauses until the sidebar POSTs a result.
 _Avoid_: client tool, frontend tool, editor API (as the unit name)
 
 **HITL**:

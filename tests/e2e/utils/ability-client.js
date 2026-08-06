@@ -2,10 +2,10 @@
  * Thin client for the e2e-only `ahentic-e2e/v1/*` REST routes.
  *
  * Those routes (tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php) delegate
- * straight to `Ahentic_Abilities::execute()` — the same seam the
- * orchestrator's step worker calls — so specs can assert real ability
- * behaviour against a live WordPress instance without driving an LLM turn
- * through the sidebar chat loop.
+ * straight to `Ahentic_Abilities::execute()` — ability dispatch (what the
+ * Tool runner calls after HITL / browser / from_memory). Specs assert real
+ * ability behaviour against a live WordPress instance without driving an LLM
+ * turn or the full Tool runner pipeline through the sidebar.
  *
  * Built on `requestUtils.rest()` (from `@wordpress/e2e-test-utils-playwright`)
  * rather than a bespoke auth client — see tests/e2e/global-setup.js for how

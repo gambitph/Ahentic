@@ -33,7 +33,7 @@ Official refs: [Abilities API in WP 6.9](https://make.wordpress.org/core/2025/11
 | `class-abilities-browser.php` | `ahentic-browser/*` | **Client** (PHP stubs) |
 | `class-artifacts.php` (session) | `ahentic/stage-artifact`, list, delete | Server (session meta only) |
 
-Facade: `Ahentic_Abilities::init()` registers categories/abilities; `available_for_agent()` / `available_for_mode()` / `execute()` / `requires_hitl()` / `requires_browser_runtime()` route the orchestrator.
+Facade: `Ahentic_Abilities::init()` registers categories/abilities; `available_for_agent()` / `available_for_mode()` / `execute()` / `requires_hitl()` / `requires_browser_runtime()` feed the **Tool runner** (pipeline) and ability dispatch. Agent runs go through `Ahentic_Tool_Runner`; `execute()` is dispatch only — see [orchestrator CONTRACT](../orchestrator/CONTRACT.md).
 
 ---
 

@@ -5,7 +5,7 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 > **Canonical should:** [Agent runtime PRD](../../pro__premium_only/docs/prd/agent-runtime.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)  
 > This file is **how-it-works** (current implementation map). If it disagrees with the PRD/contract, the PRD/contract win — treat gaps as bugs.
 
-**Code:** `class-orchestrator.php`, `class-ai.php`, `class-queue.php`, `class-usage.php`
+**Code:** `class-orchestrator.php`, `class-tool-runner.php`, `class-ai.php`, `class-queue.php`, `class-usage.php`
 
 **Related:** [Control block](./control-block.md) · [Abilities](../abilities/abilities.md) · [Sidebar](../admin/js/sidebar/sidebar.md) · [Session](../session/session.md) · [Artifacts](../session/artifacts.md) · [REST](../admin/rest.md) · [Architecture](../../docs/architecture.md)
 
@@ -16,6 +16,7 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 | Piece | Responsibility |
 | --- | --- |
 | `Ahentic_Orchestrator` | Agent loop: think → tools → continue / finish |
+| `Ahentic_Tool_Runner` | One Ability through HITL / browser / execute / assess (shared by step loop + approval resume) |
 | `Ahentic_AI` | Thin wrapper around Core AI Client / `wordpress/php-ai-client` |
 | `Ahentic_Step_Queue` | Async steps (shutdown + Action Scheduler / cron fallback) |
 | Session repository | Entries, status, pending tool, plan, page context, artifacts |
@@ -51,12 +52,11 @@ process_step → run_one_step:
   2. Parse <<<AHENTIC_DEBUG … AHENTIC_DEBUG>>> control block
   3. If next ≠ use_tools → finish_with_reply → idle
   4. Else for each tools_planned:
-       - unavailable / Ask-blocked → tool error entry
-       - from_memory → validate (HITL) or expand (execute/browser)
-       - requires HITL → awaiting_human (stop)
-       - requires browser → awaiting_browser (stop)
-       - else Ahentic_Abilities::execute() → tool entry
-  5. If any tool ran → enqueue another step
+       - unavailable / Ask-blocked → tool error entry (Orchestrator)
+       - else Ahentic_Tool_Runner::run() →
+           from_memory / HITL pause / browser pause / execute+assess+persist
+       - paused_hitl | paused_browser → stop step
+  5. If any tool continued → enqueue another step
 ```
 
 Caps (see constants on `Ahentic_Orchestrator`): max steps per run, max tools per think, max debug retries, tool-result truncation for the next prompt.
@@ -87,12 +87,16 @@ Missing / invalid debug blocks are retried internally (not shown to the user).
 
 ## Tool execution branches
 
-1. **PHP (server abilities)** — `Ahentic_Abilities::execute()` in the step worker; result → `role: tool` entry.
-2. **HITL** — `pending_tool` + `awaiting_human`; sidebar Allow/Deny → `POST …/approvals` → execute or skip → continue.
-3. **Browser** — `pending_tool` with `runtime: browser` + `awaiting_browser`; sidebar runs JS → `POST …/browser-results` → tool entry → continue.
+All agent-facing Ability runs go through **`Ahentic_Tool_Runner`** (do not copy this pipeline into new call sites):
+
+1. **`run()`** — auto-stage / `from_memory` → HITL pause → browser pause → `Ahentic_Abilities::execute` → assess → `role: tool` entry. Used by the step loop, HITL Allow resume, and suggested actions.
+2. **HITL** — `pending_tool` + `awaiting_human`; sidebar Allow/Deny → `POST …/approvals` → Tool runner (`skip_hitl`) or skip → continue.
+3. **Browser** — `pending_tool` with `runtime: browser` + `awaiting_browser`; sidebar runs JS → `POST …/browser-results` → `record_completed_result()` → continue.
 4. **`from_memory`** — Pending HITL / browser keep **key only**; expand at PHP execute or in REST for the browser runner. May auto-stage oversized inline bodies first.
 
 HITL runs **before** browser pause when both apply (e.g. approve then run browser).
+
+`Ahentic_Abilities::execute` is the ability **dispatch** (module `execute_*`). The Tool runner owns pause order and persist.
 
 ---
 
@@ -149,7 +153,7 @@ Defined in `src/admin/class-rest-sessions.php`.
 
 ## Adding behavior
 
-- **New tools** — register Abilities; list them in the module’s `names()` and wire `Ahentic_Abilities::execute` / mode filters. See [abilities.md](../abilities/abilities.md).
-- **New pause types** — follow HITL / browser patterns (`pending_tool` + status + resume REST).
+- **New tools** — register Abilities; list them in the module’s `names()` and wire `Ahentic_Abilities` dispatch / mode filters. Agent runs go through `Ahentic_Tool_Runner` automatically — do **not** add a parallel HITL/browser/execute path in the Orchestrator. See [abilities.md](../abilities/abilities.md).
+- **New pause types** — extend the Tool runner (or follow HITL / browser patterns already there); do not fork a second pipeline.
 - **Prompt guidance** — `system_prompt()` in `class-orchestrator.php` (keep concise; prefer ability descriptions for tool-specific rules).
 - **Large drafts** — stage via artifacts + `from_memory`; do not rely on transcript alone.

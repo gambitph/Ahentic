@@ -116,10 +116,10 @@ function ahentic_e2e_permission_check() {
 /**
  * Run a single ability and return a JSON-friendly result envelope.
  *
- * Deliberately thin: it delegates to `Ahentic_Abilities::execute()` (the same
- * seam the orchestrator's step worker calls) rather than reimplementing any
- * dispatch, permission, or HITL logic. This route only exists to let e2e
- * specs reach that seam over HTTP.
+ * Deliberately thin: it delegates to `Ahentic_Abilities::execute()` (ability
+ * dispatch — what the Tool runner calls after HITL / browser / from_memory)
+ * rather than reimplementing the Tool runner pipeline. This route only exists
+ * to let e2e specs reach that dispatch seam over HTTP.
  *
  * @param WP_REST_Request $request Incoming request.
  * @return WP_REST_Response

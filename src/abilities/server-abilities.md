@@ -1,10 +1,10 @@
 # Server-side abilities
 
-Abilities that run entirely in PHP inside an orchestrator step (`Ahentic_Abilities::execute`). No browser pause unless the ability opts into browser runtime for a specific input (today: `ahentic/http-fetch` with `as_user`).
+Abilities that run entirely in PHP when the Tool runner reaches server execute (`Ahentic_Abilities::execute`). No browser pause unless the ability opts into browser runtime for a specific input (today: `ahentic/http-fetch` with `as_user`).
 
 **Code:** `class-abilities-*.php` (content, plugins, site, media, taxonomy), snapshot in `class-abilities.php`, artifacts in `src/session/class-artifacts.php`
 
-**Related:** [Abilities overview](./abilities.md) · [Client abilities](./client-abilities.md) · [Orchestrator](../orchestrator/orchestrator.md)
+**Related:** [Abilities overview](./abilities.md) · [Client abilities](./client-abilities.md) · [Orchestrator](../orchestrator/orchestrator.md) · [Orchestrator CONTRACT](../orchestrator/CONTRACT.md)
 
 ---
 
@@ -12,15 +12,20 @@ Abilities that run entirely in PHP inside an orchestrator step (`Ahentic_Abiliti
 
 ```text
 tools_planned includes ahentic/…
-  → optional from_memory expansion
-  → optional HITL (awaiting_human → approvals)
-  → Ahentic_Abilities::execute( name, input )
-  → module execute_* → array | WP_Error
-  → JSON tool entry on the session
+  → Orchestrator: availability / Ask filter
+  → Ahentic_Tool_Runner::run( name, input )
+       → optional auto-stage / from_memory
+       → optional HITL (awaiting_human → approvals → run again with skip_hitl)
+       → optional browser pause (if runtime requires it)
+       → Ahentic_Abilities::execute( name, input )   ← ability dispatch only
+       → module execute_* → array | WP_Error
+       → assess + JSON tool entry on the session
   → next think
 ```
 
-The step worker sets `Ahentic_Orchestrator::$current_session_id` so abilities can read page context / artifacts for the in-flight session when needed.
+Do **not** invent a parallel HITL/browser/execute path in the Orchestrator, REST, or ability modules. Register the ability and let the Tool runner own the pipeline ([orchestrator CONTRACT § Tool branches](../orchestrator/CONTRACT.md)).
+
+The Tool runner wraps execute with `Ahentic_Orchestrator::with_current_session()` so abilities can read page context / artifacts for the in-flight session when needed.
 
 ---
 
@@ -83,8 +88,8 @@ Mutating site changes should pause for Allow / Deny:
 
 1. Add the name to `hitl_names()`.
 2. Implement `hitl_summary( $name, $input )` for the sidebar card.
-3. Orchestrator sets `pending_tool` + `awaiting_human`.
-4. On allow: execute in PHP (or hand off to browser if `requires_browser_runtime`).
+3. The Tool runner sets `pending_tool` + `awaiting_human` (do not reimplement this in a new Orchestrator branch).
+4. On allow: Tool runner continues (`skip_hitl`) — PHP execute or browser pause if `requires_browser_runtime`.
 5. Session / always-allow lists can skip repeat prompts (`hitl_is_preallowed`).
 
 Do **not** put full post bodies or block trees in the HITL summary. Prefer title, id, artifact key (`from_memory`).
@@ -104,7 +109,7 @@ If the block editor is open for the same post, server body writes should fail wi
 
 ### Large drafts
 
-Stage with `ahentic/stage-artifact`, then `create-post` / `update-post` with `from_memory`. The orchestrator expands before execute. See [artifacts.md](../session/artifacts.md).
+Stage with `ahentic/stage-artifact`, then `create-post` / `update-post` with `from_memory`. The Tool runner expands before execute. See [artifacts.md](../session/artifacts.md).
 
 ---
 
@@ -141,15 +146,17 @@ Full policy: [`docs/agents/testing.md`](../../docs/agents/testing.md).
 2. **Add or extend a Playwright module spec** (`tests/e2e/specs/`, grouped by
    `tasks/mvp-abilities` track, not one file per ability) calling the ability
    through `runAbility()` (`tests/e2e/utils/ability-client.js`) against a real
-   (if WASM, via `@wp-playground/cli`) WordPress — no LLM turn needed. Confirm:
+   (if WASM, via `@wp-playground/cli`) WordPress — no LLM turn needed. That hits
+   `Ahentic_Abilities::execute` (dispatch), not the Tool runner. Confirm:
    - It appears in `Ahentic_Abilities::available_for_agent()` and, if
      readonly, in `available_for_mode( 'ask' )`; a write is blocked/absent in
      Ask mode.
-   - HITL abilities pause (`requires_hitl()` true) and a `WP_Error` /
-     `ahentic_ability_unknown`-style failure path returns tool JSON the model
-     can adapt to, not a silent fatal.
+   - HITL abilities report `requires_hitl()` true; failure paths return tool
+     JSON the model can adapt to, not a silent fatal. (Full Allow/Deny +
+     pause/resume is characterized in `orchestrator-pipeline.spec.js`.)
    - If it touches content while the editor is open, assert the
      browser-routing error.
 3. Allow/Deny UX itself (the sidebar card) is out of scope for a new
    ability's own spec — that's covered once by the small browser-driven HITL
-   tier, not per-ability.
+   tier, not per-ability. Do **not** reimplement HITL/browser around `execute`
+   in production code; register flags and let the Tool runner own the pipeline.

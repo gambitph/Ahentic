@@ -45,9 +45,15 @@ Free = interactive (human present). Premium = Agents / automation / snippets —
 ┌─────────────────┐         ┌─────────────────┐         ┌─────────────────────┐
 │ Session CPT     │◄────────│ Orchestrator    │────────►│ Ahentic_AI          │
 │ entries, status │         │ process_step    │         │ Core / php-ai-client│
-│ pending, plan,  │         │ HITL / browser  │         └─────────────────────┘
+│ pending, plan,  │         │                 │         └─────────────────────┘
 │ artifacts, …    │         └────────┬────────┘
 └─────────────────┘                  │
+                                     ▼
+                            ┌─────────────────┐
+                            │ Tool runner     │
+                            │ HITL / browser  │
+                            │ → execute/assess│
+                            └────────┬────────┘
                      ┌───────────────┼───────────────┐
                      ▼               ▼               ▼
               Server abilities  Browser pause   Artifacts
@@ -61,9 +67,9 @@ Free = interactive (human present). Premium = Agents / automation / snippets —
 1. Sidebar `POST /sessions/{id}/messages` with `content`, optional `mode`, `pageContext`.
 2. Orchestrator appends the user entry, sets `status=running`, schedules a step (shutdown + queue).
 3. REST returns immediately; sidebar polls `GET /sessions/{id}`.
-4. Each step: LLM think → parse control block → maybe run tools → enqueue next step or finish (`idle`).
-5. If a tool needs the browser: `awaiting_browser` → sidebar runs JS → `POST …/browser-results`.
-6. If a tool needs approval: `awaiting_human` → sidebar Allow/Deny → `POST …/approvals`.
+4. Each step: LLM think → parse control block → maybe Tool runner (`Ahentic_Tool_Runner`) → enqueue next step or finish (`idle`).
+5. If a tool needs the browser: Tool runner sets `awaiting_browser` → sidebar runs JS → `POST …/browser-results` → `record_completed_result`.
+6. If a tool needs approval: Tool runner sets `awaiting_human` → sidebar Allow/Deny → `POST …/approvals` → Tool runner resumes (`skip_hitl`).
 
 Runtime laws (completion, plan, verify, HITL, browser preflight): [Agent runtime PRD](../pro__premium_only/docs/prd/agent-runtime.md).
 
@@ -76,7 +82,8 @@ Runtime laws (completion, plan, verify, HITL, browser preflight): [Agent runtime
 | Sidebar | UX, poll, HITL UI, browser ability runtime | — | [sidebar.md](../src/admin/js/sidebar/sidebar.md) · [PRD](../pro__premium_only/docs/prd/sidebar.md) |
 | REST | Session CRUD + run control | [CONTRACT](../src/admin/CONTRACT.md) | [rest.md](../src/admin/rest.md) |
 | Session | Persist conversation + run state | [CONTRACT](../src/session/CONTRACT.md) | [session.md](../src/session/session.md) |
-| Orchestrator | Agent loop, prompts, pauses | [CONTRACT](../src/orchestrator/CONTRACT.md) | [orchestrator.md](../src/orchestrator/orchestrator.md) |
+| Orchestrator | Agent loop, prompts, finish gates | [CONTRACT](../src/orchestrator/CONTRACT.md) | [orchestrator.md](../src/orchestrator/orchestrator.md) |
+| Tool runner | Ability pipeline (HITL / browser / execute / assess) | (orchestrator contract) | [orchestrator.md](../src/orchestrator/orchestrator.md) · `class-tool-runner.php` |
 | Control block | Model ↔ orchestrator protocol | (orchestrator contract) | [control-block.md](../src/orchestrator/control-block.md) |
 | Abilities | Tool surface | [CONTRACT](../src/abilities/CONTRACT.md) | [abilities.md](../src/abilities/abilities.md) |
 | Artifacts | Stage large payloads by key | (session contract) | [artifacts.md](../src/session/artifacts.md) |
@@ -89,8 +96,10 @@ Runtime laws (completion, plan, verify, HITL, browser preflight): [Agent runtime
 
 | Runtime | When | How |
 | --- | --- | --- |
-| **Server** | WP APIs, public HTTP, session meta | `Ahentic_Abilities::execute` in the step worker |
-| **Browser** | Gutenberg, DOM, logged-in same-site fetch | Orchestrator pauses → sidebar `runBrowserAbility` → result POST |
+| **Server** | WP APIs, public HTTP, session meta | Tool runner → `Ahentic_Abilities::execute` (ability dispatch) |
+| **Browser** | Gutenberg, DOM, logged-in same-site fetch | Tool runner pauses → sidebar `runBrowserAbility` → result POST → `record_completed_result` |
+
+Agent-facing runs must go through the Tool runner — do not call `Ahentic_Abilities::execute` from a second orchestrator/REST path that reimplements HITL or browser pauses. (E2E `run-ability` may call `execute` directly to test ability bodies in isolation.)
 
 Content routing: editor open for post P → browser; else server — [Content & editor PRD](../pro__premium_only/docs/prd/content-and-editor.md).
 

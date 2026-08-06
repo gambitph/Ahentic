@@ -1,6 +1,6 @@
 # Client-side (browser) abilities
 
-Abilities that must run in the **user’s open tab** (Gutenberg store, DOM, credentialed same-site fetch). PHP registers the catalog for the model; the orchestrator **pauses**; the sidebar **executes** JS and POSTs the result.
+Abilities that must run in the **user’s open tab** (Gutenberg store, DOM, credentialed same-site fetch). PHP registers the catalog for the model; the **Tool runner** pauses; the sidebar **executes** JS and POSTs the result.
 
 **PHP catalog:** `class-abilities-browser.php`  
 **JS runtime:** `src/admin/js/sidebar/browser-abilities.js`, `editor-abilities.js`, `block-ref-registry.js`, …
@@ -25,18 +25,19 @@ So browser abilities are **stubs in PHP** (`execute` → `WP_Error` `ahentic_bro
 
 ```text
 Model plans ahentic-browser/get-blocks (or set-blocks, …)
-  → optional HITL first (save-post, convert-blocks)
-  → optional from_memory expansion (set-blocks)
-  → pending_tool { name, input, runtime: "browser", call_id }
-  → status awaiting_browser
+  → Ahentic_Tool_Runner::run( … )
+       → optional HITL first (save-post, convert-blocks)
+       → optional from_memory expansion (set-blocks)
+       → pending_tool { name, input, runtime: "browser", call_id }
+       → status awaiting_browser
 
 Sidebar useEffect
   → runBrowserAbility(pending)
   → POST /sessions/{id}/browser-results { call_id, result | error }
 
-Orchestrator handle_browser_result
+Orchestrator → Ahentic_Tool_Runner::record_completed_result
   → role:tool entry (same shape as PHP tools)
-  → mark artifact applied if artifact_key set
+  → assess + mark artifact applied if artifact_key set
   → status running → enqueue next think
 ```
 
@@ -98,14 +99,14 @@ Talk to `window.wp` (block editor). Conventions:
 3. **Summary** string for progress UI.
 4. **JS handler** in `browser-abilities.js` → implement in `editor-abilities.js` or a small helper.
 5. **Prompt** — ability description is primary; add orchestrator guidance only if routing is subtle (editor vs server).
-6. **Optional `from_memory`** — if the tool should apply a staged artifact, teach `Ahentic_Session_Artifacts::apply_from_memory` and expand before browser pause (see `set-blocks`).
+6. **Optional `from_memory`** — if the tool should apply a staged artifact, teach `Ahentic_Session_Artifacts::apply_from_memory`; the Tool runner expands before browser pause (see `set-blocks`).
 
 ### HITL + browser
 
 If the action is destructive / persist (save, convert):
 
 - List in `hitl_names()`.
-- Orchestrator pauses for Allow first, then sets `awaiting_browser` with expanded input.
+- The Tool runner pauses for Allow first, then sets `awaiting_browser` with expanded input — do not add a parallel pause path.
 
 ---
 

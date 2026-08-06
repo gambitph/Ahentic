@@ -50,9 +50,10 @@ the ability as a whole needs WordPress.
 Confirm seams with the user before writing tests (see the `tdd` skill). Good
 default seams for Ahentic:
 
-- `Ahentic_Abilities::execute( $name, $input )` — the dispatch boundary every
-  ability goes through (readonly/HITL/mode checks + the actual mutation),
-  reachable in e2e specs via the harness described below.
+- `Ahentic_Abilities::execute( $name, $input )` — ability **dispatch**
+  (`execute_*` / permission). HITL, browser pause, `from_memory`, and assess
+  live in `Ahentic_Tool_Runner`, not here. Module e2e specs hit `execute` via
+  the harness; pipeline characterization uses `orchestrator-pipeline.spec.js`.
 - `Ahentic_AI::complete_chat()` — the orchestrator's one LLM call site.
   Dispatch logic (Core vs. SDK vs. unavailable) is a wp-mocked PHPUnit seam;
   the `pre_ahentic_ai_complete_chat` filter it exposes is the e2e mocking seam.
@@ -97,9 +98,11 @@ sidebar (slow, costly, non-deterministic) for every module, REST-direct e2e
 specs call a **test-only** REST route mounted into the Playground instance as
 an mu-plugin (`tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php`, never
 shipped with the plugin) that delegates straight to
-`Ahentic_Abilities::execute()` — the exact seam the orchestrator itself uses.
-No parallel dispatch/permission/HITL logic is reimplemented; the route is a
-thin pass-through, so it can't drift from production behaviour.
+`Ahentic_Abilities::execute()` — the ability **dispatch** seam the Tool runner
+calls after HITL / browser / `from_memory`. It does not exercise the Tool
+runner pipeline; use `orchestrator-pipeline.spec.js` (and session-client
+helpers) for that. The route is a thin pass-through of dispatch only, so
+ability-body tests can't drift from production `execute_*` behaviour.
 
 A small, separate set of full browser-driven Playwright specs (the
 `ahenticSidebar` fixture, built on `@wordpress/e2e-test-utils-playwright`) is
