@@ -38,7 +38,7 @@
 - Add a small static registry (or a method each module implements) — e.g. `Ahentic_Abilities::is_non_preallowable( $name )` — that Track C/D ability modules populate for their user-write and irreversible-settings-write constants.
 - Wire into `Ahentic_Session_Repository::hitl_is_preallowed()`: short-circuit to `false` when the ability is non-preallowable, before checking session/always lists.
 - Wire into wherever the orchestrator surfaces the HITL decision UI (`hitl_summary_for_pending()` in `class-orchestrator.php:4660` and the approval endpoint around `class-orchestrator.php:2654-2665`) so `allow_session` / `always_allow` choices are rejected outright for these abilities — return a clear error rather than silently downgrading to `allow_once`.
-- No abilities need to actually use this flag yet — Track B doesn't need it. Prove it with a temporary test ability or a unit test, per the PRD's "prove against a trivial existing write" instruction; do not wait for Track D to validate it.
+- No abilities need to actually use this flag yet — Track C/D/E will. Prove it with a temporary test ability or a unit test, per the PRD's "prove against a trivial existing write" instruction; do not wait for Track D to validate it.
 
 ### 2. Settings snapshot store
 

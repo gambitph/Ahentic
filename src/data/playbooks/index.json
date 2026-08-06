@@ -37,6 +37,12 @@
       "title": "Editor vs server content",
       "when_to_use": "Create/edit pages or posts; unsure whether to use block editor tools or server create/update-post.",
       "file": "editor-vs-server.json"
+    },
+    {
+      "id": "web-image-fit",
+      "title": "Web image fit",
+      "when_to_use": "Generating or placing images for posts/pages (featured, inline, hero) — pick aspect ratio and framing so images fit the web.",
+      "file": "web-image-fit.json"
     }
   ]
 }

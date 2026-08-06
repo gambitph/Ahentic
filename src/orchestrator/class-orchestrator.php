@@ -134,6 +134,15 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$content_intent = self::message_looks_like_content_work( $content );
 			Ahentic_Session_Repository::set_content_work( $session_id, $content_intent );
 
+			update_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, 0 );
+			Ahentic_Session_Repository::consume_capability_requests( $session_id );
+			Ahentic_Session_Repository::clear_plan( $session_id );
+			// Mark running before append_entry so a concurrent poll cannot see the new
+			// user message while status is still idle (sidebar would drop busy chrome
+			// and stop polling / browser resume).
+			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
+			Ahentic_Session_Repository::set_progress( $session_id, __( 'Planning next steps…', 'ahentic' ) );
+
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(
@@ -143,11 +152,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			);
 
 			Ahentic_Session_Repository::maybe_set_auto_title( $session_id, $content );
-			update_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, 0 );
-			Ahentic_Session_Repository::consume_capability_requests( $session_id );
-			Ahentic_Session_Repository::clear_plan( $session_id );
-			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
-			Ahentic_Session_Repository::set_progress( $session_id, __( 'Planning next steps…', 'ahentic' ) );
 
 			$mode_now = Ahentic_Session_Repository::get_mode( $session_id );
 			Ahentic_Session_Repository::append_trace(
@@ -3111,7 +3115,7 @@ Rules:
 				. 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). '
 				. 'When unsure about WordPress best practice — plugins vs custom code/theme edits, SEO plugin choice, cleanup, pre-launch gaps, or editor vs server content edits — '
 				. 'call ahentic/get-wordpress-guidance before inventing a risky approach. '
-				. 'Pass {"topic":"plugin-hygiene"} (ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server) '
+				. 'Pass {"topic":"plugin-hygiene"} (ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, web-image-fit) '
 				. 'or {"query":"add google analytics"}; omit both to list the catalog. Follow the returned guidance, then use site tools for facts. '
 				. 'Tool priority: prefer server (ahentic/*) abilities when they can fully do the job. '
 				. 'Use ahentic-browser/* only when you need the live open tab, block editor APIs, or the user’s browser session — or when no server ability exists. '
@@ -3176,7 +3180,8 @@ Rules:
 				. '(WooCommerce simple products typically use _regular_price and _price). Never invent top-level fields like "price". '
 				. 'Always pass tools_planned as objects with input when a tool needs args (e.g. {"name":"ahentic/get-content","input":{"id":123}}), not bare ability name strings. '
 				. 'Prefer ahentic/find-unused-media to scan the media library for images that look unused (not featured/logo/icon/in content). '
-				. 'To place a generated image in the open post: ahentic/generate-image → ahentic/upload-media {"from_memory":"<artifact_key>"} (allow HITL) → ahentic-browser/insert-blocks with core/image {id,url,alt} (index 0 or before_ref of the first block). Never from_memory on insert-blocks for image artifacts. '
+				. 'Before generating or placing post images, call ahentic/get-wordpress-guidance with topic web-image-fit (aspect ratio + framing); then generate-image → upload-media from_memory → ONE placement step — never default post images to tall or square. '
+				. 'To place a generated image in the open post: ahentic/generate-image → ahentic/upload-media {"from_memory":"<artifact_key>"} (allow HITL) → place exactly once: either ahentic-browser/insert-blocks with a single core/image {id,url,alt} (index 0 or before_ref of the first block) OR set-featured-image when the user asked for featured/thumbnail/cover — never both, never insert-blocks twice for the same image. Never from_memory on insert-blocks for image artifacts. '
 				. 'Prefer ahentic/update-term (Agent mode) to change an existing category/tag/custom taxonomy term: pass taxonomy plus term_id or term (ID/slug/name), then name/slug/description/parent and/or meta. '
 				. 'Use edit_url / view_url / media_library_url / plugins_url from those results when linking the user. '
 				. 'Do not claim you ran a tool that is not in the available list. ';

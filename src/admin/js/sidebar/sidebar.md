@@ -96,6 +96,7 @@ The sidebar does **not** invent browser tool calls — only the orchestrator sch
 - **Live status:** progress label + trace-derived label while busy.
 - **Plans:** server `_ahentic_plan` → `plan-card.js`.
 - **Stale polls:** fingerprint / meta checks avoid clobbering in-flight sends or optimistic messages.
+- **Busy lock:** after send, local meta is floored to `running` and the tab stays on the poll list until a real terminal status arrives — so a raced idle snapshot cannot blank the live status or skip `awaiting_browser` resume.
 
 ---
 

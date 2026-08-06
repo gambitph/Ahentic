@@ -124,7 +124,7 @@ if ( ! class_exists( 'Ahentic_Playbooks' ) ) {
 					'ok'       => true,
 					'mode'     => 'catalog',
 					'catalog'  => $catalog,
-					'hint'     => 'Pass topic (playbook id) or query to load full guidance. Wave-1 ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server.',
+					'hint'     => 'Pass topic (playbook id) or query to load full guidance. Wave-1 ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, web-image-fit.',
 					'playbooks'=> array(),
 				);
 			}

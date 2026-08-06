@@ -198,7 +198,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				self::GENERATE_IMAGE,
 				array(
 					'label'               => __( 'Generate image', 'ahentic' ),
-					'description'         => __( 'Generates an image via AI and stages an image-kind session artifact (temp file pointer). Next: ahentic/upload-media with {"from_memory":"<artifact_key>"} to add it to the Media Library, then insert a core/image block (ahentic-browser/insert-blocks with index 0 for top of post) or set a featured image using the returned attachment_id/url.', 'ahentic' ),
+					'description'         => __( 'Generates an image via AI and stages an image-kind session artifact (temp file pointer). Next: ahentic/upload-media with {"from_memory":"<artifact_key>"} to add it to the Media Library, then insert a core/image block (ahentic-browser/insert-blocks with index 0 for top of post) or set a featured image using the returned attachment_id/url. For post featured/inline/hero images prefer aspect_ratio 16:9 (or 4:3 if a less-wide crop is needed); use 9:16/3:4 only when the user explicitly wants tall/portrait; use 1:1 only for icons/avatars/logos/product thumbs. See playbook web-image-fit.', 'ahentic' ),
 					'category'            => 'ahentic-media',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -211,7 +211,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 							'aspect_ratio' => array(
 								'type'        => 'string',
 								'enum'        => array( '1:1', '16:9', '9:16', '4:3', '3:4' ),
-								'description' => __( 'Output aspect ratio (default 1:1).', 'ahentic' ),
+								'description' => __( 'Output aspect ratio (default 16:9).', 'ahentic' ),
 							),
 							'artifact_key' => array(
 								'type'        => 'string',
@@ -486,12 +486,25 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				return new WP_Error( 'ahentic_missing_prompt', __( 'A prompt is required.', 'ahentic' ) );
 			}
 
-			$aspect = isset( $input['aspect_ratio'] ) ? (string) $input['aspect_ratio'] : '1:1';
+			$aspect = isset( $input['aspect_ratio'] ) ? (string) $input['aspect_ratio'] : '16:9';
 			if ( ! in_array( $aspect, array( '1:1', '16:9', '9:16', '4:3', '3:4' ), true ) ) {
-				$aspect = '1:1';
+				$aspect = '16:9';
 			}
 
 			$session_id = class_exists( 'Ahentic_Orchestrator' ) ? Ahentic_Orchestrator::current_session_id() : 0;
+			// #region agent log
+			Ahentic_AI::debug_log(
+				'C',
+				'class-abilities-media.php:execute_generate_image',
+				'generate-image ability entry',
+				array(
+					'aspect'           => $aspect,
+					'input_aspect'     => isset( $input['aspect_ratio'] ) ? (string) $input['aspect_ratio'] : null,
+					'session_id'       => (int) $session_id,
+					'prompt_len'       => strlen( $prompt ),
+				)
+			);
+			// #endregion
 			if ( $session_id <= 0 ) {
 				return new WP_Error(
 					'ahentic_no_session',
@@ -506,6 +519,17 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				'ahentic_generate_image_rate_limited'
 			);
 			if ( is_wp_error( $rate ) ) {
+				// #region agent log
+				Ahentic_AI::debug_log(
+					'C',
+					'class-abilities-media.php:execute_generate_image',
+					'rate limit rejected',
+					array(
+						'code'    => $rate->get_error_code(),
+						'message' => $rate->get_error_message(),
+					)
+				);
+				// #endregion
 				return $rate;
 			}
 
@@ -515,6 +539,19 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 
 			$generated = Ahentic_AI::generate_image( $prompt, $aspect );
 			if ( is_wp_error( $generated ) ) {
+				// #region agent log
+				Ahentic_AI::debug_log(
+					'D',
+					'class-abilities-media.php:execute_generate_image',
+					'generate_image returned WP_Error',
+					array(
+						'code'     => $generated->get_error_code(),
+						'message'  => $generated->get_error_message(),
+						'previous' => $generated->get_error_data(),
+						'aspect'   => $aspect,
+					)
+				);
+				// #endregion
 				return $generated;
 			}
 

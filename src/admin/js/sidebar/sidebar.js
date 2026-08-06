@@ -285,6 +285,18 @@ function extractSessionMeta( session ) {
 }
 
 /**
+ * Session statuses that mean a run is still in flight for the sidebar.
+ *
+ * @param {string} status
+ * @return {boolean} True when the session should show busy chrome / keep polling.
+ */
+function isActiveRunStatus( status ) {
+	return status === 'running' ||
+		status === 'awaiting_human' ||
+		status === 'awaiting_browser'
+}
+
+/**
  * Whether an incoming REST payload is older than state we already applied / floored.
  *
  * @param {Object}           incoming Incoming session payload.
@@ -302,6 +314,20 @@ function isSessionPayloadStale( incoming, known ) {
 		return true
 	}
 	if ( next.messageCount < known.messageCount ) {
+		return true
+	}
+
+	// Poll raced the message POST: same user turn, but status still idle (or an
+	// older idle snapshot) while we already know the run started. Accepting that
+	// clears busy chrome, stops polling, and leaves awaiting_browser stranded.
+	if (
+		isActiveRunStatus( known.status ) &&
+		next.status === 'idle' &&
+		next.messageCount <= known.messageCount &&
+		next.lastSeq <= known.lastSeq &&
+		next.stepCount <= known.stepCount &&
+		next.traceLen <= known.traceLen
+	) {
 		return true
 	}
 
@@ -647,6 +673,8 @@ export default function Sidebar() {
 	const [ debugOpen, setDebugOpen ] = useState( false )
 	const [ sending, setSending ] = useState( false )
 	const [ stopping, setStopping ] = useState( false )
+	/** Session ids that must keep polling after a send even if status flickers idle. */
+	const [ pollWatchByTab, setPollWatchByTab ] = useState( {} )
 	/** Session ids the user asked to stop while a send/run was still landing. */
 	const stopRequestedRef = useRef( {} )
 	/** Transient send failure (not part of session messages — polls must not own this). */
@@ -732,7 +760,18 @@ export default function Sidebar() {
 			if ( sessionStampRef.current[ id ] === fp ) {
 				return false
 			}
-			if ( isSessionPayloadStale( session, known ) ) {
+			const localStatus = statusByTabRef.current[ id ] || ''
+			const knownForCompare = known
+				? {
+					...known,
+					// Prefer live UI busy state when meta lagged behind optimistic send.
+					status: isActiveRunStatus( localStatus ) ? localStatus : known.status,
+				}
+				: ( isActiveRunStatus( localStatus )
+					? { ...extractSessionMeta( null ), status: localStatus }
+					: known
+				)
+			if ( isSessionPayloadStale( session, knownForCompare ) ) {
 				return false
 			}
 		}
@@ -751,6 +790,17 @@ export default function Sidebar() {
 			pendingLocalRef.current,
 			setThoughtByTab
 		)
+		const status = session.status || 'idle'
+		if ( ! isActiveRunStatus( status ) ) {
+			setPollWatchByTab( watches => {
+				if ( ! watches[ id ] ) {
+					return watches
+				}
+				const copy = { ...watches }
+				delete copy[ id ]
+				return copy
+			} )
+		}
 		return true
 	}, [] )
 
@@ -927,6 +977,78 @@ export default function Sidebar() {
 		const cold = ! hydratedRef.current.has( tabId )
 		syncSession( tabId, { cold } )
 	}, [ open, activeTabId, syncSession ] )
+
+	// Promote local tab shells (tab_*) to real sessions before the first send so
+	// createSession + activeTabId remap cannot race the optimistic busy state.
+	const promotingTabsRef = useRef( new Set() )
+	useEffect( () => {
+		if ( ! open ) {
+			return
+		}
+
+		const promote = async () => {
+			const localTabs = tabsRef.current.filter( tab => (
+				! isSessionId( tab.id ) && ! promotingTabsRef.current.has( tab.id )
+			) )
+			if ( ! localTabs.length ) {
+				return
+			}
+
+			for ( const tab of localTabs ) {
+				const previousId = tab.id
+				promotingTabsRef.current.add( previousId )
+				try {
+					const session = await createSession( {
+						mode,
+						title: tab.title && tab.title !== 'New Agent' ? tab.title : undefined,
+					} )
+					const id = String( session.id )
+					setTabs( current => {
+						if ( ! current.some( item => item.id === previousId ) ) {
+							return current
+						}
+						return current.map( item => (
+							item.id === previousId
+								? {
+									id,
+									title: session.title || item.title || 'New Agent',
+									createdAt: item.createdAt || Date.now(),
+									status: session.status || 'idle',
+								}
+								: item
+						) )
+					} )
+					setActiveTabId( current => ( current === previousId ? id : current ) )
+					setMessagesByTab( messages => {
+						const copy = { ...messages }
+						const prior = copy[ previousId ] || []
+						delete copy[ previousId ]
+						return {
+							...copy,
+							[ id ]: prior.length ? prior : mapEntriesToMessages( session.messages ),
+						}
+					} )
+					setStatusByTab( statuses => {
+						const copy = { ...statuses }
+						delete copy[ previousId ]
+						return {
+							...copy,
+							[ id ]: session.status || 'idle',
+						}
+					} )
+					sessionStampRef.current[ id ] = sessionFingerprint( session )
+					sessionMetaRef.current[ id ] = extractSessionMeta( session )
+					markHydrated( id )
+				} catch {
+					// First send still creates a session as a fallback.
+				} finally {
+					promotingTabsRef.current.delete( previousId )
+				}
+			}
+		}
+
+		promote()
+	}, [ open, mode, markHydrated ] )
 
 	// When returning to this browser tab, quietly refresh the open agent session.
 	useEffect( () => {
@@ -1168,13 +1290,20 @@ export default function Sidebar() {
 		[ open, activeTabId, hydratedVersion ]
 	)
 
-	const runningSessionKey = useMemo( () => (
-		Object.entries( statusByTab )
-			.filter( ( [ , status ] ) => status === 'running' || status === 'awaiting_browser' )
-			.map( ( [ id ] ) => id )
-			.sort()
-			.join( ',' )
-	), [ statusByTab ] )
+	const runningSessionKey = useMemo( () => {
+		const ids = new Set()
+		Object.entries( statusByTab ).forEach( ( [ id, status ] ) => {
+			if ( status === 'running' || status === 'awaiting_browser' ) {
+				ids.add( id )
+			}
+		} )
+		Object.keys( pollWatchByTab ).forEach( id => {
+			if ( pollWatchByTab[ id ] ) {
+				ids.add( id )
+			}
+		} )
+		return [ ...ids ].sort().join( ',' )
+	}, [ statusByTab, pollWatchByTab ] )
 
 	/**
 	 * Tracks browser-tool resume attempts.
@@ -1482,6 +1611,14 @@ export default function Sidebar() {
 				delete copy[ id ]
 				return copy
 			} )
+			setPollWatchByTab( watches => {
+				if ( ! watches[ id ] ) {
+					return watches
+				}
+				const copy = { ...watches }
+				delete copy[ id ]
+				return copy
+			} )
 			setTraceByTab( traces => {
 				const copy = { ...traces }
 				delete copy[ id ]
@@ -1702,6 +1839,19 @@ export default function Sidebar() {
 				updatedAt: '',
 			},
 		} ) )
+		// Floor freshness so a raced poll (same user turn, still idle) cannot
+		// clobber busy chrome before postMessage / the worker advances.
+		sessionMetaRef.current[ sessionId ] = {
+			...metaBeforeSend,
+			status: 'running',
+			progressAt: Date.now(),
+			messageCount: Math.max( metaBeforeSend.messageCount, metaBeforeSend.messageCount + 1 ),
+			lastSeq: Math.max( metaBeforeSend.lastSeq, metaBeforeSend.lastSeq + 1 ),
+		}
+		setPollWatchByTab( watches => ( {
+			...watches,
+			[ sessionId ]: true,
+		} ) )
 		// Drop prior-run trace so live status cannot reuse old intentions before the new run_start lands.
 		setTraceByTab( traces => ( {
 			...traces,
@@ -1778,9 +1928,15 @@ export default function Sidebar() {
 				const session = await getSession( sessionId )
 				applySession( session, { force: true } )
 			} catch {
+				// POST may have succeeded server-side while the response failed — keep
+				// polling rather than freezing the UI on idle with a live worker.
 				setStatusByTab( statuses => ( {
 					...statuses,
-					[ sessionId ]: metaBeforeSend.status || 'idle',
+					[ sessionId ]: 'running',
+				} ) )
+				setPollWatchByTab( watches => ( {
+					...watches,
+					[ sessionId ]: true,
 				} ) )
 			}
 
@@ -1823,6 +1979,14 @@ export default function Sidebar() {
 			...statuses,
 			[ sessionId ]: 'idle',
 		} ) )
+		setPollWatchByTab( watches => {
+			if ( ! watches[ sessionId ] ) {
+				return watches
+			}
+			const copy = { ...watches }
+			delete copy[ sessionId ]
+			return copy
+		} )
 		setProgressByTab( progress => {
 			if ( ! progress[ sessionId ] ) {
 				return progress
