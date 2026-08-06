@@ -32,6 +32,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		const CONVERT_BLOCKS           = 'ahentic-browser/convert-blocks';
 		const AUDIT_ACCESSIBILITY      = 'ahentic-browser/audit-accessibility';
 		const UPDATE_POST_TITLE        = 'ahentic-browser/update-post-title';
+		const SET_FEATURED_IMAGE       = 'ahentic-browser/set-featured-image';
 		const SAVE_POST                = 'ahentic-browser/save-post';
 
 		/**
@@ -58,6 +59,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				self::CONVERT_BLOCKS,
 				self::AUDIT_ACCESSIBILITY,
 				self::UPDATE_POST_TITLE,
+				self::SET_FEATURED_IMAGE,
 				self::SAVE_POST,
 			);
 		}
@@ -80,6 +82,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				self::RESTYLE_BLOCKS_TO_PALETTE,
 				self::CONVERT_BLOCKS,
 				self::UPDATE_POST_TITLE,
+				self::SET_FEATURED_IMAGE,
 				self::SAVE_POST,
 			);
 		}
@@ -528,6 +531,26 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 					),
 				),
 				array(
+					'name'        => self::SET_FEATURED_IMAGE,
+					'label'       => __( 'Set featured image', 'ahentic' ),
+					'description' => __( 'Sets or clears the featured image of the post open in the block editor via the editor store (featured_media). Does not save — leave the document dirty like other canvas edits. Prefer this when the block editor is open for the target post; use ahentic/set-featured-image when the editor is closed. Pass attachment_id 0 to clear. Optional post_id rejects a mismatch with the open document. Runs in the browser.', 'ahentic' ),
+					'meta'        => $mutate_meta,
+					'input'       => array(
+						'type'       => 'object',
+						'required'   => array( 'attachment_id' ),
+						'properties' => array(
+							'attachment_id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Media Library attachment ID to set as featured image, or 0 to clear.', 'ahentic' ),
+							),
+							'post_id'       => array(
+								'type'        => 'integer',
+								'description' => __( 'Optional. When set, must match the post open in the editor or the ability fails.', 'ahentic' ),
+							),
+						),
+					),
+				),
+				array(
 					'name'        => self::SAVE_POST,
 					'label'       => __( 'Save post', 'ahentic' ),
 					'description' => __( 'Saves the post open in the block editor. Use ONLY when the user explicitly asks to save, publish, or persist changes — not as a default last step after insert-blocks or other canvas edits (unsaved editor state is enough). Requires human approval. Runs in the browser.', 'ahentic' ),
@@ -609,6 +632,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				self::CONVERT_BLOCKS            => __( 'Convert blocks to core', 'ahentic' ),
 				self::AUDIT_ACCESSIBILITY       => __( 'Audit editor accessibility', 'ahentic' ),
 				self::UPDATE_POST_TITLE         => __( 'Update the editor post title', 'ahentic' ),
+				self::SET_FEATURED_IMAGE        => __( 'Set the editor featured image', 'ahentic' ),
 				self::SAVE_POST                 => __( 'Save the post in the editor', 'ahentic' ),
 			);
 
@@ -671,6 +695,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				self::CONVERT_BLOCKS            => __( 'Converting blocks to core…', 'ahentic' ),
 				self::AUDIT_ACCESSIBILITY       => __( 'Auditing editor accessibility…', 'ahentic' ),
 				self::UPDATE_POST_TITLE         => __( 'Updating the editor title…', 'ahentic' ),
+				self::SET_FEATURED_IMAGE        => __( 'Updating the featured image…', 'ahentic' ),
 				self::SAVE_POST                 => __( 'Saving the post…', 'ahentic' ),
 			);
 			$name = (string) $name;

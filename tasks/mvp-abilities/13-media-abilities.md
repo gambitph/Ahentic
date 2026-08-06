@@ -36,6 +36,7 @@ Extend `class-abilities-media.php` (or split if it grows past a few hundred line
 - Input: `post_id`, `attachment_id`.
 - `set_post_thumbnail()`. Snapshot the prior thumbnail id (or its absence) before setting.
 - **Editor open:** prefer the browser twin [`ahentic-browser/set-featured-image`](./16-ability-browser-set-featured-image.md) (Task 16) so the document panel updates live; this server ability is the path when the block editor is **not** open for that post (or for headless / Premium Agents). Optionally refuse or hint browser when page context shows editor open for `post_id`.
+- **Note:** Task 16’s browser ability can ship independently; PHP-only is **not** sufficient while the user is editing that post in Gutenberg.
 
 ### `ahentic/delete-media`
 

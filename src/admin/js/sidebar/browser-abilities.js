@@ -24,6 +24,7 @@ import {
 	convertBlocks,
 	auditAccessibility,
 	updatePostTitle,
+	setFeaturedImage,
 	savePost,
 } from './editor-abilities'
 
@@ -81,6 +82,8 @@ export async function runBrowserAbility( pending ) {
 				return { result: auditAccessibility() }
 			case 'ahentic-browser/update-post-title':
 				return { result: updatePostTitle( input ) }
+			case 'ahentic-browser/set-featured-image':
+				return { result: setFeaturedImage( input ) }
 			case 'ahentic-browser/save-post':
 				return { result: await savePost() }
 			case 'ahentic/http-fetch':

@@ -40,11 +40,13 @@ A browser ability that sets (or clears) the featured image on the **currently op
 
 ## Acceptance criteria
 
-- [ ] With the block editor open for post P, the ability updates the live featured-image UI / editor `featured_media` without requiring a hard reload
-- [ ] Does not call `savePost` by itself
-- [ ] Rejects (clear error) when the block editor is not open for the target post
-- [ ] Registered as `ahentic-browser/*` stub in PHP + real handler in sidebar JS
-- [ ] Cross-linked from Task 13’s server `set-featured-image` section so agents don’t treat PHP-only as sufficient while editing
+- [x] With the block editor open for post P, the ability updates the live featured-image UI / editor `featured_media` without requiring a hard reload
+- [x] Does not call `savePost` by itself
+- [x] Rejects (clear error) when the block editor is not open for the target post
+- [x] Registered as `ahentic-browser/*` stub in PHP + real handler in sidebar JS
+- [x] Cross-linked from Task 13’s server `set-featured-image` section so agents don’t treat PHP-only as sufficient while editing
+
+**HITL choice:** not listed in `hitl_names()` — matches `update-post-title` (editor undo / not-saving is the safety valve; only `save-post` / `convert-blocks` are HITL’d among light editor mutators).
 
 ## Files likely touched
 

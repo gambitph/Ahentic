@@ -1813,6 +1813,74 @@ export function updatePostTitle( input = {} ) {
 	}
 }
 
+/**
+ * Set or clear the featured image on the open post (editor store only — does not save).
+ *
+ * @param {{ attachment_id?: number, post_id?: number }} input
+ * @return {Object} Ability result.
+ */
+export function setFeaturedImage( input = {} ) {
+	const ctx = requireEditor()
+	if ( ! ctx.ok ) {
+		return ctx
+	}
+
+	const editor = ctx.select( 'core/editor' )
+	const currentPostId = editor.getCurrentPostId?.() ?? null
+
+	if ( input.post_id !== undefined && input.post_id !== null && input.post_id !== '' ) {
+		const expected = Number( input.post_id )
+		const openId = Number( currentPostId )
+		if ( ! Number.isFinite( expected ) || expected <= 0 ) {
+			return {
+				ok: false,
+				error: 'invalid_post_id',
+				message: 'post_id must be a positive integer when provided.',
+			}
+		}
+		if ( ! Number.isFinite( openId ) || openId !== expected ) {
+			return {
+				ok: false,
+				error: 'post_mismatch',
+				message: `Open editor post (${ currentPostId ?? 'none' }) does not match post_id ${ expected }. Use ahentic/set-featured-image when the target post is not open in the block editor.`,
+				post_id: currentPostId,
+				expected_post_id: expected,
+			}
+		}
+	}
+
+	if ( input.attachment_id === undefined || input.attachment_id === null || input.attachment_id === '' ) {
+		return {
+			ok: false,
+			error: 'invalid_attachment_id',
+			message: 'attachment_id is required (use 0 to clear the featured image).',
+		}
+	}
+
+	const attachmentId = Number( input.attachment_id )
+	if ( ! Number.isFinite( attachmentId ) || attachmentId < 0 || ! Number.isInteger( attachmentId ) ) {
+		return {
+			ok: false,
+			error: 'invalid_attachment_id',
+			message: 'attachment_id must be a non-negative integer (0 clears the featured image).',
+		}
+	}
+
+	ctx.dispatch( 'core/editor' ).editPost( { featured_media: attachmentId } )
+
+	const appliedRaw = editor.getEditedPostAttribute?.( 'featured_media' )
+	const applied = appliedRaw === undefined || appliedRaw === null
+		? attachmentId
+		: Number( appliedRaw )
+
+	return {
+		ok: true,
+		featured_media: Number.isFinite( applied ) ? applied : attachmentId,
+		post_id: currentPostId,
+		cleared: attachmentId === 0,
+	}
+}
+
 export async function savePost() {
 	const ctx = requireEditor()
 	if ( ! ctx.ok ) {

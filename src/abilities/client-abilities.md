@@ -132,7 +132,8 @@ Write abilities must report what they left behind so the orchestrator never spen
 | Situation | Prefer |
 | --- | --- |
 | Block editor open for this document | `ahentic-browser/*` (live canvas) |
-| Editor not open | `ahentic/create-post`, `update-post`, `set-post-status` |
+| Featured image while editor open for that post | `ahentic-browser/set-featured-image` (not server `set_post_thumbnail` — panel stays live) |
+| Editor not open | `ahentic/create-post`, `update-post`, `set-post-status` (and server `ahentic/set-featured-image` when that ships) |
 | Need logged-in HTML of wp-admin | `http-fetch` + `as_user: true` |
 | Public URL | `http-fetch` without `as_user` |
 

@@ -120,6 +120,25 @@ class AbilityPolicyTest extends TestCase {
 	}
 
 	/**
+	 * set-featured-image is a browser write like update-post-title (no HITL; editor undo / not-saving).
+	 */
+	public function test_browser_set_featured_image_policy() {
+		$name = 'ahentic-browser/set-featured-image';
+
+		$this->assertContains( $name, Ahentic_Abilities_Browser::names() );
+		$this->assertContains( $name, Ahentic_Abilities_Browser::write_names() );
+		$this->assertTrue( Ahentic_Abilities_Browser::is_browser( $name ) );
+		$this->assertFalse( Ahentic_Abilities_Browser::is_readonly( $name ) );
+		$this->assertFalse( Ahentic_Abilities_Browser::requires_hitl( $name ) );
+		$this->assertTrue( Ahentic_Abilities::requires_browser_runtime( $name ) );
+		$this->assertFalse( Ahentic_Abilities::requires_hitl( $name ) );
+		$this->assertSame(
+			'Updating the featured image…',
+			Ahentic_Abilities_Browser::progress_label( $name )
+		);
+	}
+
+	/**
 	 * Facade must fan out to every domain module (ToolRunner will call this).
 	 */
 	public function test_facade_requires_hitl_covers_all_modules() {

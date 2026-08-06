@@ -234,3 +234,14 @@ test.describe( 'ahentic/describe-image + generate-image', () => {
 		expect( uploaded.data.url ).toBeTruthy()
 	} )
 } )
+
+test.describe( 'ahentic-browser/set-featured-image', () => {
+	test( 'PHP stub refuses server execute (browser runtime)', async ( { requestUtils } ) => {
+		const result = await runAbility( requestUtils, 'ahentic-browser/set-featured-image', {
+			attachment_id: 1,
+		} )
+
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'ahentic_browser_runtime' )
+	} )
+} )

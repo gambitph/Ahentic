@@ -21,6 +21,7 @@
     "ahentic-browser/replace-blocks",
     "ahentic-browser/update-block-attributes",
     "ahentic-browser/update-post-title",
+    "ahentic-browser/set-featured-image",
     "ahentic-browser/save-post",
     "ahentic/create-post",
     "ahentic/update-post",
