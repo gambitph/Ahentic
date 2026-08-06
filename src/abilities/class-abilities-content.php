@@ -1498,7 +1498,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			$row_limit  = max( 20, $limit * 5 );
 			$params     = array_merge( array( $like ), $post_types, $statuses, array( $row_limit ) );
 
-			// phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			// phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Dynamic IN() placeholders via $type_in/$status_in and ...$params.
 			$sql = $wpdb->prepare(
 				"SELECT p.ID, pm.meta_key
 				FROM {$wpdb->postmeta} pm
