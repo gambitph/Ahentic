@@ -16,7 +16,7 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 | Piece | Responsibility |
 | --- | --- |
 | `Ahentic_Orchestrator` | Agent loop: think → tools → continue / finish |
-| `Ahentic_Tool_Runner` | One Ability through HITL / browser / execute / assess (shared by step loop + approval resume) |
+| `Ahentic_Tool_Runner` | One Ability through HITL / browser / execute / assess (owns pipeline helpers; shared by step loop + approval resume) |
 | `Ahentic_AI` | Thin wrapper around Core AI Client / `wordpress/php-ai-client` |
 | `Ahentic_Step_Queue` | Async steps (shutdown + Action Scheduler / cron fallback) |
 | Session repository | Entries, status, pending tool, plan, page context, artifacts |

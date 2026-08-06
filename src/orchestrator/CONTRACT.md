@@ -46,9 +46,9 @@ Order of concerns for each planned tool (after the ability is available for the 
 4. Browser pause if required (`awaiting_browser`) — **after** HITL when both apply  
 5. Else server `Ahentic_Abilities::execute` → assess write payload → persist tool entry  
 
-**Single pipeline module:** Steps 2–5 for agent-facing Ability runs are owned by `Ahentic_Tool_Runner` (`run()` for the step loop / HITL allow / suggested actions; `record_completed_result()` after browser resume). The Orchestrator must **not** reimplement HITL pause, browser pause, `from_memory` expand, execute, assess, or tool-entry persist at call sites. Do not invent a second execute path in REST handlers, ability modules, or ad-hoc Orchestrator helpers.
+**Single pipeline module:** Steps 2–5 for agent-facing Ability runs are owned by `Ahentic_Tool_Runner` (`run()` / `record_completed_result()`). Pipeline helpers (auto-stage, `from_memory` expand, browser preflight/fallback, assess, tool failure persist, trace shaping) live **inside** that module — not as Orchestrator public helpers. Some helpers stay `public` so Orchestrator recovery (`recover_stale_browser`) and unit tests can call them without reimplementing. The Orchestrator must **not** reimplement HITL pause, browser pause, `from_memory` expand, execute, assess, or tool-entry persist at call sites. Do not invent a second execute path in REST handlers, ability modules, or ad-hoc Orchestrator helpers.
 
-`Ahentic_Abilities::execute` remains the ability **dispatch** seam (registration → `execute_*`). The Tool runner is the orchestrator **pipeline** around that dispatch.
+`Ahentic_Abilities::execute` remains the ability **dispatch** seam (registration → `execute_*`). The Tool runner is the orchestrator **pipeline** around that dispatch. Orchestrator still owns step-loop concerns shared with prompts (e.g. `progress_label_for_tool`, plan advance after a tool, session `with_current_session`).
 
 ## Browser preflight & recovery
 
