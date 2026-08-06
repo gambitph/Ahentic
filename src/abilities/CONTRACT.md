@@ -10,7 +10,7 @@
 ## Registration
 
 1. Agent-facing tools are WordPress Abilities (`wp_register_ability`), namespaced `ahentic/…` or `ahentic-browser/…`.
-2. Every agent-facing ability is wired through `Ahentic_Abilities` (or module hooked from it): `names`, mode/readonly, HITL, browser flag, `execute` dispatch.
+2. Every agent-facing ability group self-registers with `Ahentic_Abilities::register_module()` and self-hooks WP ability registration. The facade catalogs modules for mode/readonly, HITL, browser flag, progress labels, and `execute` dispatch — do not re-list modules in the facade.
 3. `permission_callback` enforces WP capabilities; never rely on HITL alone for security.
 
 ## Runtime split

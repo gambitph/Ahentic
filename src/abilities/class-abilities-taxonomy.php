@@ -670,5 +670,23 @@ if ( ! class_exists( 'Ahentic_Abilities_Taxonomy' ) ) {
 
 			return current_user_can( 'manage_categories' );
 		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return string
+		 */
+		public static function progress_label( $name ) {
+			if ( self::UPDATE === (string) $name ) {
+				return __( 'Updating taxonomy term…', 'ahentic' );
+			}
+			return '';
+		}
 	}
+}
+
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'wp_abilities_api_init', array( 'Ahentic_Abilities_Taxonomy', 'register' ) );
+}
+if ( class_exists( 'Ahentic_Abilities' ) ) {
+	Ahentic_Abilities::register_module( 'Ahentic_Abilities_Taxonomy' );
 }

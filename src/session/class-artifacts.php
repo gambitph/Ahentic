@@ -1474,5 +1474,27 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			}
 			return rtrim( substr( $text, 0, $max - 1 ) ) . '…';
 		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return string
+		 */
+		public static function progress_label( $name ) {
+			$map = array(
+				self::STAGE  => __( 'Staging session artifact…', 'ahentic' ),
+				self::LIST   => __( 'Listing session artifacts…', 'ahentic' ),
+				self::DELETE => __( 'Deleting session artifact…', 'ahentic' ),
+			);
+			$name = (string) $name;
+			return isset( $map[ $name ] ) ? $map[ $name ] : '';
+		}
 	}
+}
+
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'wp_abilities_api_categories_init', array( 'Ahentic_Session_Artifacts', 'register_category' ) );
+	add_action( 'wp_abilities_api_init', array( 'Ahentic_Session_Artifacts', 'register' ) );
+}
+if ( class_exists( 'Ahentic_Abilities' ) ) {
+	Ahentic_Abilities::register_module( 'Ahentic_Session_Artifacts' );
 }

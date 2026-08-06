@@ -2121,60 +2121,21 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @return string
 		 */
 		public static function progress_label_for_tool( $tool, $debug = array() ) {
-			$map = array(
-				'ahentic/list-plugins'              => __( 'Checking installed plugins…', 'ahentic' ),
-				'ahentic/search-plugins'            => __( 'Searching the plugin directory…', 'ahentic' ),
-				'ahentic/get-site-snapshot'         => __( 'Reading site snapshot…', 'ahentic' ),
-				'ahentic/get-wordpress-guidance'    => __( 'Loading WordPress guidance…', 'ahentic' ),
-				'ahentic/get-site-health'           => __( 'Checking site health…', 'ahentic' ),
-				'ahentic/get-option'                => __( 'Reading site settings…', 'ahentic' ),
-				'ahentic/http-fetch'                => __( 'Fetching URL…', 'ahentic' ),
-				'ahentic/get-debug-log'             => __( 'Reading debug log…', 'ahentic' ),
-				'ahentic/get-admin-context'         => __( 'Reading admin page context…', 'ahentic' ),
-				'ahentic-browser/get-current-page'            => __( 'Reading the current page…', 'ahentic' ),
-				'ahentic-browser/get-visible-page'            => __( 'Reading what is on the screen…', 'ahentic' ),
-				'ahentic-browser/get-editor-state'            => __( 'Reading the block editor…', 'ahentic' ),
-				'ahentic-browser/get-blocks'                  => __( 'Reading editor blocks…', 'ahentic' ),
-				'ahentic-browser/get-selection'               => __( 'Reading the editor selection…', 'ahentic' ),
-				'ahentic-browser/get-block-type'              => __( 'Reading block type schema…', 'ahentic' ),
-				'ahentic-browser/list-block-types'            => __( 'Listing block types…', 'ahentic' ),
-				'ahentic-browser/focus-block'                 => __( 'Focusing a block…', 'ahentic' ),
-				'ahentic-browser/update-block-attributes'     => __( 'Updating block attributes…', 'ahentic' ),
-				'ahentic-browser/replace-blocks'              => __( 'Replacing blocks…', 'ahentic' ),
-				'ahentic-browser/set-blocks'                  => __( 'Setting editor blocks…', 'ahentic' ),
-				'ahentic-browser/insert-blocks'               => __( 'Inserting blocks…', 'ahentic' ),
-				'ahentic-browser/duplicate-blocks'            => __( 'Duplicating blocks…', 'ahentic' ),
-				'ahentic-browser/move-blocks'                 => __( 'Moving blocks…', 'ahentic' ),
-				'ahentic-browser/normalize-block-styles'      => __( 'Stripping custom block styles…', 'ahentic' ),
-				'ahentic-browser/restyle-blocks-to-palette'   => __( 'Restyling blocks to palette…', 'ahentic' ),
-				'ahentic-browser/convert-blocks'              => __( 'Converting blocks to core…', 'ahentic' ),
-				'ahentic-browser/audit-accessibility'         => __( 'Auditing editor accessibility…', 'ahentic' ),
-				'ahentic-browser/update-post-title'           => __( 'Updating the editor title…', 'ahentic' ),
-				'ahentic-browser/save-post'                   => __( 'Saving the post…', 'ahentic' ),
-				'ahentic/search-content'                     => __( 'Searching site content…', 'ahentic' ),
-				'ahentic/list-content'                       => __( 'Listing posts and pages…', 'ahentic' ),
-				'ahentic/generate-image'                     => __( 'Generating an image…', 'ahentic' ),
-				'ahentic/upload-media'                       => __( 'Uploading media…', 'ahentic' ),
-				'ahentic/describe-image'                     => __( 'Describing image…', 'ahentic' ),
-				'ahentic/get-content'                        => __( 'Reading post content…', 'ahentic' ),
-				'ahentic/create-post'                        => __( 'Creating a draft post…', 'ahentic' ),
-				'ahentic/update-post'                        => __( 'Updating post content…', 'ahentic' ),
-				'ahentic/set-post-status'                    => __( 'Updating post status…', 'ahentic' ),
-				'ahentic/stage-artifact'                     => __( 'Staging session artifact…', 'ahentic' ),
-				'ahentic/list-artifacts'                     => __( 'Listing session artifacts…', 'ahentic' ),
-				'ahentic/delete-artifact'                    => __( 'Deleting session artifact…', 'ahentic' ),
-				'ahentic/find-unused-media'                  => __( 'Scanning media for unused images…', 'ahentic' ),
-				'ahentic/install-plugin'            => __( 'Installing plugin…', 'ahentic' ),
-				'ahentic/activate-plugin'           => __( 'Activating plugin…', 'ahentic' ),
-				'ahentic/deactivate-plugin'         => __( 'Deactivating plugin…', 'ahentic' ),
-				'ahentic/uninstall-plugin'          => __( 'Uninstalling plugin…', 'ahentic' ),
-				'ahentic/update-term'               => __( 'Updating taxonomy term…', 'ahentic' ),
-				'core/read-content'                 => __( 'Reading site content…', 'ahentic' ),
-				'ahentic/inspect-site'              => __( 'Inspecting the site…', 'ahentic' ),
-			);
+			$tool = (string) $tool;
+			if ( class_exists( 'Ahentic_Abilities' ) ) {
+				$from_catalog = Ahentic_Abilities::progress_label( $tool );
+				if ( '' !== $from_catalog ) {
+					return $from_catalog;
+				}
+			}
 
-			if ( isset( $map[ $tool ] ) ) {
-				return $map[ $tool ];
+			// Legacy / non-catalog labels (not owned by an ability module yet).
+			$legacy = array(
+				'core/read-content'    => __( 'Reading site content…', 'ahentic' ),
+				'ahentic/inspect-site' => __( 'Inspecting the site…', 'ahentic' ),
+			);
+			if ( isset( $legacy[ $tool ] ) ) {
+				return $legacy[ $tool ];
 			}
 
 			$from_debug = self::progress_label_from_debug( $debug, '' );

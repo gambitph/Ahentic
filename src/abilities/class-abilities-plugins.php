@@ -1019,5 +1019,31 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 			$file = self::plugin_file_from_slug( $slug );
 			return $file ? is_plugin_active( $file ) : false;
 		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return string
+		 */
+		public static function progress_label( $name ) {
+			$map = array(
+				self::LIST       => __( 'Checking installed plugins…', 'ahentic' ),
+				self::SEARCH     => __( 'Searching the plugin directory…', 'ahentic' ),
+				self::ANALYZE    => __( 'Analyzing plugins…', 'ahentic' ),
+				self::INSTALL    => __( 'Installing plugin…', 'ahentic' ),
+				self::ACTIVATE   => __( 'Activating plugin…', 'ahentic' ),
+				self::DEACTIVATE => __( 'Deactivating plugin…', 'ahentic' ),
+				self::UNINSTALL  => __( 'Uninstalling plugin…', 'ahentic' ),
+			);
+			$name = (string) $name;
+			return isset( $map[ $name ] ) ? $map[ $name ] : '';
+		}
 	}
+}
+
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'wp_abilities_api_categories_init', array( 'Ahentic_Abilities_Plugins', 'register_category' ) );
+	add_action( 'wp_abilities_api_init', array( 'Ahentic_Abilities_Plugins', 'register' ) );
+}
+if ( class_exists( 'Ahentic_Abilities' ) ) {
+	Ahentic_Abilities::register_module( 'Ahentic_Abilities_Plugins' );
 }

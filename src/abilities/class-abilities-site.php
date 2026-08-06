@@ -934,5 +934,61 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 			}
 			return $text;
 		}
+
+		/**
+		 * @param string $name  Ability name.
+		 * @param array  $input Input.
+		 * @return bool
+		 */
+		public static function requires_browser_runtime( $name, $input = array() ) {
+			if ( self::HTTP_FETCH !== (string) $name ) {
+				return false;
+			}
+			return self::http_fetch_requires_browser( $input );
+		}
+
+		/**
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return string
+		 */
+		public static function browser_summary( $name, $input = array() ) {
+			if ( self::HTTP_FETCH !== (string) $name || ! self::http_fetch_requires_browser( $input ) ) {
+				return '';
+			}
+			$url = isset( $input['url'] ) ? (string) $input['url'] : '';
+			return $url
+				? sprintf(
+					/* translators: %s: URL */
+					__( 'Fetch as you: %s', 'ahentic' ),
+					$url
+				)
+				: __( 'Fetch URL as you (browser)', 'ahentic' );
+		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return string
+		 */
+		public static function progress_label( $name ) {
+			$map = array(
+				self::HEALTH        => __( 'Checking site health…', 'ahentic' ),
+				self::OPTION        => __( 'Reading site settings…', 'ahentic' ),
+				self::HTTP_FETCH    => __( 'Fetching URL…', 'ahentic' ),
+				self::DEBUG_LOG     => __( 'Reading debug log…', 'ahentic' ),
+				self::ADMIN_CONTEXT => __( 'Reading admin page context…', 'ahentic' ),
+				self::LIST_THEMES   => __( 'Listing themes…', 'ahentic' ),
+			);
+			$name = (string) $name;
+			return isset( $map[ $name ] ) ? $map[ $name ] : '';
+		}
 	}
+}
+
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'wp_abilities_api_categories_init', array( 'Ahentic_Abilities_Site', 'register_category' ) );
+	add_action( 'wp_abilities_api_init', array( 'Ahentic_Abilities_Site', 'register' ) );
+}
+if ( class_exists( 'Ahentic_Abilities' ) ) {
+	Ahentic_Abilities::register_module( 'Ahentic_Abilities_Site' );
 }

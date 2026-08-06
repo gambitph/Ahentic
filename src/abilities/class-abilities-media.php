@@ -1041,5 +1041,28 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				'parent_id' => (int) $post->post_parent,
 			);
 		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return string
+		 */
+		public static function progress_label( $name ) {
+			$map = array(
+				self::FIND_UNUSED    => __( 'Scanning media for unused images…', 'ahentic' ),
+				self::DESCRIBE_IMAGE => __( 'Describing image…', 'ahentic' ),
+				self::GENERATE_IMAGE => __( 'Generating an image…', 'ahentic' ),
+				self::UPLOAD_MEDIA   => __( 'Uploading media…', 'ahentic' ),
+			);
+			$name = (string) $name;
+			return isset( $map[ $name ] ) ? $map[ $name ] : '';
+		}
 	}
+}
+
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'wp_abilities_api_categories_init', array( 'Ahentic_Abilities_Media', 'register_category' ) );
+	add_action( 'wp_abilities_api_init', array( 'Ahentic_Abilities_Media', 'register' ) );
+}
+if ( class_exists( 'Ahentic_Abilities' ) ) {
+	Ahentic_Abilities::register_module( 'Ahentic_Abilities_Media' );
 }

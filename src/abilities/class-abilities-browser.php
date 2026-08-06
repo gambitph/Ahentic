@@ -632,5 +632,57 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 			}
 			return self::summary( $name );
 		}
+
+		/**
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return string
+		 */
+		public static function browser_summary( $name, $input = array() ) {
+			unset( $input );
+			if ( ! self::is_browser( $name ) ) {
+				return '';
+			}
+			return self::summary( $name );
+		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return string
+		 */
+		public static function progress_label( $name ) {
+			$map = array(
+				self::CURRENT_PAGE              => __( 'Reading the current page…', 'ahentic' ),
+				self::VISIBLE_PAGE              => __( 'Reading what is on the screen…', 'ahentic' ),
+				self::EDITOR_STATE              => __( 'Reading the block editor…', 'ahentic' ),
+				self::GET_BLOCKS                => __( 'Reading editor blocks…', 'ahentic' ),
+				self::GET_SELECTION             => __( 'Reading the editor selection…', 'ahentic' ),
+				self::GET_BLOCK_TYPE            => __( 'Reading block type schema…', 'ahentic' ),
+				self::LIST_BLOCK_TYPES          => __( 'Listing block types…', 'ahentic' ),
+				self::FOCUS_BLOCK               => __( 'Focusing a block…', 'ahentic' ),
+				self::UPDATE_BLOCK_ATTRIBUTES   => __( 'Updating block attributes…', 'ahentic' ),
+				self::REPLACE_BLOCKS            => __( 'Replacing blocks…', 'ahentic' ),
+				self::SET_BLOCKS                => __( 'Setting editor blocks…', 'ahentic' ),
+				self::INSERT_BLOCKS             => __( 'Inserting blocks…', 'ahentic' ),
+				self::DUPLICATE_BLOCKS          => __( 'Duplicating blocks…', 'ahentic' ),
+				self::MOVE_BLOCKS               => __( 'Moving blocks…', 'ahentic' ),
+				self::NORMALIZE_BLOCK_STYLES    => __( 'Stripping custom block styles…', 'ahentic' ),
+				self::RESTYLE_BLOCKS_TO_PALETTE => __( 'Restyling blocks to palette…', 'ahentic' ),
+				self::CONVERT_BLOCKS            => __( 'Converting blocks to core…', 'ahentic' ),
+				self::AUDIT_ACCESSIBILITY       => __( 'Auditing editor accessibility…', 'ahentic' ),
+				self::UPDATE_POST_TITLE         => __( 'Updating the editor title…', 'ahentic' ),
+				self::SAVE_POST                 => __( 'Saving the post…', 'ahentic' ),
+			);
+			$name = (string) $name;
+			return isset( $map[ $name ] ) ? $map[ $name ] : '';
+		}
 	}
+}
+
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'wp_abilities_api_categories_init', array( 'Ahentic_Abilities_Browser', 'register_category' ) );
+	add_action( 'wp_abilities_api_init', array( 'Ahentic_Abilities_Browser', 'register' ) );
+}
+if ( class_exists( 'Ahentic_Abilities' ) ) {
+	Ahentic_Abilities::register_module( 'Ahentic_Abilities_Browser' );
 }

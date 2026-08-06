@@ -451,5 +451,24 @@ if ( ! class_exists( 'Ahentic_Playbooks' ) ) {
 			}
 			return implode( "\n", $lines );
 		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return string
+		 */
+		public static function progress_label( $name ) {
+			if ( self::GUIDANCE === (string) $name ) {
+				return __( 'Loading WordPress guidance…', 'ahentic' );
+			}
+			return '';
+		}
 	}
+}
+
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'wp_abilities_api_categories_init', array( 'Ahentic_Playbooks', 'register_category' ) );
+	add_action( 'wp_abilities_api_init', array( 'Ahentic_Playbooks', 'register' ) );
+}
+if ( class_exists( 'Ahentic_Abilities' ) ) {
+	Ahentic_Abilities::register_module( 'Ahentic_Playbooks' );
 }

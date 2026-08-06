@@ -61,8 +61,8 @@ add_action( 'init', 'ahentic_load_textdomain' );
 
 require_once __DIR__ . '/src/session/class-cpt.php';
 require_once __DIR__ . '/src/session/class-repository.php';
-require_once __DIR__ . '/src/session/class-artifacts.php';
 require_once __DIR__ . '/src/abilities/class-abilities.php';
+require_once __DIR__ . '/src/abilities/class-abilities-snapshot.php';
 require_once __DIR__ . '/src/abilities/class-abilities-content.php';
 require_once __DIR__ . '/src/abilities/class-abilities-media.php';
 require_once __DIR__ . '/src/abilities/class-abilities-site.php';
@@ -70,6 +70,7 @@ require_once __DIR__ . '/src/abilities/class-abilities-plugins.php';
 require_once __DIR__ . '/src/abilities/class-abilities-taxonomy.php';
 require_once __DIR__ . '/src/abilities/class-abilities-browser.php';
 require_once __DIR__ . '/src/abilities/class-capability-request.php';
+require_once __DIR__ . '/src/session/class-artifacts.php';
 require_once __DIR__ . '/src/playbooks/class-playbooks.php';
 require_once __DIR__ . '/src/orchestrator/class-usage.php';
 require_once __DIR__ . '/src/orchestrator/class-queue.php';

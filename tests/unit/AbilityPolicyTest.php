@@ -24,11 +24,30 @@ class AbilityPolicyTest extends TestCase {
 		parent::setUpBeforeClass();
 
 		$root = dirname( __DIR__, 2 );
+		require_once $root . '/src/abilities/class-abilities.php';
+		Ahentic_Abilities::reset_modules_for_tests();
+		require_once $root . '/src/abilities/class-abilities-snapshot.php';
 		require_once $root . '/src/abilities/class-abilities-content.php';
 		require_once $root . '/src/abilities/class-abilities-plugins.php';
 		require_once $root . '/src/abilities/class-abilities-browser.php';
 		require_once $root . '/src/abilities/class-abilities-taxonomy.php';
-		require_once $root . '/src/abilities/class-abilities.php';
+		require_once $root . '/src/abilities/class-abilities-site.php';
+		require_once $root . '/src/abilities/class-abilities-media.php';
+
+		// Explicit re-register: another unit test may have loaded a module before the facade.
+		foreach (
+			array(
+				'Ahentic_Abilities_Snapshot',
+				'Ahentic_Abilities_Content',
+				'Ahentic_Abilities_Plugins',
+				'Ahentic_Abilities_Browser',
+				'Ahentic_Abilities_Taxonomy',
+				'Ahentic_Abilities_Site',
+				'Ahentic_Abilities_Media',
+			) as $module
+		) {
+			Ahentic_Abilities::register_module( $module );
+		}
 	}
 
 	/**
@@ -74,9 +93,6 @@ class AbilityPolicyTest extends TestCase {
 	 * Site list-themes and media vision/generation are readonly (no HITL).
 	 */
 	public function test_site_and_media_track_b_readonly_flags() {
-		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-site.php';
-		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-media.php';
-
 		$this->assertContains( 'ahentic/list-themes', Ahentic_Abilities_Site::names() );
 		$this->assertContains( 'ahentic/describe-image', Ahentic_Abilities_Media::names() );
 		$this->assertContains( 'ahentic/generate-image', Ahentic_Abilities_Media::names() );
@@ -125,5 +141,16 @@ class AbilityPolicyTest extends TestCase {
 		$this->assertTrue( Ahentic_Abilities::requires_browser_runtime( 'ahentic-browser/save-post' ) );
 		$this->assertFalse( Ahentic_Abilities::requires_browser_runtime( 'ahentic/create-post' ) );
 		$this->assertFalse( Ahentic_Abilities::requires_browser_runtime( 'ahentic/list-plugins' ) );
+	}
+
+	/**
+	 * Snapshot module is in the catalog.
+	 */
+	public function test_snapshot_in_available_for_agent() {
+		$this->assertContains( 'ahentic/get-site-snapshot', Ahentic_Abilities::available_for_agent() );
+		$this->assertSame(
+			'Reading site snapshot…',
+			Ahentic_Abilities::progress_label( 'ahentic/get-site-snapshot' )
+		);
 	}
 }

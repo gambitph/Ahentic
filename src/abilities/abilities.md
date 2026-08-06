@@ -24,7 +24,8 @@ Official refs: [Abilities API in WP 6.9](https://make.wordpress.org/core/2025/11
 
 | Module | Namespace | Runtime |
 | --- | --- | --- |
-| `class-abilities.php` | `ahentic/get-site-snapshot` + facade | Server |
+| `class-abilities.php` | Facade + module catalog | — |
+| `class-abilities-snapshot.php` | `ahentic/get-site-snapshot` | Server |
 | `class-abilities-content.php` | `ahentic/*` content | Server |
 | `class-abilities-plugins.php` | `ahentic/*` plugins | Server |
 | `class-abilities-site.php` | site health, options, http-fetch, … | Server (http-fetch may pause for browser when `as_user`) |
@@ -32,8 +33,9 @@ Official refs: [Abilities API in WP 6.9](https://make.wordpress.org/core/2025/11
 | `class-abilities-taxonomy.php` | terms | Server |
 | `class-abilities-browser.php` | `ahentic-browser/*` | **Client** (PHP stubs) |
 | `class-artifacts.php` (session) | `ahentic/stage-artifact`, list, delete | Server (session meta only) |
+| `class-playbooks.php` | `ahentic/get-wordpress-guidance` | Server |
 
-Facade: `Ahentic_Abilities::init()` registers categories/abilities; `available_for_agent()` / `available_for_mode()` / `execute()` / `requires_hitl()` / `requires_browser_runtime()` feed the **Tool runner** (pipeline) and ability dispatch. Agent runs go through `Ahentic_Tool_Runner`; `execute()` is dispatch only — see [orchestrator CONTRACT](../orchestrator/CONTRACT.md).
+Facade: `Ahentic_Abilities` keeps the public orchestrator seam (`available_for_agent()`, `available_for_mode()`, `execute()`, `requires_hitl()`, `requires_browser_runtime()`, `progress_label()`). Ability groups **self-register** via `Ahentic_Abilities::register_module( __CLASS__ )` and self-hook WP `wp_abilities_api_*` actions at file load. Agent runs go through `Ahentic_Tool_Runner`; `execute()` is dispatch only — see [orchestrator CONTRACT](../orchestrator/CONTRACT.md).
 
 **v1 catalog:** only Ahentic-wired names. Foreign (other-plugin) WP Abilities are not in the agent catalog yet — planned for v2/v3; see [Abilities PRD](../../pro__premium_only/docs/prd/abilities.md) and [future-foreign-abilities.md](../../pro__premium_only/docs/future-foreign-abilities.md).
 
@@ -50,7 +52,9 @@ Facade: `Ahentic_Abilities::init()` registers categories/abilities; `available_f
 
 - Namespaced: `ahentic/…` or `ahentic-browser/…`
 - Lowercase with dashes
-- Register category on `wp_abilities_api_categories_init`, ability on `wp_abilities_api_init` (via your module’s `register_category` / `register`, hooked from `Ahentic_Abilities`)
+- Register category on `wp_abilities_api_categories_init`, ability on `wp_abilities_api_init` (self-hooked at the bottom of your module file)
+- Call `Ahentic_Abilities::register_module( __CLASS__ )` so the agent catalog picks you up
+- Implement `progress_label( $name )` for Tool runner / sidebar progress copy
 
 ### 3. Schemas and meta
 
@@ -83,26 +87,22 @@ wp_register_ability(
 
 Write descriptions for the **model**: when to use, required args, what not to do (e.g. prefer browser tools while the editor is open).
 
-### 4. Wire into Ahentic’s lists
+### 4. Wire into the catalog
 
 In your module:
 
 - `names()` — all ability name constants
 - `write_names()` / `is_readonly()` — Ask mode
 - `hitl_names()` / `requires_hitl()` / `hitl_summary()` — mutating tools that need Allow/Deny
+- `progress_label( $name )` — sidebar / heartbeat copy while the tool runs
 - `execute( $name, $input )` — dispatch
+- Self-hook WP + `Ahentic_Abilities::register_module( __CLASS__ )` at file bottom
 
-Then in `Ahentic_Abilities`:
-
-- `register_categories` / `register_abilities` — call your register methods
-- `available_for_agent()` — merge `names()`
-- `execute()` — dispatch to your module
-- `requires_hitl()` / `is_readonly()` — delegate as needed
-- For browser tools: `Ahentic_Abilities_Browser::is_browser()` + JS handler
+For browser tools: implement `is_browser()` / `browser_summary()` on the browser module and a JS handler in `browser-abilities.js`.
 
 ### 5. Load the PHP file
 
-`require_once` from `ahentic.php` (same pattern as existing modules).
+`require_once` from `ahentic.php` **after** `class-abilities.php` (same pattern as existing modules).
 
 ### 6. Orchestrator prompt (optional)
 

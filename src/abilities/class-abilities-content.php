@@ -2285,5 +2285,34 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			}
 			return ! empty( $out ) ? array_values( array_unique( $out ) ) : $default;
 		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return string
+		 */
+		public static function progress_label( $name ) {
+			$map = array(
+				self::LIST               => __( 'Listing posts and pages…', 'ahentic' ),
+				self::GET                => __( 'Reading post content…', 'ahentic' ),
+				self::SEARCH             => __( 'Searching site content…', 'ahentic' ),
+				self::LIST_POST_TYPES    => __( 'Listing post types…', 'ahentic' ),
+				self::REPLACE_IN_CONTENT => __( 'Replacing in content…', 'ahentic' ),
+				self::LIST_REVISIONS     => __( 'Listing revisions…', 'ahentic' ),
+				self::RESTORE_REVISION   => __( 'Restoring a revision…', 'ahentic' ),
+				self::CREATE             => __( 'Creating a draft post…', 'ahentic' ),
+				self::UPDATE             => __( 'Updating post content…', 'ahentic' ),
+				self::SET_STATUS         => __( 'Updating post status…', 'ahentic' ),
+			);
+			$name = (string) $name;
+			return isset( $map[ $name ] ) ? $map[ $name ] : '';
+		}
 	}
+}
+
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'wp_abilities_api_categories_init', array( 'Ahentic_Abilities_Content', 'register_category' ) );
+	add_action( 'wp_abilities_api_init', array( 'Ahentic_Abilities_Content', 'register' ) );
+}
+if ( class_exists( 'Ahentic_Abilities' ) ) {
+	Ahentic_Abilities::register_module( 'Ahentic_Abilities_Content' );
 }

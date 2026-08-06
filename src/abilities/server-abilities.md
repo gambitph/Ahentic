@@ -61,6 +61,16 @@ class Ahentic_Abilities_Example {
 		return __( 'Update example setting', 'ahentic' );
 	}
 
+	public static function progress_label( $name ) {
+		if ( self::LIST === (string) $name ) {
+			return __( 'Listing examples…', 'ahentic' );
+		}
+		if ( self::WRITE === (string) $name ) {
+			return __( 'Updating example…', 'ahentic' );
+		}
+		return '';
+	}
+
 	public static function register_category() { /* wp_register_ability_category */ }
 
 	public static function register() { /* wp_register_ability for each */ }
@@ -76,9 +86,18 @@ class Ahentic_Abilities_Example {
 		}
 	}
 }
+
+// Outside the class_exists guard — self-hook WP + join the catalog:
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'wp_abilities_api_categories_init', array( 'Ahentic_Abilities_Example', 'register_category' ) );
+	add_action( 'wp_abilities_api_init', array( 'Ahentic_Abilities_Example', 'register' ) );
+}
+if ( class_exists( 'Ahentic_Abilities' ) ) {
+	Ahentic_Abilities::register_module( 'Ahentic_Abilities_Example' );
+}
 ```
 
-Wire into `Ahentic_Abilities` (`register_*`, `available_for_agent`, `execute`, `requires_hitl`, `hitl_summary`, readonly fallbacks) and `require_once` from `ahentic.php`.
+Then `require_once` the file from `ahentic.php` **after** `class-abilities.php`. Do **not** add another `class_exists` fan-out in the facade — the catalog picks the module up via `register_module`.
 
 ---
 
