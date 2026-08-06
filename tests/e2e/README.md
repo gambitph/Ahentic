@@ -136,8 +136,11 @@ ability — see `docs/agents/testing.md` for the current list and rationale.
 | `mu-plugins/ahentic-e2e-ability-runner.php` | Test-only REST routes: `run-ability`, `seed-ai-responses`, `seed`, `reset`, `health` |
 | `global-setup.js` | Cookie-authenticates via `RequestUtils.setup()`, persists `storageState` |
 | `utils/ability-client.js` | `runAbility()` / `seedAiResponses()` / `seed()` / `resetAiResponses()` helpers |
-| `fixtures/ahentic-sidebar.js` | `AhenticSidebar` fixture (open a session, send a message, read chat bubbles) + `mockReply()` |
+| `utils/session-client.js` | REST-direct orchestrator helpers: `startRun` / `waitForSession` / approvals / browser-results |
+| `fixtures/ahentic-sidebar.js` | `AhenticSidebar` fixture (open a session, send a message, HITL decisions) + `mockReply()` |
 | `fixtures/test.js` | Extends `@wordpress/e2e-test-utils-playwright`'s `test` with the `ahenticSidebar` fixture |
+| `specs/orchestrator-pipeline.spec.js` | Tool pipeline characterization (HITL / browser / Ask) for architecture refactors |
+| `specs/hitl-and-undo.spec.js` | Browser HITL card + Task 01 surface |
 | `specs/*.spec.js` | Module-grouped specs |
 | `.auth/` | Gitignored; written by global setup |
 

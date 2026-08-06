@@ -172,6 +172,30 @@ class AhenticSidebar {
 	resetAiResponses() {
 		return resetAiResponses( this.requestUtils )
 	}
+
+	/** @return {import('@playwright/test').Locator} The HITL approval card. */
+	get hitlCard() {
+		return this.page.getByRole( 'group', { name: 'Approve action' } )
+	}
+
+	/**
+	 * Click a HITL decision on the visible approval card.
+	 *
+	 * @param {'allow_once'|'allow_session'|'deny'} decision
+	 * @return {Promise<void>}
+	 */
+	async decideHitl( decision ) {
+		const labels = {
+			allow_once: /Allow once/i,
+			allow_session: /Allow for this chat/i,
+			deny: /Skip/i,
+		}
+		const label = labels[ decision ]
+		if ( ! label ) {
+			throw new Error( `Unknown HITL decision: ${ decision }` )
+		}
+		await this.hitlCard.getByRole( 'button', { name: label } ).click()
+	}
 }
 
 module.exports = {

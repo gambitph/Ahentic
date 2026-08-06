@@ -63,4 +63,19 @@ module.exports = defineConfig( {
 		},
 		trace: 'retain-on-failure',
 	},
+	projects: [
+		{
+			// Abilities / harness that do not share the mocked-AI option queue.
+			name: 'rest-direct',
+			testMatch: /content-and-plugins\.spec\.js/,
+		},
+		{
+			// Specs that seed `ahentic_e2e_ai_queue` must not run in parallel —
+			// the queue is a single WP option inside Playground.
+			name: 'ai-orchestrator',
+			testMatch: /(?:orchestrator-pipeline|hitl-and-undo|sidebar-chat)\.spec\.js/,
+			fullyParallel: false,
+			workers: 1,
+		},
+	],
 } )

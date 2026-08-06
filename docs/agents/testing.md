@@ -117,11 +117,13 @@ too granular to maintain.
 
 | Spec | Covers |
 | --- | --- |
-| `hitl-and-undo.spec.js` | Non-preallowable HITL, settings snapshot capture, `undo-last-actions` (mvp-abilities Task 01) |
+| `orchestrator-pipeline.spec.js` | Characterization of the tool pipeline (readonly tools, HITL allow/deny/allow_session, browser pause/resume, Ask-mode write block) — safety net for ToolRunner / HITL-policy architecture work |
+| `hitl-and-undo.spec.js` | Browser HITL card wiring + (later) Non-preallowable HITL, settings snapshot, `undo-last-actions` (mvp-abilities Task 01) |
 | `content-and-plugins.spec.js` | Existing content/plugin/site abilities + `list-post-types`, `analyze-plugins`, `list-themes`, `replace-in-content`, revisions (Tasks 02–06) |
 | `settings-abilities.spec.js` | Settings discovery + theme/global-styles/template-part/option writes and their undo paths (Tasks 07–11) |
 | `users-abilities.spec.js` | User list/create/update/delete (Task 12) |
 | `media-abilities.spec.js` | Media writes + describe/generate-image (Tasks 13–15) |
+| `sidebar-chat.spec.js` | Browser-driven smoke: composer → mocked assistant bubble |
 
 Add new `describe()` blocks to the relevant existing spec file for each new
 ability rather than creating a new file per ability.

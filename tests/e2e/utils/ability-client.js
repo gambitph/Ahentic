@@ -34,7 +34,7 @@ async function runAbility( requestUtils, name, input = {} ) {
  * the current WordPress request-handling session (until consumed or reset).
  *
  * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils The `requestUtils` fixture.
- * @param {Array<Object|string>}                                        responses    Ordered canned `complete_chat()`-shaped results, or plain strings (shorthand for `{ text: ... }`).
+ * @param {Array<Object|string>}                                        responses    Ordered canned `complete_chat()`-shaped results, or plain strings (shorthand for `{ text: ... }`). Replaces any previously queued responses (does not append).
  * @return {Promise<{ok: boolean, queued: number}>} Confirmation of how many responses were queued.
  */
 async function seedAiResponses( requestUtils, responses ) {

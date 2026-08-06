@@ -180,9 +180,10 @@ function ahentic_e2e_seed_ai_responses( WP_REST_Request $request ) {
 	$responses = $request->get_param( 'responses' );
 	$responses = is_array( $responses ) ? $responses : array();
 
-	$queue = get_option( AHENTIC_E2E_AI_QUEUE_OPTION, array() );
-	$queue = is_array( $queue ) ? $queue : array();
-
+	// Replace (do not append): parallel specs must not share a growing global
+	// queue. Each seedAiResponses() / startRun() owns the full upcoming turn
+	// sequence; beforeEach reset + replace keeps the contract explicit.
+	$queue = array();
 	foreach ( $responses as $response ) {
 		$queue[] = $response;
 	}
