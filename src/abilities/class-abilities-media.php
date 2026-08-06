@@ -492,19 +492,6 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 			}
 
 			$session_id = class_exists( 'Ahentic_Orchestrator' ) ? Ahentic_Orchestrator::current_session_id() : 0;
-			// #region agent log
-			Ahentic_AI::debug_log(
-				'C',
-				'class-abilities-media.php:execute_generate_image',
-				'generate-image ability entry',
-				array(
-					'aspect'           => $aspect,
-					'input_aspect'     => isset( $input['aspect_ratio'] ) ? (string) $input['aspect_ratio'] : null,
-					'session_id'       => (int) $session_id,
-					'prompt_len'       => strlen( $prompt ),
-				)
-			);
-			// #endregion
 			if ( $session_id <= 0 ) {
 				return new WP_Error(
 					'ahentic_no_session',
@@ -519,17 +506,6 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				'ahentic_generate_image_rate_limited'
 			);
 			if ( is_wp_error( $rate ) ) {
-				// #region agent log
-				Ahentic_AI::debug_log(
-					'C',
-					'class-abilities-media.php:execute_generate_image',
-					'rate limit rejected',
-					array(
-						'code'    => $rate->get_error_code(),
-						'message' => $rate->get_error_message(),
-					)
-				);
-				// #endregion
 				return $rate;
 			}
 
@@ -539,19 +515,6 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 
 			$generated = Ahentic_AI::generate_image( $prompt, $aspect );
 			if ( is_wp_error( $generated ) ) {
-				// #region agent log
-				Ahentic_AI::debug_log(
-					'D',
-					'class-abilities-media.php:execute_generate_image',
-					'generate_image returned WP_Error',
-					array(
-						'code'     => $generated->get_error_code(),
-						'message'  => $generated->get_error_message(),
-						'previous' => $generated->get_error_data(),
-						'aspect'   => $aspect,
-					)
-				);
-				// #endregion
 				return $generated;
 			}
 

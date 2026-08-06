@@ -17,6 +17,7 @@ import {
 	collectLiveClientIds,
 	wipeEditorRefs,
 } from './block-ref-registry'
+import { pickMediaEssentialAttrs } from './media-essentials'
 
 const MAX_BLOCKS_DEFAULT = 80
 const MAX_BLOCKS_FULL_UNSCOPED_CAP = 8
@@ -299,6 +300,17 @@ function serializeBlockTree( block, budget, opts = {} ) {
 		node.attributes = attributes
 	} else if ( Object.keys( rawAttrs ).length ) {
 		node.attribute_keys = Object.keys( rawAttrs ).slice( 0, 40 )
+		// Compact media identity/alt fields — alt-text and describe-image need
+		// url/id without a second include_attributes pass. Known core maps plus
+		// key/value heuristics for third-party image blocks.
+		const picked = pickMediaEssentialAttrs( rawAttrs, block.name )
+		if ( Object.keys( picked ).length ) {
+			const essentials = {}
+			for ( const key of Object.keys( picked ) ) {
+				essentials[ key ] = capValue( picked[ key ] )
+			}
+			node.attributes = essentials
+		}
 	}
 	// Plain-text preview so the agent can match user phrases (e.g. "Get in touch").
 	for ( const key of CONTENT_ATTR_KEYS ) {

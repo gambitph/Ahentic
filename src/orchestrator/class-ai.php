@@ -122,34 +122,25 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 				. '{"description":"1-3 sentence general description","alt_text_suggestion":"objective, under 125 characters, no Image of/Photo of prefixes"}.';
 
 			try {
-				if ( function_exists( 'wp_ai_client_prompt' ) ) {
+				$has_core = function_exists( 'wp_ai_client_prompt' );
+				$has_sdk  = class_exists( '\WordPress\AiClient\AiClient' );
+
+				if ( $has_core ) {
+					/*
+					 * WP_AI_Client_Prompt_Builder exposes snake_case APIs via __call —
+					 * do not gate on method_exists() (those methods are not declared).
+					 * Same rule as complete_via_core().
+					 */
 					$builder = wp_ai_client_prompt( 'Describe this image for accessibility.' );
 					if ( ! is_object( $builder ) ) {
 						return new WP_Error( 'ahentic_ai_api', __( 'Unexpected AI client API shape.', 'ahentic' ) );
 					}
-					if ( method_exists( $builder, 'using_system_instruction' ) ) {
-						$builder = $builder->using_system_instruction( $system );
-					} elseif ( method_exists( $builder, 'usingSystemInstruction' ) ) {
-						$builder = $builder->usingSystemInstruction( $system );
-					}
-					if ( method_exists( $builder, 'with_file' ) ) {
-						$builder = $builder->with_file( $file_or_url, $mime_type );
-					} elseif ( method_exists( $builder, 'withFile' ) ) {
-						$builder = $builder->withFile( $file_or_url, $mime_type );
-					} else {
-						return new WP_Error(
-							'ahentic_vision_unsupported',
-							__( 'Your configured AI provider doesn\'t support image understanding — check Settings → Connectors.', 'ahentic' )
-						);
-					}
-					if ( method_exists( $builder, 'as_json_response' ) ) {
-						$builder = $builder->as_json_response();
-					} elseif ( method_exists( $builder, 'asJsonResponse' ) ) {
-						$builder = $builder->asJsonResponse();
-					}
-					$result = method_exists( $builder, 'generate_text_result' )
-						? $builder->generate_text_result()
-						: $builder->generateTextResult();
+
+					$builder = $builder->using_system_instruction( $system );
+					$builder = $builder->with_file( $file_or_url, $mime_type );
+					$builder = $builder->as_json_response();
+
+					$result = $builder->generate_text_result();
 					if ( is_wp_error( $result ) ) {
 						return self::vision_provider_error( $result );
 					}
@@ -157,7 +148,7 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 					return self::parse_describe_json( $text );
 				}
 
-				if ( class_exists( '\WordPress\AiClient\AiClient' ) ) {
+				if ( $has_sdk ) {
 					$builder = \WordPress\AiClient\AiClient::prompt( 'Describe this image for accessibility.' );
 					$builder = $builder->usingSystemInstruction( $system )->withFile( $file_or_url, $mime_type )->asJsonResponse();
 					$result  = $builder->generateTextResult();
@@ -174,45 +165,6 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			} catch ( Throwable $e ) {
 				return self::vision_provider_error( $e );
 			}
-		}
-
-		/**
-		 * Generate an image via AI Client; return data URI + mime + dimensions when known.
-		 *
-		 * @param string $prompt       Prompt.
-		 * @param string $aspect_ratio Aspect ratio e.g. 16:9.
-		 * @return array|\WP_Error { data_uri, mime_type, width, height }
-		 */
-		/**
-		 * Debug-mode NDJSON logger (session 25dac1). Do not log secrets/PII.
-		 *
-		 * @param string               $hypothesis_id Hypothesis id.
-		 * @param string               $location      File:function.
-		 * @param string               $message       Short message.
-		 * @param array<string, mixed> $data          Safe data.
-		 */
-		public static function debug_log( $hypothesis_id, $location, $message, $data = array() ) {
-			// #region agent log
-			$line = wp_json_encode(
-				array(
-					'sessionId'    => '25dac1',
-					'runId'        => isset( $data['runId'] ) ? (string) $data['runId'] : 'post-fix',
-					'hypothesisId' => (string) $hypothesis_id,
-					'location'     => (string) $location,
-					'message'      => (string) $message,
-					'data'         => is_array( $data ) ? $data : array(),
-					'timestamp'    => (int) round( microtime( true ) * 1000 ),
-				)
-			);
-			if ( is_string( $line ) && '' !== $line ) {
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-				@file_put_contents(
-					'/Users/benjaminintal/Workspace/Repos/Ahentic/.cursor/debug-25dac1.log',
-					$line . "\n",
-					FILE_APPEND
-				);
-			}
-			// #endregion
 		}
 
 		/**
@@ -327,31 +279,12 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		private static function apply_image_aspect_ratio( $make_builder, $aspect_ratio, $snake_case = true ) {
 			$aspect_ratio = (string) $aspect_ratio;
 			$candidates   = self::aspect_ratio_candidates( $aspect_ratio );
-			$tried        = array();
 
 			$builder = call_user_func( $make_builder );
 			foreach ( $candidates as $candidate ) {
 				$builder   = self::builder_with_aspect_ratio( $builder, $candidate, $snake_case );
 				$supported = self::builder_supports_image_generation( $builder );
-				$tried[]   = array(
-					'aspect'    => $candidate,
-					'supported' => $supported,
-				);
 				if ( false !== $supported ) {
-					// #region agent log
-					self::debug_log(
-						'A',
-						'class-ai.php:apply_image_aspect_ratio',
-						'selected aspect ratio candidate',
-						array(
-							'runId'     => 'post-fix-2',
-							'requested' => $aspect_ratio,
-							'selected'  => $candidate,
-							'tried'     => $tried,
-							'mode'      => 'aspect',
-						)
-					);
-					// #endregion
 					return array( $builder, $candidate );
 				}
 			}
@@ -360,22 +293,6 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			$orientation = self::orientation_for_aspect_ratio( $aspect_ratio );
 			$builder     = call_user_func( $make_builder );
 			$builder     = self::builder_with_orientation( $builder, $orientation, $snake_case );
-			$supported   = self::builder_supports_image_generation( $builder );
-			// #region agent log
-			self::debug_log(
-				'A',
-				'class-ai.php:apply_image_aspect_ratio',
-				'fell back to orientation',
-				array(
-					'runId'            => 'post-fix-2',
-					'requested'        => $aspect_ratio,
-					'orientation'      => $orientation,
-					'supported_after'  => $supported,
-					'tried_aspects'    => $tried,
-					'mode'             => 'orientation',
-				)
-			);
-			// #endregion
 
 			return array( $builder, 'orientation:' . $orientation );
 		}
@@ -405,6 +322,13 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			return \WordPress\AiClient\AiClient::prompt( $prompt );
 		}
 
+		/**
+		 * Generate an image via AI Client; return data URI + mime + dimensions when known.
+		 *
+		 * @param string $prompt       Prompt.
+		 * @param string $aspect_ratio Aspect ratio e.g. 16:9.
+		 * @return array|\WP_Error { data_uri, mime_type, width, height }
+		 */
 		public static function generate_image( $prompt, $aspect_ratio = '16:9' ) {
 			$prompt       = (string) $prompt;
 			$aspect_ratio = (string) $aspect_ratio;
@@ -434,22 +358,7 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 						return $plain;
 					}
 
-					// #region agent log
-					$supported_plain = self::builder_supports_image_generation( $plain );
-					self::debug_log(
-						'B',
-						'class-ai.php:generate_image',
-						'image support BEFORE aspect ratio',
-						array(
-							'runId'           => 'post-fix-2',
-							'aspect_ratio'    => $aspect_ratio,
-							'supported_plain' => $supported_plain,
-							'has_core_prompt' => true,
-						)
-					);
-					// #endregion
-
-					list( $builder, $effective_aspect ) = self::apply_image_aspect_ratio(
+					list( $builder ) = self::apply_image_aspect_ratio(
 						static function () use ( $prompt ) {
 							return self::make_image_prompt_builder( $prompt, true );
 						},
@@ -457,119 +366,34 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 						true
 					);
 
-					// #region agent log
-					$supported_with = self::builder_supports_image_generation( $builder );
-					self::debug_log(
-						'A',
-						'class-ai.php:generate_image',
-						'image support AFTER aspect ratio',
-						array(
-							'runId'            => 'post-fix-2',
-							'aspect_ratio'     => $aspect_ratio,
-							'effective_aspect' => $effective_aspect,
-							'supported_with'   => $supported_with,
-							'delta'            => array(
-								'plain' => $supported_plain,
-								'with'  => $supported_with,
-							),
-						)
-					);
-					// #endregion
-
-					$t0   = microtime( true );
 					$file = $builder->generate_image();
-					$ms   = (int) round( ( microtime( true ) - $t0 ) * 1000 );
 
 					if ( is_wp_error( $file ) ) {
-						// #region agent log
-						self::debug_log(
-							'D',
-							'class-ai.php:generate_image',
-							'generate_image WP_Error',
-							array(
-								'runId'            => 'post-fix-2',
-								'ms'               => $ms,
-								'code'             => $file->get_error_code(),
-								'message'          => $file->get_error_message(),
-								'aspect'           => $aspect_ratio,
-								'effective_aspect' => $effective_aspect,
-							)
-						);
-						// #endregion
 						return self::image_gen_provider_error( $file );
 					}
-
-					// #region agent log
-					self::debug_log(
-						'E',
-						'class-ai.php:generate_image',
-						'generate_image success',
-						array(
-							'runId'            => 'post-fix-2',
-							'ms'               => $ms,
-							'aspect'           => $aspect_ratio,
-							'effective_aspect' => $effective_aspect,
-							'result_type'      => is_object( $file ) ? get_class( $file ) : gettype( $file ),
-						)
-					);
-					// #endregion
 
 					return self::file_dto_to_generated( $file );
 				}
 
 				if ( class_exists( '\WordPress\AiClient\AiClient' ) ) {
-					list( $builder, $effective_aspect ) = self::apply_image_aspect_ratio(
+					list( $builder ) = self::apply_image_aspect_ratio(
 						static function () use ( $prompt ) {
 							return self::make_image_prompt_builder( $prompt, false );
 						},
 						$aspect_ratio,
 						false
 					);
-					unset( $effective_aspect );
 					$file = $builder->generateImage();
 					return self::file_dto_to_generated( $file );
 				}
-
-				// #region agent log
-				self::debug_log(
-					'B',
-					'class-ai.php:generate_image',
-					'no AI client available',
-					array( 'aspect_ratio' => $aspect_ratio )
-				);
-				// #endregion
 
 				return new WP_Error(
 					'ahentic_ai_unavailable',
 					__( 'No AI client is available. Install and configure the WordPress AI plugin (Settings → AI / Connectors).', 'ahentic' )
 				);
 			} catch ( Exception $e ) {
-				// #region agent log
-				self::debug_log(
-					'A',
-					'class-ai.php:generate_image',
-					'generate_image Exception',
-					array(
-						'aspect'  => $aspect_ratio,
-						'class'   => get_class( $e ),
-						'message' => $e->getMessage(),
-					)
-				);
-				// #endregion
 				return self::image_gen_provider_error( $e );
 			} catch ( Throwable $e ) {
-				// #region agent log
-				self::debug_log(
-					'A',
-					'class-ai.php:generate_image',
-					'generate_image Throwable',
-					array(
-						'aspect'  => $aspect_ratio,
-						'class'   => get_class( $e ),
-						'message' => $e->getMessage(),
-					)
-				);
-				// #endregion
 				return self::image_gen_provider_error( $e );
 			}
 		}
