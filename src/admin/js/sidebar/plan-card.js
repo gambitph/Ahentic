@@ -75,7 +75,7 @@ export function resolvePlanCardPresentation( plan, { busy = false } = {} ) {
 
 /**
  * @param {Object}  props
- * @param {Object}  props.plan Session plan payload { title?, steps, updatedAt }.
+ * @param {Object}  props.plan   Session plan payload { title?, steps, updatedAt }.
  * @param {boolean} [props.busy] Whether the session is still actively working.
  */
 export default function PlanCard( { plan, busy = false } ) {

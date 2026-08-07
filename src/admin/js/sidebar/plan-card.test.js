@@ -7,8 +7,12 @@ import { resolvePlanCardPresentation } from './plan-card'
 const allDonePlan = {
 	title: 'Ship the page',
 	steps: [
-		{ id: '1', content: 'Draft', status: 'completed' },
-		{ id: '2', content: 'Polish', status: 'completed' },
+		{
+			id: '1', content: 'Draft', status: 'completed',
+		},
+		{
+			id: '2', content: 'Polish', status: 'completed',
+		},
 	],
 }
 
@@ -45,8 +49,12 @@ describe( 'resolvePlanCardPresentation', () => {
 		const view = resolvePlanCardPresentation(
 			{
 				steps: [
-					{ id: '1', content: 'A', status: 'completed' },
-					{ id: '2', content: 'B', status: 'cancelled' },
+					{
+						id: '1', content: 'A', status: 'completed',
+					},
+					{
+						id: '2', content: 'B', status: 'cancelled',
+					},
 				],
 			},
 			{ busy: false }
@@ -60,8 +68,12 @@ describe( 'resolvePlanCardPresentation', () => {
 		const view = resolvePlanCardPresentation(
 			{
 				steps: [
-					{ id: '1', content: 'A', status: 'completed' },
-					{ id: '2', content: 'B', status: 'in_progress' },
+					{
+						id: '1', content: 'A', status: 'completed',
+					},
+					{
+						id: '2', content: 'B', status: 'in_progress',
+					},
 				],
 			},
 			{ busy: true }
