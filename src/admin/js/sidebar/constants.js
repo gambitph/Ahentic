@@ -8,7 +8,7 @@ export const RUNNER_LOCK_KEY = 'ahentic.session-runner.v1'
 
 export const DEFAULT_WIDTH = 360
 export const MIN_WIDTH = 300
-export const MAX_WIDTH = 560
+export const MAX_WIDTH = 960
 export const MOBILE_BREAKPOINT = 768
 
 export const DEFAULT_THEME = 'dark'
@@ -54,16 +54,29 @@ export function normalizePlacement( value ) {
 }
 
 /**
+ * Resolve viewport size for floating geometry helpers.
+ *
+ * @param {{ width?: number, height?: number }|undefined} viewport Optional override (tests).
+ * @return {{ width: number, height: number }} Viewport dimensions in pixels.
+ */
+function resolveFloatingViewport( viewport ) {
+	return {
+		width: viewport?.width ?? ( typeof window !== 'undefined' ? window.innerWidth : 1280 ),
+		height: viewport?.height ?? ( typeof window !== 'undefined' ? window.innerHeight : 800 ),
+	}
+}
+
+/**
  * Default geometry for floating placements (viewport-relative).
  *
  * @param {string} placement
  * @param {number} [width]
+ * @param {{ viewport?: { width?: number, height?: number } }} [options]
  * @return {{ left: number, top: number, width: number, height: number }} Default rect for the placement.
  */
-export function getDefaultFloatingRect( placement, width = DEFAULT_WIDTH ) {
+export function getDefaultFloatingRect( placement, width = DEFAULT_WIDTH, options = {} ) {
 	const gap = FLOATING_GAP
-	const vw = typeof window !== 'undefined' ? window.innerWidth : 1280
-	const vh = typeof window !== 'undefined' ? window.innerHeight : 800
+	const { width: vw, height: vh } = resolveFloatingViewport( options.viewport )
 	const w = Math.min( MAX_WIDTH, Math.max( MIN_WIDTH, Math.round( width ) ) )
 
 	if ( placement === PLACEMENTS.FLOATING_SMALL ) {
@@ -89,11 +102,11 @@ export function getDefaultFloatingRect( placement, width = DEFAULT_WIDTH ) {
  * Keep a floating rect usable inside the viewport.
  *
  * @param {{ left: number, top: number, width: number, height: number }} rect
+ * @param {{ viewport?: { width?: number, height?: number } }} [options]
  * @return {{ left: number, top: number, width: number, height: number }} Rect clamped to the viewport.
  */
-export function clampFloatingRect( rect ) {
-	const vw = typeof window !== 'undefined' ? window.innerWidth : 1280
-	const vh = typeof window !== 'undefined' ? window.innerHeight : 800
+export function clampFloatingRect( rect, options = {} ) {
+	const { width: vw, height: vh } = resolveFloatingViewport( options.viewport )
 	const width = Math.min( MAX_WIDTH, Math.max( MIN_WIDTH, Math.round( Number( rect.width ) || DEFAULT_WIDTH ) ) )
 	const height = Math.min(
 		Math.min( MAX_FLOAT_HEIGHT, vh - 16 ),
@@ -107,6 +120,60 @@ export function clampFloatingRect( rect ) {
 		top,
 		width,
 		height: Math.min( height, Math.max( MIN_FLOAT_HEIGHT, vh - top ) ),
+	}
+}
+
+/**
+ * On open: restore unusable size and nudge a floating rect fully inside the
+ * viewport using floating margins. Prefer minimal position changes.
+ *
+ * @param {{ left?: number, top?: number, width?: number, height?: number }|null} rect
+ * @param {string} placement Floating placement id.
+ * @param {{ viewport?: { width?: number, height?: number } }} [options]
+ * @return {{ left: number, top: number, width: number, height: number }} Recovered rect.
+ */
+export function recoverFloatingRectOnOpen( rect, placement, options = {} ) {
+	const { width: vw, height: vh } = resolveFloatingViewport( options.viewport )
+	const gap = FLOATING_GAP
+	const source = rect && typeof rect === 'object' ? rect : {}
+
+	let width = Math.round( Number( source.width ) )
+	if ( ! Number.isFinite( width ) || width <= 0 || width < MIN_WIDTH ) {
+		width = DEFAULT_WIDTH
+	}
+	width = Math.min( MAX_WIDTH, width )
+
+	let height = Math.round( Number( source.height ) )
+	if ( ! Number.isFinite( height ) || height <= 0 || height < MIN_FLOAT_HEIGHT ) {
+		height = getDefaultFloatingRect( placement, width, options ).height
+	}
+	height = Math.min( MAX_FLOAT_HEIGHT, height )
+
+	// Fit inside the viewport with floating margins (may shrink after a browser resize).
+	const maxWidth = Math.max( MIN_WIDTH, vw - ( gap * 2 ) )
+	const maxHeight = Math.max( MIN_FLOAT_HEIGHT, vh - ( gap * 2 ) )
+	width = Math.min( width, maxWidth )
+	height = Math.min( height, maxHeight )
+
+	let left = Math.round( Number( source.left ) )
+	let top = Math.round( Number( source.top ) )
+	if ( ! Number.isFinite( left ) ) {
+		left = gap
+	}
+	if ( ! Number.isFinite( top ) ) {
+		top = gap
+	}
+
+	const maxLeft = Math.max( gap, vw - gap - width )
+	const maxTop = Math.max( gap, vh - gap - height )
+	left = Math.min( Math.max( gap, left ), maxLeft )
+	top = Math.min( Math.max( gap, top ), maxTop )
+
+	return {
+		left,
+		top,
+		width,
+		height,
 	}
 }
 

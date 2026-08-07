@@ -1,10 +1,16 @@
-# MVP ability gaps — closed
+# MVP ability gaps + chrome
 
-**Temporary working folder — ship wave complete.** Not a PRD, not a contract, not canonical.
+**Temporary working folder.** Not a PRD, not a contract, not canonical.
 
-All numbered MVP ability tasks (**09–14** and earlier tracks) shipped; task files removed. Deferred wp-admin parity (block nav, widgets, comments, themes install/activate, hard-delete, patterns, full `wp_template`) lives under **v2 future**, not here:
+Ability ship wave (**09–14** and earlier tracks) is done; task files removed. Deferred wp-admin parity lives under **v2 future**:
 
 → [`../future/admin-parity-backlog.md`](../future/admin-parity-backlog.md)
+
+## Open
+
+| Task | Status |
+| --- | --- |
+| [`15-floating-viewport-recovery.md`](./15-floating-viewport-recovery.md) — re-home lost floating sidebar on open | Implemented |
 
 ## Done (task files removed)
 

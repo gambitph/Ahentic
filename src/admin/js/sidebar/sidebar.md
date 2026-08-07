@@ -110,6 +110,7 @@ Live status shows “Keep this tab visible while this runs” under the awaiting
 
 - **Keyboard:** `Cmd+I` (macOS) / `Ctrl+I` (Windows/Linux) toggles the sidebar.
 - **Placement:** docked left/right pushes page content (`--ahentic-sidebar-inset`); floating overlays.
+- **Floating recovery:** on open (admin bar or shortcut), if floating geometry spills outside the viewport or size is below min, nudge into `FLOATING_GAP` bounds and restore default width / placement height (`recoverFloatingRectOnOpen`). Closing does not move the panel.
 - **Modes:** Agent vs Ask (Ask = readonly tools server-side).
 - **Send / Stop:** right-most circle control — ArrowUp Send when idle (disabled if empty/locked); Stop replaces it while a run is active (`canStop`). Never both.
 - **Composer attach / mic:** markup kept in `composer.js` but **visually hidden** (`hidden` + `.ahentic-composer__affordance--deferred`). Attach = free v3 ([future-prompt-file-attachments.md](../../../../pro__premium_only/docs/future-prompt-file-attachments.md)); voice = Premium v3 ([future-prompt-voice-input.md](../../../../pro__premium_only/docs/future-prompt-voice-input.md)) — grill before either.

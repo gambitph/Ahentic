@@ -22,6 +22,7 @@ import {
 	PLACEMENTS,
 	isFloatingPlacement,
 	getDefaultFloatingRect,
+	recoverFloatingRectOnOpen,
 } from './constants'
 import {
 	loadPersistedState,
@@ -122,6 +123,14 @@ export default function Sidebar() {
 
 	const placementRef = useRef( placement )
 	placementRef.current = placement
+	const openRef = useRef( open )
+	openRef.current = open
+	const floatRectRef = useRef( floatRect )
+	floatRectRef.current = floatRect
+	const widthRef = useRef( width )
+	widthRef.current = width
+	const isMobileRef = useRef( isMobile )
+	isMobileRef.current = isMobile
 	const hydratedRef = useRef( new Set() )
 	const sessionStampRef = useRef( {} )
 	const sessionMetaRef = useRef( {} )
@@ -606,6 +615,39 @@ export default function Sidebar() {
 		}
 	}, [ open, activeTabId ] )
 
+	/**
+	 * When opening a floating sidebar, nudge it back into the viewport and
+	 * restore unusable sizes. Closing never repositions.
+	 */
+	const recoverFloatingChrome = useCallback( () => {
+		if ( isMobileRef.current || ! isFloatingPlacement( placementRef.current ) ) {
+			return
+		}
+		const placementNow = placementRef.current
+		const current = floatRectRef.current || getDefaultFloatingRect( placementNow, widthRef.current )
+		const next = recoverFloatingRectOnOpen( current, placementNow )
+		if (
+			next.left !== current.left ||
+			next.top !== current.top ||
+			next.width !== current.width ||
+			next.height !== current.height
+		) {
+			setFloatRect( next )
+			if ( next.width !== widthRef.current ) {
+				setWidth( next.width )
+			}
+		}
+	}, [] )
+
+	const toggleSidebar = useCallback( () => {
+		if ( openRef.current ) {
+			setOpen( false )
+			return
+		}
+		recoverFloatingChrome()
+		setOpen( true )
+	}, [ recoverFloatingChrome ] )
+
 	// Global Cmd/Ctrl+I toggle.
 	useEffect( () => {
 		const onKeyDown = event => {
@@ -617,7 +659,7 @@ export default function Sidebar() {
 
 			event.preventDefault()
 			event.stopPropagation()
-			setOpen( value => ! value )
+			toggleSidebar()
 		}
 
 		const boundDocs = new WeakSet()
@@ -666,7 +708,7 @@ export default function Sidebar() {
 			observer.disconnect()
 			cleanups.forEach( cleanup => cleanup() )
 		}
-	}, [] )
+	}, [ toggleSidebar ] )
 
 	// Focus composer when opening or switching tabs.
 	useEffect( () => {
@@ -687,12 +729,12 @@ export default function Sidebar() {
 
 		const onClick = event => {
 			event.preventDefault()
-			setOpen( value => ! value )
+			toggleSidebar()
 		}
 
 		link.addEventListener( 'click', onClick )
 		return () => link.removeEventListener( 'click', onClick )
-	}, [ adminBarId ] )
+	}, [ adminBarId, toggleSidebar ] )
 
 	useEffect( () => {
 		const node = document.getElementById( `wp-admin-bar-${ adminBarId }` )
@@ -787,7 +829,12 @@ export default function Sidebar() {
 		runnerLock,
 	} )
 
-	const openSidebar = useCallback( () => setOpen( true ), [] )
+	const openSidebar = useCallback( () => {
+		if ( ! openRef.current ) {
+			recoverFloatingChrome()
+		}
+		setOpen( true )
+	}, [ recoverFloatingChrome ] )
 	const closeSidebar = useCallback( () => setOpen( false ), [] )
 
 	const selectTab = useCallback( id => {
@@ -815,12 +862,12 @@ export default function Sidebar() {
 			sessionMetaRef.current[ id ] = extractSessionMeta( session )
 			markHydrated( id )
 			setActiveTabId( id )
-			setOpen( true )
+			openSidebar()
 		} catch ( error ) {
 			// eslint-disable-next-line no-alert
 			window.alert( error.message || 'Could not create a new session.' )
 		}
-	}, [ mode, markHydrated ] )
+	}, [ mode, markHydrated, openSidebar ] )
 
 	const closeTab = useCallback( async id => {
 		const closingLast = tabsRef.current.length <= 1
