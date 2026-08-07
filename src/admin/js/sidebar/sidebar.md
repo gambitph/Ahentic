@@ -62,7 +62,7 @@ Same session open in two windows: only one window is the **active runner** while
 - Viewer UI: faded session pane + “This agent is active in another window” (no take-over in v1).
 - While `awaiting_browser` on the active runner, live status shows hint: “Keep this tab visible while this runs”.
 
-Take-over is deferred (v3). See `tasks/mvp-sidebar/01-multi-window-viewer-overlay.md` and `tasks/future/multi-window-take-over.md`.
+Take-over is deferred (v3). See [`tasks/future/multi-window-take-over.md`](../../../../tasks/future/multi-window-take-over.md).
 
 ---
 

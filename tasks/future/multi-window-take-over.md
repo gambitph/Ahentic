@@ -1,7 +1,7 @@
 # Future — Multi-window take-over (“Become active”)
 
 **When:** **v3** (not urgently needed for MVP)
-**Depends on:** [MVP Task 01 — viewer overlay](../mvp-sidebar/01-multi-window-viewer-overlay.md) shipping the active-window claim + viewer-only mode
+**Depends on:** v1 viewer overlay + active-runner claim (shipped — see [`src/admin/js/sidebar/sidebar.md` § Multi-window runner lock](../../src/admin/js/sidebar/sidebar.md))
 **Status:** Deferred product/tech note — not an MVP build task
 
 > **Before implementing:** run a [grill](../../.cursor/skills/grilling/SKILL.md) on transfer races (both windows clicking, mid-`awaiting_browser` handoff, HITL mid-flight) and how the previous active window is forced into viewer mode without double-running a step.
@@ -12,11 +12,13 @@ When session S is active in window A and viewer-only in window B, the user in B 
 
 ## UX (target)
 
-- Viewer overlay (from v1) gains a primary button: **Take over** (or equivalent).
+- Viewer overlay (shipped in v1) gains a primary button: **Take over** (or equivalent).
 - Clicking it:
   1. Releases / steals the per-session active claim so A is no longer the runner
   2. Makes B the active runner (overlay clears on B; overlay appears on A)
   3. Does not fork the conversation — same `ahentic-session`, still server-synced
+
+Reuse `session-runner-lock.js` / `ahentic.session-runner.v1` — do not invent a second claim model.
 
 ## Product rules to settle in grill
 
@@ -27,7 +29,6 @@ When session S is active in window A and viewer-only in window B, the user in B 
 
 ## Out of scope here
 
-- Implementing any of this before v1 overlay + claim exist
 - Cross-device / multi-user takeover
 - Server-enforced single-writer locks (unless grill concludes client-only steal is unsafe)
 

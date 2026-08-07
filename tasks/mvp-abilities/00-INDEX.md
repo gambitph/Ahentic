@@ -6,7 +6,10 @@ Each task file is self-contained: current state, what's missing, scope, out of s
 
 ## Done (removed from this folder)
 
-Track B shipped and task files deleted: `list-post-types`, `analyze-plugins`, `list-themes`, `replace-in-content`, `list-revisions` / `restore-revision`, `describe-image`, `generate-image` + `image` artifacts, and `upload-media` (incl. `from_memory`).
+- Track B: `list-post-types`, `analyze-plugins`, `list-themes`, `replace-in-content`, `list-revisions` / `restore-revision`, `describe-image`, `generate-image` + `image` artifacts, and `upload-media` (incl. `from_memory`).
+- Task 16: `ahentic-browser/set-featured-image` (editor-open featured media).
+
+Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sidebar/sidebar.md`](../../src/admin/js/sidebar/sidebar.md). Take-over remains deferred: [`../future/multi-window-take-over.md`](../future/multi-window-take-over.md).
 
 ## Sources
 
@@ -40,12 +43,11 @@ Track B shipped and task files deleted: `list-post-types`, `analyze-plugins`, `l
 
 | # | Task |
 | --- | --- |
-| [13](./13-media-abilities.md) | Remaining: `update-media`, `set-featured-image` (server), `delete-media`, `replace-media-file` (`upload-media` already shipped) |
-| [16](./16-ability-browser-set-featured-image.md) | `ahentic-browser/set-featured-image` (editor-open; no Track A dependency) |
+| [13](./13-media-abilities.md) | Remaining: `update-media`, `set-featured-image` (server), `delete-media`, `replace-media-file` (`upload-media` + browser `set-featured-image` already shipped) |
 
 ## Suggested order
 
 1. **Track A (01)** — next; unlocks C / D / remaining E snapshot writes
 2. Track C (07 → 08 → 09 → 10 → 11)
 3. Track D (12)
-4. Track E remainder (13), then 16 (can also land anytime after/alongside 13’s server twin — 16 does not need Task 01)
+4. Track E remainder (13)
