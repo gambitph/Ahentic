@@ -49,9 +49,11 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 **Single pipeline module:** Steps 2–5 for agent-facing Ability runs are owned by `Ahentic_Tool_Runner` (`run()` / `record_completed_result()`). Pipeline helpers (auto-stage, `from_memory` expand, browser preflight/fallback, tool failure persist, trace shaping) live **inside** that module — not as Orchestrator public helpers. Write assessment (`assess_write_payload`) is owned by `Ahentic_Finish_Gate` and invoked from the Tool runner. Some Tool runner helpers stay `public` so Orchestrator recovery (`recover_stale_browser`) and unit tests can call them without reimplementing. The Orchestrator must **not** reimplement HITL pause, browser pause, `from_memory` expand, execute, assess, or tool-entry persist at call sites. Do not invent a second execute path in REST handlers, ability modules, or ad-hoc Orchestrator helpers.
 
-`Ahentic_Abilities::execute` remains the ability **dispatch** seam (registration → `execute_*`). The Tool runner is the orchestrator **pipeline** around that dispatch. Orchestrator still owns step-loop concerns shared with prompts (e.g. `progress_label_for_tool`, plan advance after a tool, session `with_current_session`).
+`Ahentic_Abilities::execute` remains the ability **dispatch** seam (registration → `execute_*`). The Tool runner is the orchestrator **pipeline** around that dispatch. Orchestrator still owns step-loop concerns shared with prompts (e.g. `progress_label_for_tool`, session `with_current_session`). Plan advance after a tool is owned by `Ahentic_Plan` (called from the Finish Gate / Tool runner path).
 
 **Prompt assembly module:** `Ahentic_Prompt_Assembler` owns system prompt text, history/tool compaction, and user-turn shaping. The Orchestrator must call `for_llm()` (or the assembler’s tested helpers) — do not reimplement prompt/payload assembly at call sites.
+
+**Plan module:** `Ahentic_Plan` owns plan normalize/merge/apply, advance-after-tool, complete-on-finish, cancel-on-stop, requires-for-think / ensure-synthetic. The Orchestrator (and Finish Gate for advance) must call this module — do not reimplement plan FSM at call sites.
 
 ## Browser preflight & recovery
 

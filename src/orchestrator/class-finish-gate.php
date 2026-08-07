@@ -129,7 +129,7 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 				return $payload;
 			}
 
-			Ahentic_Orchestrator::advance_plan_after_tool( $session_id, $name );
+			Ahentic_Plan::advance_after_tool( $session_id, $name );
 
 			if ( ! is_array( $payload ) || ! self::ability_writes_body( $name ) ) {
 				return $payload;

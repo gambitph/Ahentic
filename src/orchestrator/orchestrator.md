@@ -5,7 +5,7 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 > **Canonical should:** [Agent runtime PRD](../../pro__premium_only/docs/prd/agent-runtime.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)  
 > This file is **how-it-works** (current implementation map). If it disagrees with the PRD/contract, the PRD/contract win — treat gaps as bugs.
 
-**Code:** `class-orchestrator.php`, `class-prompt-assembler.php`, `class-tool-runner.php`, `class-finish-gate.php`, `class-ai.php`, `class-queue.php`, `class-usage.php`
+**Code:** `class-orchestrator.php`, `class-plan.php`, `class-prompt-assembler.php`, `class-tool-runner.php`, `class-finish-gate.php`, `class-ai.php`, `class-queue.php`, `class-usage.php`
 
 **Related:** [Control block](./control-block.md) · [Abilities](../abilities/abilities.md) · [Sidebar](../admin/js/sidebar/sidebar.md) · [Session](../session/session.md) · [Artifacts](../session/artifacts.md) · [REST](../admin/rest.md) · [Architecture](../../docs/architecture.md)
 
@@ -16,6 +16,7 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 | Piece | Responsibility |
 | --- | --- |
 | `Ahentic_Orchestrator` | Agent loop: think → tools → continue / finish |
+| `Ahentic_Plan` | Plan card lifecycle (normalize / apply / advance / complete / cancel / synthetic) |
 | `Ahentic_Tool_Runner` | One Ability through HITL / browser / execute (owns pipeline helpers; shared by step loop + approval resume) |
 | `Ahentic_Finish_Gate` | Thin-body assess + decide-before-idle (forced apply / verify repair / partial finish) |
 | `Ahentic_AI` | Thin wrapper around Core AI Client / `wordpress/php-ai-client` |

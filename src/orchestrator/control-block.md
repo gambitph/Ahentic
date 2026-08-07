@@ -86,7 +86,7 @@ Rules enforced in prompt + merge logic:
 
 - Re-send the **full** plan each think (including completed steps)
 - Exactly one `in_progress` at a time
-- Cap length (`MAX_PLAN_STEPS`)
+- Cap length (`Ahentic_Plan::MAX_PLAN_STEPS`)
 - Plan is UI/orchestrator state — **not** a substitute for `thinking` / chat narration
 - If the model skips a required plan, the orchestrator retries once then synthesizes a minimal plan
 
