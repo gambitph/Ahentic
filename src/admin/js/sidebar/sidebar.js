@@ -250,10 +250,15 @@ export default function Sidebar() {
 	const connectorsUrl = aiPlugin.connectorsUrl || ''
 
 	/**
-	 * Re-check AI/connector status over REST. Boot `window.ahentic.aiPlugin`
-	 * is a one-shot localize probe and can false-negative (list-models flake)
-	 * while a later GET is green — without this, the "Add an AI connector"
-	 * banner sticks until a full page reload.
+	 * One-shot AI/connector status reconcile over REST.
+	 *
+	 * Boot `window.ahentic.aiPlugin` is a localize-time probe and can
+	 * false-negative (list-models flake) while a later GET is green — without
+	 * this, the "Add an AI connector" banner sticks until a full page reload.
+	 *
+	 * Soft-false results never downgrade a previously green gate; mid-session
+	 * connector failures surface as chat/run errors instead of re-locking the
+	 * composer. Do not re-call after mount (no open/focus/visibility retries).
 	 */
 	const syncAiPluginStatus = useCallback( async () => {
 		try {
@@ -261,12 +266,21 @@ export default function Sidebar() {
 			if ( ! status || typeof status !== 'object' ) {
 				return
 			}
-			setAiReady( Boolean( status.isReady ) )
-			setHasConnector( Boolean( status.hasConnector ) )
+			const nextReady = Boolean( status.isReady )
+			const nextConnector = Boolean( status.hasConnector )
+			// Upgrade-only: recover localize false-negatives; never flip green→red.
+			setAiReady( prev => ( nextReady ? true : prev ) )
+			setHasConnector( prev => ( nextConnector ? true : prev ) )
 			if ( window.ahentic?.aiPlugin && typeof window.ahentic.aiPlugin === 'object' ) {
+				const prev = window.ahentic.aiPlugin
+				const isReady = nextReady || Boolean( prev.isReady )
+				const hasConnector = nextConnector || Boolean( prev.hasConnector )
 				window.ahentic.aiPlugin = {
-					...window.ahentic.aiPlugin,
+					...prev,
 					...status,
+					isReady,
+					hasConnector,
+					canGenerate: isReady && hasConnector,
 				}
 			}
 		} catch {
@@ -275,17 +289,10 @@ export default function Sidebar() {
 		}
 	}, [] )
 
-	// Always reconcile once on mount (cheap GET; fixes localized false negatives).
+	// Once per page lifetime (sidebar mount). Mid-session health is chat errors.
 	useEffect( () => {
 		syncAiPluginStatus()
 	}, [ syncAiPluginStatus ] )
-
-	// If the sidebar opens while still blocked, try again (long-lived tabs).
-	useEffect( () => {
-		if ( open && ! canGenerate ) {
-			syncAiPluginStatus()
-		}
-	}, [ open, canGenerate, syncAiPluginStatus ] )
 
 	// Persist chrome state (not message bodies).
 	useEffect( () => {

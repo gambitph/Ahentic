@@ -5,7 +5,8 @@
  *
  * Harness: `seed-ai-status-flake` (tests/e2e/mu-plugins) makes the next N
  * `build_status_payload()` calls report no connector; the sidebar must
- * re-fetch `GET /ai-plugin/status` on mount and recover.
+ * fetch `GET /ai-plugin/status` once on mount and recover (no further
+ * open/focus re-probes — soft-false must not re-lock a green composer).
  */
 const { test, expect } = require( '../fixtures/test' )
 const { seedAiStatusFlake } = require( '../utils/ability-client' )

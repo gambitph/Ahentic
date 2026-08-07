@@ -6,9 +6,9 @@
  * `window.ahentic.aiPlugin.hasConnector`, which is localized from
  * `Ahentic_REST::build_status_payload()`. That flag is a live
  * `is_supported_for_text_generation()` probe and can false-negative.
- * The sidebar re-fetches `GET /ai-plugin/status` on mount to recover
- * (see sidebar.js `syncAiPluginStatus`); these tests pin the PHP mapping
- * that makes a bad boot value possible.
+ * The sidebar fetches `GET /ai-plugin/status` once on mount to recover
+ * (see sidebar.js `syncAiPluginStatus`; upgrade-only, no open/focus retries);
+ * these tests pin the PHP mapping that makes a bad boot value possible.
  *
  * @package Ahentic
  */

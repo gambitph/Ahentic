@@ -2,9 +2,9 @@
  * REST-direct: AI plugin status payload + e2e flake harness.
  *
  * The sidebar recovers from localize-time `hasConnector: false` by calling
- * `GET /ahentic/v1/ai-plugin/status` (see sidebar.js `syncAiPluginStatus`).
- * These tests pin that endpoint and the `seed-ai-status-flake` counter the
- * browser recovery spec depends on.
+ * `GET /ahentic/v1/ai-plugin/status` once on mount (see sidebar.js
+ * `syncAiPluginStatus`). These tests pin that endpoint and the
+ * `seed-ai-status-flake` counter the browser recovery spec depends on.
  */
 const { test, expect } = require( '../fixtures/test' )
 const { seedAiStatusFlake, resetAiResponses } = require( '../utils/ability-client' )
