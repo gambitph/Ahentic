@@ -6,6 +6,10 @@ Site-wide daily token backstop + consecutive-hit runaway lock. Grilled decisions
 
 ## Open
 
+_(none)_
+
+## Done
+
 - [`01-daily-and-runaway-limits.md`](./01-daily-and-runaway-limits.md) — settings + enforcement
 
 ## Sources

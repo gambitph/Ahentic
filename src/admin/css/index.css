@@ -1997,6 +1997,32 @@ a.ahentic-empty__ai-install:hover {
 	color: var(--ah-danger);
 	font-size: 12px;
 	line-height: 1.45;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.ahentic-composer__error-text {
+	margin: 0;
+}
+
+.ahentic a.ahentic-composer__error-cta {
+	display: inline-flex;
+	align-items: center;
+	padding: 6px 12px;
+	border-radius: 8px;
+	background: var(--ah-fg);
+	color: var(--ah-bg);
+	font-size: 12px;
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.ahentic a.ahentic-composer__error-cta:hover,
+.ahentic a.ahentic-composer__error-cta:focus {
+	opacity: 0.9;
+	color: var(--ah-bg);
 }
 
 .ahentic-composer__blocked {

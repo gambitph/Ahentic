@@ -251,26 +251,27 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				$id     = isset( $input['id'] ) ? (int) $input['id'] : 0;
 				$status = isset( $input['status'] ) ? sanitize_key( (string) $input['status'] ) : '';
 				$title  = '';
-				if ( $id > 0 ) {
+				if ( $id > 0 && function_exists( 'get_post' ) && class_exists( 'WP_Post' ) ) {
 					$post = get_post( $id );
 					if ( $post instanceof WP_Post ) {
 						$title = get_the_title( $post );
 					}
 				}
+				$status_label = $status ? $status : __( 'unspecified status', 'ahentic' );
 				if ( $title ) {
 					return sprintf(
 						/* translators: 1: post title, 2: post ID, 3: status */
 						__( 'Set status of “%1$s” (#%2$d) to %3$s', 'ahentic' ),
 						$title,
 						$id,
-						$status ? $status : __( 'unknown', 'ahentic' )
+						$status_label
 					);
 				}
 				return sprintf(
 					/* translators: 1: post ID, 2: status */
 					__( 'Set status of post #%1$d to %2$s', 'ahentic' ),
 					$id > 0 ? $id : 0,
-					$status ? $status : __( 'unknown', 'ahentic' )
+					$status_label
 				);
 			}
 
@@ -311,6 +312,48 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				$id > 0 ? $id : 0,
 				$fields_label
 			);
+		}
+
+		/**
+		 * Reject incomplete content identity before HITL pause.
+		 *
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return true|\WP_Error
+		 */
+		public static function hitl_preflight( $name, $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$name  = (string) $name;
+
+			if ( self::SET_STATUS === $name ) {
+				$id     = isset( $input['id'] ) ? (int) $input['id'] : 0;
+				$status = isset( $input['status'] ) ? trim( (string) $input['status'] ) : '';
+				if ( $id <= 0 ) {
+					return new WP_Error(
+						'ahentic_missing_post_id',
+						__( 'A post id is required.', 'ahentic' )
+					);
+				}
+				if ( '' === $status ) {
+					return new WP_Error(
+						'ahentic_missing_status',
+						__( 'A status is required.', 'ahentic' )
+					);
+				}
+				return true;
+			}
+
+			if ( self::UPDATE === $name ) {
+				$id = isset( $input['id'] ) ? (int) $input['id'] : 0;
+				if ( $id <= 0 ) {
+					return new WP_Error(
+						'ahentic_missing_post_id',
+						__( 'A post id is required.', 'ahentic' )
+					);
+				}
+			}
+
+			return true;
 		}
 
 		/**

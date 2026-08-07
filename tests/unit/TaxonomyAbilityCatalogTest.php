@@ -104,4 +104,82 @@ class TaxonomyAbilityCatalogTest extends TestCase {
 		$this->assertTrue( Ahentic_Abilities_Taxonomy::is_non_preallowable( 'ahentic/delete-term' ) );
 		$this->assertSame( array( 'ahentic/delete-term' ), Ahentic_Abilities_Taxonomy::non_preallowable_names() );
 	}
+
+	/**
+	 * update-term HITL must name the target; never the opaque “unknown” placeholder.
+	 */
+	public function test_update_hitl_summary_never_says_unknown() {
+		$missing = Ahentic_Abilities_Taxonomy::hitl_summary(
+			'ahentic/update-term',
+			array(
+				'taxonomy' => 'category',
+				'name'     => 'Local Bookstore',
+				'slug'     => 'local-bookstore',
+			)
+		);
+		$this->assertStringNotContainsString( 'unknown', strtolower( $missing ) );
+		$this->assertStringContainsString( 'unspecified term', $missing );
+		$this->assertStringContainsString( 'category', $missing );
+		// Mutable name must not be treated as the existing term identity.
+		$this->assertStringNotContainsString( '“Local Bookstore”', $missing );
+
+		$with_id = Ahentic_Abilities_Taxonomy::hitl_summary(
+			'ahentic/update-term',
+			array(
+				'taxonomy' => 'category',
+				'term_id'  => 12,
+				'name'     => 'Local Bookstore',
+			)
+		);
+		$this->assertStringNotContainsString( 'unknown', strtolower( $with_id ) );
+		$this->assertStringContainsString( '12', $with_id );
+
+		$with_term = Ahentic_Abilities_Taxonomy::hitl_summary(
+			'ahentic/update-term',
+			array(
+				'taxonomy' => 'category',
+				'term'     => 'books',
+				'slug'     => 'books',
+			)
+		);
+		$this->assertStringContainsString( 'books', $with_term );
+		$this->assertStringNotContainsString( 'unknown', strtolower( $with_term ) );
+	}
+
+	/**
+	 * delete-term HITL never falls back to “unknown”.
+	 */
+	public function test_delete_hitl_summary_never_says_unknown() {
+		$summary = Ahentic_Abilities_Taxonomy::hitl_summary(
+			'ahentic/delete-term',
+			array( 'taxonomy' => 'category' )
+		);
+		$this->assertStringNotContainsString( 'unknown', strtolower( $summary ) );
+		$this->assertMatchesRegularExpression( '/unspecified term/i', $summary );
+	}
+
+	/**
+	 * Incomplete update/delete identity fails HITL preflight (no Allow card).
+	 */
+	public function test_hitl_preflight_requires_term_identity() {
+		$err = Ahentic_Abilities_Taxonomy::hitl_preflight(
+			'ahentic/update-term',
+			array(
+				'taxonomy' => 'category',
+				'name'     => 'Local Bookstore',
+			)
+		);
+		$this->assertTrue( is_wp_error( $err ) );
+		$this->assertSame( 'ahentic_missing_term', $err->get_error_code() );
+
+		$ok = Ahentic_Abilities_Taxonomy::hitl_preflight(
+			'ahentic/update-term',
+			array(
+				'taxonomy' => 'category',
+				'term_id'  => 12,
+				'name'     => 'Local Bookstore',
+			)
+		);
+		$this->assertTrue( $ok );
+	}
 }

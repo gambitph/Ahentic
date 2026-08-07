@@ -27,6 +27,13 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		private static $current_session_id = 0;
 
 		/**
+		 * Bootstrap hooks (token limit enforcement).
+		 */
+		public static function init() {
+			add_action( 'ahentic_token_limit_enforced', array( __CLASS__, 'on_token_limit_enforced' ), 10, 1 );
+		}
+
+		/**
 		 * Session id for the in-flight orchestrator step (0 if idle).
 		 *
 		 * @return int
@@ -65,6 +72,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$post = Ahentic_Session_Repository::get_post( $session_id );
 			if ( is_wp_error( $post ) ) {
 				return $post;
+			}
+
+			$may_spend = Ahentic_Usage::assert_may_spend();
+			if ( is_wp_error( $may_spend ) ) {
+				return $may_spend;
 			}
 
 			$content = trim( wp_unslash( (string) $content ) );
@@ -220,6 +232,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 */
 		private static function run_one_step( $session_id ) {
 			if ( Ahentic_Session_Repository::STATUS_RUNNING !== Ahentic_Session_Repository::get_status( $session_id ) ) {
+				return false;
+			}
+
+			$may_spend = Ahentic_Usage::assert_may_spend();
+			if ( is_wp_error( $may_spend ) ) {
+				self::stop_session_for_token_limit( $session_id, $may_spend->get_error_code() );
 				return false;
 			}
 
@@ -922,6 +940,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return $post;
 			}
 
+			$may_spend = Ahentic_Usage::assert_may_spend();
+			if ( is_wp_error( $may_spend ) ) {
+				return $may_spend;
+			}
+
 			$status = Ahentic_Session_Repository::get_status( $session_id );
 			if ( Ahentic_Session_Repository::STATUS_IDLE !== $status ) {
 				return new WP_Error(
@@ -1207,6 +1230,111 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
+		 * Site-wide stop when daily/runaway token limit trips.
+		 *
+		 * Cancels running sessions only (not awaiting_human / awaiting_browser).
+		 *
+		 * @param string $code Ahentic_Usage::CODE_*.
+		 */
+		public static function on_token_limit_enforced( $code ) {
+			$code = self::normalize_limit_code( $code );
+
+			$query = new WP_Query(
+				array(
+					'post_type'              => Ahentic_Session_CPT::POST_TYPE,
+					'post_status'            => 'private',
+					'posts_per_page'         => 500,
+					'fields'                 => 'ids',
+					'no_found_rows'          => true,
+					'update_post_meta_cache' => false,
+					'update_post_term_cache' => false,
+					'meta_query'             => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- rare limit-trip path.
+						array(
+							'key'   => Ahentic_Session_Repository::META_STATUS,
+							'value' => Ahentic_Session_Repository::STATUS_RUNNING,
+						),
+					),
+				)
+			);
+
+			foreach ( $query->posts as $session_id ) {
+				self::stop_session_for_token_limit( (int) $session_id, $code );
+			}
+		}
+
+		/**
+		 * Stop one running session due to token limit (assistant message + error status).
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $code       Limit error code.
+		 */
+		public static function stop_session_for_token_limit( $session_id, $code ) {
+			$session_id = (int) $session_id;
+			$post       = Ahentic_Session_Repository::get_post( $session_id );
+			if ( is_wp_error( $post ) ) {
+				return;
+			}
+
+			$status = Ahentic_Session_Repository::get_status( $session_id );
+			if ( Ahentic_Session_Repository::STATUS_RUNNING !== $status ) {
+				return;
+			}
+
+			$code    = self::normalize_limit_code( $code );
+			$message = Ahentic_Usage::message_for_code( $code );
+
+			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
+			Ahentic_Step_Queue::release_run( $session_id );
+			Ahentic_Plan::cancel_on_stop( $session_id );
+			Ahentic_Session_Repository::set_error( $session_id, $message );
+			Ahentic_Session_Repository::append_entry(
+				$session_id,
+				array(
+					'role'    => 'assistant',
+					'content' => $message,
+					'meta'    => array(
+						'error' => true,
+						'code'  => $code,
+					),
+				)
+			);
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'error',
+				$message,
+				array(
+					'code'   => $code,
+					'reason' => 'token_limit',
+				)
+			);
+			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_ERROR );
+			Ahentic_Session_Repository::mark_idle( $session_id );
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'run_idle',
+				'Run idle after token limit',
+				array(
+					'reason' => 'token_limit',
+					'code'   => $code,
+				)
+			);
+		}
+
+		/**
+		 * Normalize a token-limit error code.
+		 *
+		 * @param string $code Raw code.
+		 * @return string
+		 */
+		private static function normalize_limit_code( $code ) {
+			$code = (string) $code;
+			if ( Ahentic_Usage::CODE_RUNAWAY_LOCK !== $code ) {
+				return Ahentic_Usage::CODE_DAILY_LIMIT;
+			}
+			return $code;
+		}
+
+		/**
 		 * Skip a pending HITL tool without running it (Deny/Skip or mid-HITL redirect).
 		 *
 		 * Appends a tool result the model can adapt to, then clears pending_tool.
@@ -1450,6 +1578,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			// Skip if a new run started.
 			if ( Ahentic_Session_Repository::STATUS_IDLE !== Ahentic_Session_Repository::get_status( $session_id ) ) {
+				return;
+			}
+
+			// Do not spend tokens on title/summary after a daily/runaway trip.
+			if ( is_wp_error( Ahentic_Usage::check_may_spend() ) ) {
+				update_post_meta( $session_id, Ahentic_Session_Repository::META_SUMMARY_STATUS, 'skipped' );
 				return;
 			}
 

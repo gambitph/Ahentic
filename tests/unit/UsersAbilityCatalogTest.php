@@ -146,4 +146,52 @@ class UsersAbilityCatalogTest extends TestCase {
 		$this->assertStringContainsString( '3', $summary );
 		$this->assertMatchesRegularExpression( '/reassign|content/i', $summary );
 	}
+
+	/**
+	 * User HITL cards never fall back to the opaque “unknown” placeholder.
+	 */
+	public function test_hitl_summary_never_says_unknown() {
+		$update = Ahentic_Abilities_Users::hitl_summary(
+			'ahentic/update-user',
+			array( 'email' => 'a@example.com' )
+		);
+		$this->assertStringNotContainsString( 'unknown', strtolower( $update ) );
+		$this->assertStringContainsString( 'unspecified user', $update );
+
+		$delete = Ahentic_Abilities_Users::hitl_summary(
+			'ahentic/delete-user',
+			array( 'user_id' => 7 )
+		);
+		$this->assertStringNotContainsString( 'unknown', strtolower( $delete ) );
+		$this->assertStringContainsString( '7', $delete );
+		$this->assertMatchesRegularExpression( '/reassign_to|unspecified user/i', $delete );
+	}
+
+	/**
+	 * Incomplete delete/update identity fails HITL preflight.
+	 */
+	public function test_hitl_preflight_requires_user_identity() {
+		$err = Ahentic_Abilities_Users::hitl_preflight(
+			'ahentic/update-user',
+			array( 'email' => 'a@example.com' )
+		);
+		$this->assertTrue( is_wp_error( $err ) );
+		$this->assertSame( 'ahentic_missing_user', $err->get_error_code() );
+
+		$missing_reassign = Ahentic_Abilities_Users::hitl_preflight(
+			'ahentic/delete-user',
+			array( 'user_id' => 7 )
+		);
+		$this->assertTrue( is_wp_error( $missing_reassign ) );
+		$this->assertSame( 'ahentic_missing_reassign', $missing_reassign->get_error_code() );
+
+		$ok = Ahentic_Abilities_Users::hitl_preflight(
+			'ahentic/delete-user',
+			array(
+				'user_id'     => 7,
+				'reassign_to' => 3,
+			)
+		);
+		$this->assertTrue( $ok );
+	}
 }

@@ -69,4 +69,17 @@ class ContentAbilityCatalogTest extends TestCase {
 			);
 		}
 	}
+
+	/**
+	 * set-post-status HITL never falls back to the opaque “unknown” placeholder.
+	 */
+	public function test_set_status_hitl_summary_never_says_unknown() {
+		$summary = Ahentic_Abilities_Content::hitl_summary(
+			'ahentic/set-post-status',
+			array( 'id' => 42 )
+		);
+		$this->assertStringNotContainsString( 'unknown', strtolower( $summary ) );
+		$this->assertStringContainsString( 'unspecified status', $summary );
+		$this->assertStringContainsString( '42', $summary );
+	}
 }

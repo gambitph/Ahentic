@@ -98,6 +98,8 @@ In your module:
 - `names()` — all ability name constants
 - `write_names()` / `is_readonly()` — Ask mode
 - `hitl_names()` / `requires_hitl()` / `hitl_summary()` — mutating tools that need Allow/Deny
+- Optional `hitl_preflight( $name, $input )` → `true|WP_Error` — reject incomplete identity before the Allow card (facade: `Ahentic_Abilities::hitl_preflight`)
+- Prefer resolved labels; never the opaque placeholder `unknown` in Allow copy
 - `non_preallowable_names()` / `is_non_preallowable()` — optional; abilities that must never honor session/always allowlists
 - `progress_label( $name )` — sidebar / heartbeat copy while the tool runs
 - `execute( $name, $input )` — dispatch

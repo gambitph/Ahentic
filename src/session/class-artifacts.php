@@ -383,13 +383,19 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				if ( ! is_array( $item ) ) {
 					continue;
 				}
-				$meta = isset( $item['meta'] ) && is_array( $item['meta'] ) ? $item['meta'] : array();
+				$meta    = isset( $item['meta'] ) && is_array( $item['meta'] ) ? $item['meta'] : array();
+				$kind    = isset( $item['kind'] ) ? (string) $item['kind'] : '';
+				$payload = isset( $item['payload'] ) ? $item['payload'] : null;
 				$pointers[] = array(
 					'key'         => (string) $key,
-					'kind'        => isset( $item['kind'] ) ? (string) $item['kind'] : '',
+					'kind'        => $kind,
 					'status'      => isset( $item['status'] ) ? (string) $item['status'] : '',
 					'title'       => isset( $item['title'] ) ? (string) $item['title'] : '',
-					'bytes'       => isset( $meta['bytes'] ) ? (int) $meta['bytes'] : 0,
+					'bytes'       => self::resolve_artifact_bytes(
+						$kind,
+						$payload,
+						isset( $meta['bytes'] ) ? (int) $meta['bytes'] : 0
+					),
 					'block_count' => isset( $meta['block_count'] ) ? (int) $meta['block_count'] : null,
 					'step'        => isset( $meta['step'] ) ? (int) $meta['step'] : null,
 					'updated_at'  => isset( $meta['updated_at'] ) ? (string) $meta['updated_at'] : '',
@@ -601,8 +607,19 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			if ( ! is_string( $encoded ) ) {
 				return new WP_Error( 'ahentic_artifact_encode', __( 'Could not encode artifact payload.', 'ahentic' ) );
 			}
-			$bytes = strlen( $encoded );
-			if ( $bytes > self::MAX_PAYLOAD_BYTES ) {
+			$bytes = self::resolve_artifact_bytes( $kind, $payload, strlen( $encoded ) );
+			if ( $bytes > self::MAX_PAYLOAD_BYTES && self::KIND_IMAGE !== $kind ) {
+				return new WP_Error(
+					'ahentic_artifact_too_large',
+					sprintf(
+						/* translators: %d: max bytes */
+						__( 'Artifact payload exceeds the maximum of %d bytes.', 'ahentic' ),
+						self::MAX_PAYLOAD_BYTES
+					)
+				);
+			}
+			// Image payloads are path pointers; cap the encoded pointer, not the file on disk.
+			if ( self::KIND_IMAGE === $kind && strlen( $encoded ) > self::MAX_PAYLOAD_BYTES ) {
 				return new WP_Error(
 					'ahentic_artifact_too_large',
 					sprintf(
@@ -996,9 +1013,30 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		}
 
 		/**
-		 * @param string $key Raw key.
-		 * @return string
+		 * Byte size for artifact meta / HITL.
+		 *
+		 * Image artifacts store a path pointer; report the temp file size when readable,
+		 * otherwise fall back to the encoded payload length (blocks/html/etc.).
+		 *
+		 * @param string $kind        Artifact kind.
+		 * @param mixed  $payload     Normalized payload.
+		 * @param int    $encoded_len strlen of JSON-encoded payload (fallback).
+		 * @return int
 		 */
+		public static function resolve_artifact_bytes( $kind, $payload, $encoded_len = 0 ) {
+			$encoded_len = max( 0, (int) $encoded_len );
+			if ( self::KIND_IMAGE === (string) $kind && is_array( $payload ) ) {
+				$path = isset( $payload['path'] ) ? (string) $payload['path'] : '';
+				if ( '' !== $path && is_readable( $path ) ) {
+					$size = filesize( $path );
+					if ( false !== $size ) {
+						return (int) $size;
+					}
+				}
+			}
+			return $encoded_len;
+		}
+
 		/**
 		 * Public key sanitizer for orchestrator / REST.
 		 *
@@ -1044,19 +1082,34 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			if ( ! $item ) {
 				return null;
 			}
-			$meta = isset( $item['meta'] ) && is_array( $item['meta'] ) ? $item['meta'] : array();
-			return array(
+			$meta    = isset( $item['meta'] ) && is_array( $item['meta'] ) ? $item['meta'] : array();
+			$kind    = isset( $item['kind'] ) ? (string) $item['kind'] : '';
+			$payload = isset( $item['payload'] ) ? $item['payload'] : null;
+			$bytes   = self::resolve_artifact_bytes(
+				$kind,
+				$payload,
+				isset( $meta['bytes'] ) ? (int) $meta['bytes'] : 0
+			);
+			$out     = array(
 				'key'     => $key,
 				'title'   => isset( $item['title'] ) ? (string) $item['title'] : '',
-				'kind'    => isset( $item['kind'] ) ? (string) $item['kind'] : '',
+				'kind'    => $kind,
 				'status'  => isset( $item['status'] ) ? (string) $item['status'] : '',
-				'bytes'   => isset( $meta['bytes'] ) ? (int) $meta['bytes'] : 0,
-				'excerpt' => self::excerpt_from_payload(
-					isset( $item['kind'] ) ? (string) $item['kind'] : '',
-					isset( $item['payload'] ) ? $item['payload'] : null,
-					160
-				),
+				'bytes'   => $bytes,
+				'excerpt' => self::excerpt_from_payload( $kind, $payload, 160 ),
 			);
+			if ( self::KIND_IMAGE === $kind && is_array( $payload ) ) {
+				if ( ! empty( $payload['width'] ) ) {
+					$out['width'] = (int) $payload['width'];
+				}
+				if ( ! empty( $payload['height'] ) ) {
+					$out['height'] = (int) $payload['height'];
+				}
+				if ( ! empty( $payload['mime_type'] ) ) {
+					$out['mime_type'] = (string) $payload['mime_type'];
+				}
+			}
+			return $out;
 		}
 
 		/**

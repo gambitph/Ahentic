@@ -105,6 +105,7 @@ export default function Sidebar() {
 	}, [] )
 	/** Transient send failure (not part of session messages — polls must not own this). */
 	const [ sendError, setSendError ] = useState( '' )
+	const [ sendErrorCode, setSendErrorCode ] = useState( '' )
 	const [ focusSignal, setFocusSignal ] = useState( 0 )
 	const [ isMobile, setIsMobile ] = useState(
 		() => typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
@@ -839,6 +840,7 @@ export default function Sidebar() {
 
 	const selectTab = useCallback( id => {
 		setSendError( '' )
+		setSendErrorCode( '' )
 		setActiveTabId( id )
 	}, [] )
 
@@ -977,11 +979,13 @@ export default function Sidebar() {
 			getSessionRecord( sessionsByIdRef.current, activeTabId ).approving
 		) {
 			setSendError( __( 'This session is still working. Wait for it to finish.', 'ahentic' ) )
+			setSendErrorCode( '' )
 			return false
 		}
 
 		if ( isSessionId( activeTabId ) && runnerLock.isViewer( activeTabId ) ) {
 			setSendError( VIEWER_ACTIVE_ELSEWHERE )
+			setSendErrorCode( '' )
 			return false
 		}
 
@@ -1021,6 +1025,7 @@ export default function Sidebar() {
 
 		if ( ! claimRunner( sessionId ) ) {
 			setSendError( VIEWER_ACTIVE_ELSEWHERE )
+			setSendErrorCode( '' )
 			return false
 		}
 
@@ -1077,6 +1082,7 @@ export default function Sidebar() {
 		}
 		setSending( true )
 		setSendError( '' )
+		setSendErrorCode( '' )
 
 		try {
 			const session = await postMessage( sessionId, {
@@ -1093,6 +1099,7 @@ export default function Sidebar() {
 			}
 			applySession( session, { force: true } )
 			setSendError( '' )
+			setSendErrorCode( '' )
 			setFocusSignal( value => value + 1 )
 
 			// User hit Stop while this send was in flight — cancel the run that just started.
@@ -1137,6 +1144,7 @@ export default function Sidebar() {
 
 			// Composer restores the draft when we return false; surface why send failed.
 			setSendError( error.message || __( 'Request failed.', 'ahentic' ) )
+			setSendErrorCode( error.code || '' )
 			setFocusSignal( value => value + 1 )
 			if ( ! isActiveRunStatus( getSessionRecord( sessionsByIdRef.current, sessionId ).status || '' ) ) {
 				releaseRunner( sessionId )
@@ -1162,6 +1170,7 @@ export default function Sidebar() {
 			}
 		} catch ( error ) {
 			setSendError( error.message || __( 'Could not continue this run.', 'ahentic' ) )
+			setSendErrorCode( error.code || '' )
 		}
 	}, [ activeTabId, applySession, isViewerSession, claimRunner ] )
 
@@ -1174,6 +1183,7 @@ export default function Sidebar() {
 		stopRequestedRef.current[ sessionId ] = true
 		setStopping( true )
 		setSendError( '' )
+		setSendErrorCode( '' )
 
 		// Optimistically unlock the composer while the cancel request lands.
 		setSessionsById( sessions => patchSessionRecord( sessions, sessionId, record => ( {
@@ -1197,6 +1207,7 @@ export default function Sidebar() {
 			setFocusSignal( value => value + 1 )
 		} catch ( error ) {
 			setSendError( error.message || __( 'Could not stop the run.', 'ahentic' ) )
+			setSendErrorCode( error.code || '' )
 			try {
 				const session = await getSession( sessionId )
 				applySession( session, { force: true } )
@@ -1436,7 +1447,12 @@ export default function Sidebar() {
 						focusSignal={ focusSignal }
 						shortcutLabel={ shortcutLabel }
 						error={ sendError }
-						onClearError={ () => setSendError( '' ) }
+						errorCode={ sendErrorCode }
+						settingsUrl={ window.ahentic?.settingsUrl || '' }
+						onClearError={ () => {
+							setSendError( '' )
+							setSendErrorCode( '' )
+						} }
 						placeholder={
 							activeStatus === 'awaiting_human' && activePendingTool
 								? __( 'Send to change direction (skips this approval)…', 'ahentic' )

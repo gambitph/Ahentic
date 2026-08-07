@@ -214,7 +214,51 @@ if ( ! class_exists( 'Ahentic_Abilities_Taxonomy' ) ) {
 		}
 
 		/**
+		 * Reject incomplete update/delete identity before HITL pause.
+		 *
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return true|\WP_Error
+		 */
+		public static function hitl_preflight( $name, $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$name  = (string) $name;
+
+			if ( self::CREATE === $name ) {
+				$term_name = isset( $input['name'] ) ? trim( (string) $input['name'] ) : '';
+				if ( '' === $term_name ) {
+					return new WP_Error(
+						'ahentic_missing_name',
+						__( 'A term name is required.', 'ahentic' ),
+						array(
+							'hint' => __( 'Pass taxonomy and name to ahentic/create-term.', 'ahentic' ),
+						)
+					);
+				}
+				return true;
+			}
+
+			if ( self::UPDATE === $name || self::DELETE === $name ) {
+				$has_id = isset( $input['term_id'] ) && '' !== $input['term_id'] && null !== $input['term_id'] && (int) $input['term_id'] > 0;
+				$term   = isset( $input['term'] ) ? trim( (string) $input['term'] ) : '';
+				if ( ! $has_id && '' === $term ) {
+					return new WP_Error(
+						'ahentic_missing_term',
+						__( 'Provide term_id or term (ID, slug, or name).', 'ahentic' ),
+						array(
+							'hint' => __( 'Identify the existing term with term_id or term before update-term / delete-term.', 'ahentic' ),
+						)
+					);
+				}
+			}
+
+			return true;
+		}
+
+		/**
 		 * Compact term label for HITL copy.
+		 *
+		 * Identity only — do not use mutable `name` (new value on update-term).
 		 *
 		 * @param array  $input    Input.
 		 * @param string $taxonomy Taxonomy slug.
@@ -222,20 +266,23 @@ if ( ! class_exists( 'Ahentic_Abilities_Taxonomy' ) ) {
 		 */
 		private static function hitl_term_ref( array $input, $taxonomy ) {
 			if ( isset( $input['term_id'] ) && '' !== $input['term_id'] && null !== $input['term_id'] ) {
-				$term_ref = '#' . (int) $input['term_id'];
-				$term     = get_term( (int) $input['term_id'], $taxonomy ? $taxonomy : null );
-				if ( $term && ! is_wp_error( $term ) ) {
-					$term_ref = $term->name . ' (#' . (int) $term->term_id . ')';
+				$term_id  = (int) $input['term_id'];
+				$term_ref = '#' . $term_id;
+				if ( $term_id > 0 && function_exists( 'get_term' ) ) {
+					$term = get_term( $term_id, $taxonomy ? $taxonomy : null );
+					if ( $term && ! is_wp_error( $term ) ) {
+						$term_ref = $term->name . ' (#' . (int) $term->term_id . ')';
+					}
 				}
 				return $term_ref;
 			}
 			if ( isset( $input['term'] ) && '' !== $input['term'] && null !== $input['term'] ) {
-				return (string) $input['term'];
+				$term_label = trim( (string) $input['term'] );
+				if ( '' !== $term_label ) {
+					return $term_label;
+				}
 			}
-			if ( isset( $input['name'] ) && '' !== $input['name'] ) {
-				return (string) $input['name'];
-			}
-			return __( 'unknown', 'ahentic' );
+			return __( 'unspecified term', 'ahentic' );
 		}
 
 		/**
@@ -1144,7 +1191,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Taxonomy' ) ) {
 						sprintf(
 							/* translators: 1: term ref, 2: taxonomy */
 							__( 'Could not find term “%1$s” in taxonomy “%2$s”. Create it with ahentic/create-term first, then assign it.', 'ahentic' ),
-							$ref_label ? $ref_label : __( 'unknown', 'ahentic' ),
+							$ref_label ? $ref_label : __( 'unspecified term', 'ahentic' ),
 							$taxonomy
 						),
 						array(

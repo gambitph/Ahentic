@@ -47,6 +47,9 @@ export default function HitlApprovalCard( {
 					{ memory.title
 						? `${ memory.key } · ${ memory.title }`
 						: memory.key }
+					{ memory.width && memory.height
+						? ` · ${ memory.width }×${ memory.height }`
+						: '' }
 					{ memory.bytes ? ` · ${ memory.bytes } bytes` : '' }
 					{ memory.excerpt ? ` — ${ memory.excerpt }` : '' }
 				</p>

@@ -191,16 +191,72 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 			if ( self::DELETE === $name ) {
 				$target   = self::hitl_user_ref( $input );
 				$reassign = isset( $input['reassign_to'] ) ? (int) $input['reassign_to'] : 0;
-				$to_ref   = $reassign > 0 ? self::hitl_user_ref( array( 'user_id' => $reassign ) ) : __( 'unknown', 'ahentic' );
+				if ( $reassign > 0 ) {
+					$to_ref = self::hitl_user_ref( array( 'user_id' => $reassign ) );
+					return sprintf(
+						/* translators: 1: target user, 2: reassignment user */
+						__( 'Delete user %1$s and reassign their content to %2$s', 'ahentic' ),
+						$target,
+						$to_ref
+					);
+				}
 				return sprintf(
-					/* translators: 1: target user, 2: reassignment user */
-					__( 'Delete user %1$s and reassign their content to %2$s', 'ahentic' ),
-					$target,
-					$to_ref
+					/* translators: %s: target user */
+					__( 'Delete user %s (reassign_to required)', 'ahentic' ),
+					$target
 				);
 			}
 
 			return self::summary( $name );
+		}
+
+		/**
+		 * Reject incomplete user identity before HITL pause.
+		 *
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return true|\WP_Error
+		 */
+		public static function hitl_preflight( $name, $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$name  = (string) $name;
+
+			if ( self::CREATE === $name ) {
+				$username = isset( $input['username'] ) ? trim( (string) $input['username'] ) : '';
+				if ( '' === $username ) {
+					return new WP_Error(
+						'ahentic_missing_username',
+						__( 'A username is required.', 'ahentic' )
+					);
+				}
+				return true;
+			}
+
+			if ( self::UPDATE === $name || self::DELETE === $name ) {
+				$user_id  = isset( $input['user_id'] ) ? (int) $input['user_id'] : 0;
+				$username = isset( $input['username'] ) ? trim( (string) $input['username'] ) : '';
+				if ( $user_id <= 0 && '' === $username ) {
+					return new WP_Error(
+						'ahentic_missing_user',
+						__( 'Provide user_id or username.', 'ahentic' )
+					);
+				}
+			}
+
+			if ( self::DELETE === $name ) {
+				$reassign = isset( $input['reassign_to'] ) ? (int) $input['reassign_to'] : 0;
+				if ( $reassign <= 0 ) {
+					return new WP_Error(
+						'ahentic_missing_reassign',
+						__( 'reassign_to is required: content must move to another existing user.', 'ahentic' ),
+						array(
+							'hint' => __( 'Pass reassign_to as a different valid user id.', 'ahentic' ),
+						)
+					);
+				}
+			}
+
+			return true;
 		}
 
 		/**
@@ -223,7 +279,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 			if ( isset( $input['username'] ) && '' !== trim( (string) $input['username'] ) ) {
 				return trim( (string) $input['username'] );
 			}
-			return __( 'unknown', 'ahentic' );
+			return __( 'unspecified user', 'ahentic' );
 		}
 
 		/**

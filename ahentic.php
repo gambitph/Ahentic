@@ -94,6 +94,7 @@ require_once __DIR__ . '/src/admin/class-admin.php';
 Ahentic_Session_CPT::init();
 Ahentic_Abilities::init();
 Ahentic_Step_Queue::init();
+Ahentic_Orchestrator::init();
 Ahentic_REST_Sessions::init();
 
 /**

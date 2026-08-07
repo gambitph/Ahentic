@@ -106,7 +106,7 @@ Then `require_once` the file from `ahentic.php` **after** `class-abilities.php`.
 Mutating site changes should pause for Allow / Deny:
 
 1. Add the name to `hitl_names()`.
-2. Implement `hitl_summary( $name, $input )` for the sidebar card.
+2. Implement `hitl_summary( $name, $input )` for the sidebar card. Prefer resolved entity labels (`#id` / name); never the opaque placeholder `unknown` — use “unspecified …” when identity is missing. Optional: `hitl_preflight( $name, $input )` → `true|WP_Error` so incomplete identity fails back to the model before an Allow card (`Ahentic_Abilities::hitl_preflight`).
 3. The Tool runner sets `pending_tool` + `awaiting_human` (do not reimplement this in a new Orchestrator branch).
 4. On allow: Tool runner continues (`skip_hitl`) — PHP execute or browser pause if `requires_browser_runtime`.
 5. Session / always-allow lists can skip repeat prompts (`hitl_is_preallowed`).

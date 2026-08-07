@@ -299,6 +299,36 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		}
 
 		/**
+		 * Cheap identity/required-field check before pausing for HITL.
+		 *
+		 * Incomplete mutating calls return WP_Error to the model instead of an
+		 * Allow card with an unspecified target.
+		 *
+		 * @param string $name  Ability name.
+		 * @param array  $input Input args.
+		 * @return true|\WP_Error
+		 */
+		public static function hitl_preflight( $name, $input = array() ) {
+			$name  = (string) $name;
+			$input = is_array( $input ) ? $input : array();
+
+			foreach ( self::$modules as $class ) {
+				if ( ! method_exists( $class, 'requires_hitl' ) || ! $class::requires_hitl( $name ) ) {
+					continue;
+				}
+				if ( method_exists( $class, 'hitl_preflight' ) ) {
+					$result = $class::hitl_preflight( $name, $input );
+					if ( is_wp_error( $result ) ) {
+						return $result;
+					}
+					return true;
+				}
+				return true;
+			}
+			return true;
+		}
+
+		/**
 		 * Progress label for a tool while it runs (UI heartbeat).
 		 *
 		 * @param string $name Ability name.

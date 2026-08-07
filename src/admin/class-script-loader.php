@@ -130,7 +130,7 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 				plugin_dir_path( AHENTIC_FILE ) . 'languages'
 			);
 
-			$settings_url = admin_url( 'options-general.php?page=ahentic' );
+			$settings_url = admin_url( 'options-general.php?page=' . ( class_exists( 'Ahentic_Admin' ) ? Ahentic_Admin::SETTINGS_SLUG : 'ahentic' ) );
 			$docs_url     = 'https://ahentic.com/docs';
 			$ai_status    = class_exists( 'Ahentic_REST' )
 				? Ahentic_REST::build_status_payload()
@@ -157,6 +157,10 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 					'restUrl'               => esc_url_raw( rest_url( 'ahentic/v1' ) ),
 					'restNonce'             => wp_create_nonce( 'wp_rest' ),
 					'aiPlugin'              => $ai_status,
+					'tokenLimitCodes'       => array(
+						'daily'   => Ahentic_Usage::CODE_DAILY_LIMIT,
+						'runaway' => Ahentic_Usage::CODE_RUNAWAY_LOCK,
+					),
 					'abilityProgressLabels' => class_exists( 'Ahentic_Abilities' )
 						? Ahentic_Abilities::progress_labels_map()
 						: array(),

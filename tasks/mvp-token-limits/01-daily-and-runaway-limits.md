@@ -1,7 +1,7 @@
 # MVP — Daily token limit + runaway lock
 
 **When:** MVP (free plugin)
-**Status:** Ready to implement (grill settled)
+**Status:** Implemented (core); verify on a WP site
 **Depends on:** Existing `Ahentic_Usage` daily rollup + session `add_tokens()`; Settings → Ahentic stub
 
 > Grilled decisions are locked below. Re-grill only if product intent changes.
@@ -22,7 +22,7 @@ Lightweight Settings UI so users can raise the daily cap and unlock after a runa
 | Scope | **Site-wide** pool (all admins share budget) |
 | Metric | Session/provider **`total`** tokens |
 | Day clock | **Site timezone** (`wp_timezone()`) for limit/streak enforcement |
-| Daily default | **1,000,000** total tokens / site / day |
+| Daily default | **5,000,000** total tokens / site / day |
 | Overall tokens field | **None** — runaway = consecutive daily-limit days only |
 | Streak length | **3** consecutive hit-days (hard-coded, not a setting) |
 | Hit-day | Day counts only if **enforcement fired** that day (stop/refuse because at/over limit) |
@@ -57,7 +57,7 @@ Lightweight Settings UI so users can raise the daily cap and unlock after a runa
 
 Replace stub with at least:
 
-- Daily token limit (number; default `1000000` on first install / empty option)
+- Daily token limit (number; default `5000000` on first install / empty option)
 - Today’s usage vs limit (site-tz)
 - When runaway locked: status explanation + **Acknowledge & unlock** button
 - Capability: `manage_options`
@@ -84,13 +84,13 @@ Replace stub with at least:
 
 ## Acceptance criteria
 
-- [ ] Fresh install: daily limit defaults to **1,000,000**; no runaway lock
-- [ ] Settings page: edit/save daily limit; shows today usage/limit; unlock CTA only when locked
-- [ ] When today’s total reaches the limit: running/queued sessions cancel; new prompts refused; session UI shows daily-limit copy + path to Settings
-- [ ] Raising limit above today’s usage allows new prompts the same day; prior stopped sessions do not auto-resume
-- [ ] A day where enforcement fired counts as a hit-day even if the user later raises the limit and continues
-- [ ] Three consecutive hit-days → runaway lock; prompts refused until Acknowledge & unlock; unlock resets streak
-- [ ] A day with no enforcement breaks the consecutive streak
-- [ ] `awaiting_human` is not auto-cancelled solely by the limit trip
-- [ ] No Premium / upsell copy on this settings surface
-- [ ] PHP tests cover: under-limit allow, daily trip, raise-and-resume, streak increment/break, runaway lock, unlock reset
+- [x] Fresh install: daily limit defaults to **5,000,000**; no runaway lock
+- [x] Settings page: edit/save daily limit; shows today usage/limit; unlock CTA only when locked
+- [x] When today’s total reaches the limit: running/queued sessions cancel; new prompts refused; session UI shows daily-limit copy + path to Settings
+- [x] Raising limit above today’s usage allows new prompts the same day; prior stopped sessions do not auto-resume
+- [x] A day where enforcement fired counts as a hit-day even if the user later raises the limit and continues
+- [x] Three consecutive hit-days → runaway lock; prompts refused until Acknowledge & unlock; unlock resets streak
+- [x] A day with no enforcement breaks the consecutive streak
+- [x] `awaiting_human` is not auto-cancelled solely by the limit trip
+- [x] No Premium / upsell copy on this settings surface
+- [x] PHP tests cover: under-limit allow, daily trip, raise-and-resume, streak increment/break, runaway lock, unlock reset

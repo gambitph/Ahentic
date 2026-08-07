@@ -18,6 +18,15 @@ import {
 import { MODES } from './constants'
 
 /**
+ * @param {string} code REST / usage limit error code.
+ * @return {boolean} True if the error code is a token limit error.
+ */
+function isTokenLimitError( code ) {
+	const codes = window.ahentic?.tokenLimitCodes || {}
+	return code === codes.daily || code === codes.runaway
+}
+
+/**
  * @param {Object}   props
  * @param {string}   props.mode
  * @param {Function} props.onModeChange
@@ -33,6 +42,8 @@ import { MODES } from './constants'
  * @param {string}   [props.connectorsUrl]
  * @param {string}   [props.placeholder]
  * @param {string}   [props.error]
+ * @param {string}   [props.errorCode]     REST error code (e.g. token limit).
+ * @param {string}   [props.settingsUrl]   Ahentic settings admin URL.
  * @param {Function} [props.onClearError]
  */
 export default function Composer( {
@@ -50,6 +61,8 @@ export default function Composer( {
 	connectorsUrl = '',
 	placeholder = 'Plan, Build, / for skills, @ for context',
 	error = '',
+	errorCode = '',
+	settingsUrl = '',
 	onClearError,
 } ) {
 	const [ value, setValue ] = useState( '' )
@@ -130,7 +143,12 @@ export default function Composer( {
 
 			{ error ? (
 				<div className="ahentic-composer__error" role="alert">
-					{ error }
+					<p className="ahentic-composer__error-text">{ error }</p>
+					{ settingsUrl && isTokenLimitError( errorCode ) ? (
+						<a className="ahentic-composer__error-cta" href={ settingsUrl }>
+							{ __( 'Open Settings', 'ahentic' ) }
+						</a>
+					) : null }
 				</div>
 			) : null }
 

@@ -98,7 +98,7 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 			// Mutating abilities pause for human approval unless already allowed / skip_hitl.
 			// HITL must run before browser pause so save-post / convert-blocks can be approved first.
 			if ( $needs_hitl ) {
-				return self::pause_hitl( $session_id, $name, $input, $artifact_key, $step, $source, false );
+				return self::pause_hitl_or_reject( $session_id, $name, $input, $artifact_key, $step, $source, false );
 			}
 
 			// Browser abilities (and http-fetch as_user) pause for the sidebar to run JS and POST the result.
@@ -120,7 +120,7 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 						&& ! $skip_hitl;
 					if ( $needs_hitl ) {
 						// Re-enter HITL path for the server fallback ability.
-						return self::pause_hitl( $session_id, $name, $input, $artifact_key, $step, $source, true );
+						return self::pause_hitl_or_reject( $session_id, $name, $input, $artifact_key, $step, $source, true );
 					}
 					// Fall through to PHP execute with rewritten ability.
 				} else {
@@ -625,6 +625,30 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 		}
 
 		/**
+		 * Run HITL preflight; pause on success or record failure and continue.
+		 *
+		 * @param int    $session_id   Session ID.
+		 * @param string $name         Ability name.
+		 * @param array  $input        Tool input.
+		 * @param string $artifact_key Artifact key or empty.
+		 * @param int    $step         Step count.
+		 * @param string $source       Optional source meta.
+		 * @param bool   $fallback     True when this HITL is for a browser→PHP fallback ability.
+		 * @return array { outcome: paused_hitl|continued, ok: bool }
+		 */
+		private static function pause_hitl_or_reject( $session_id, $name, array $input, $artifact_key, $step, $source = '', $fallback = false ) {
+			$hitl_ready = Ahentic_Abilities::hitl_preflight( $name, $input );
+			if ( is_wp_error( $hitl_ready ) ) {
+				self::append_tool_failure( $session_id, $name, $hitl_ready, $step );
+				return array(
+					'outcome' => 'continued',
+					'ok'      => false,
+				);
+			}
+			return self::pause_hitl( $session_id, $name, $input, $artifact_key, $step, $source, $fallback );
+		}
+
+		/**
 		 * Pause the session for human approval of a mutating ability.
 		 *
 		 * @param int    $session_id   Session ID.
@@ -797,8 +821,16 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 			if ( ! empty( $mem['title'] ) ) {
 				$bits[] = '"' . $mem['title'] . '"';
 			}
+			if ( ! empty( $mem['width'] ) && ! empty( $mem['height'] ) ) {
+				$bits[] = (int) $mem['width'] . '×' . (int) $mem['height'];
+			}
 			if ( ! empty( $mem['bytes'] ) ) {
-				$bits[] = (int) $mem['bytes'] . ' bytes';
+				$bytes = (int) $mem['bytes'];
+				if ( function_exists( 'size_format' ) ) {
+					$bits[] = size_format( $bytes );
+				} else {
+					$bits[] = $bytes . ' bytes';
+				}
 			}
 			if ( ! empty( $mem['excerpt'] ) ) {
 				$bits[] = $mem['excerpt'];

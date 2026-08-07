@@ -321,11 +321,11 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 		public static function hitl_summary( $name, $input = array() ) {
 			$input = is_array( $input ) ? $input : array();
 			if ( self::INSTALL === $name ) {
-				$slug = isset( $input['slug'] ) ? (string) $input['slug'] : '';
+				$slug = isset( $input['slug'] ) ? trim( (string) $input['slug'] ) : '';
 				return sprintf(
 					/* translators: %s: plugin slug */
 					__( 'Install plugin “%s” from WordPress.org', 'ahentic' ),
-					$slug ? $slug : __( 'unknown', 'ahentic' )
+					$slug ? $slug : __( 'unspecified plugin', 'ahentic' )
 				);
 			}
 			if ( self::ACTIVATE === $name ) {
@@ -333,7 +333,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				return sprintf(
 					/* translators: %s: plugin file or slug */
 					__( 'Activate plugin “%s”', 'ahentic' ),
-					$plugin ? $plugin : __( 'unknown', 'ahentic' )
+					$plugin ? $plugin : __( 'unspecified plugin', 'ahentic' )
 				);
 			}
 			if ( self::DEACTIVATE === $name ) {
@@ -341,7 +341,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				return sprintf(
 					/* translators: %s: plugin file or slug */
 					__( 'Deactivate plugin “%s”', 'ahentic' ),
-					$plugin ? $plugin : __( 'unknown', 'ahentic' )
+					$plugin ? $plugin : __( 'unspecified plugin', 'ahentic' )
 				);
 			}
 			if ( self::UNINSTALL === $name ) {
@@ -349,10 +349,44 @@ if ( ! class_exists( 'Ahentic_Abilities_Plugins' ) ) {
 				return sprintf(
 					/* translators: %s: plugin file or slug */
 					__( 'Uninstall (delete) plugin “%s”', 'ahentic' ),
-					$plugin ? $plugin : __( 'unknown', 'ahentic' )
+					$plugin ? $plugin : __( 'unspecified plugin', 'ahentic' )
 				);
 			}
 			return $name;
+		}
+
+		/**
+		 * Reject missing plugin refs before HITL pause.
+		 *
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return true|\WP_Error
+		 */
+		public static function hitl_preflight( $name, $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$name  = (string) $name;
+
+			if ( self::INSTALL === $name ) {
+				$slug = isset( $input['slug'] ) ? trim( (string) $input['slug'] ) : '';
+				if ( '' === $slug ) {
+					return new WP_Error(
+						'ahentic_missing_slug',
+						__( 'A plugin slug is required.', 'ahentic' )
+					);
+				}
+				return true;
+			}
+
+			if ( in_array( $name, array( self::ACTIVATE, self::DEACTIVATE, self::UNINSTALL ), true ) ) {
+				if ( '' === self::plugin_ref_from_input( $input ) ) {
+					return new WP_Error(
+						'ahentic_missing_plugin',
+						__( 'Provide plugin, plugin_file, or slug.', 'ahentic' )
+					);
+				}
+			}
+
+			return true;
 		}
 
 		/**
