@@ -246,6 +246,18 @@ test.describe( 'ahentic-browser/set-featured-image', () => {
 	} )
 } )
 
+test.describe( 'ahentic-browser/fill-fields', () => {
+	// DOM fill behavior is covered by src/admin/js/sidebar/visible-page.test.js (jsdom fixture).
+	test( 'PHP stub refuses server execute (browser runtime)', async ( { requestUtils } ) => {
+		const result = await runAbility( requestUtils, 'ahentic-browser/fill-fields', {
+			fields: [ { name: 'blogname', value: 'Acme' } ],
+		} )
+
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'ahentic_browser_runtime' )
+	} )
+} )
+
 test.describe( 'ahentic-browser surgery + document fields (PHP stubs)', () => {
 	test( 'delete-blocks refuses server execute', async ( { requestUtils } ) => {
 		const result = await runAbility( requestUtils, 'ahentic-browser/delete-blocks', {

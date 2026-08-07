@@ -114,18 +114,17 @@ small; it's the expensive, flakier one.
 
 ## Spec grouping — large modules, not one spec per ability
 
-Group Playwright specs by `tasks/mvp-abilities` track / subsystem, not one
-file per ability — with ~15 new abilities landing, per-ability specs would be
-too granular to maintain.
+Group Playwright specs by subsystem / module, not one file per ability —
+per-ability specs are too granular to maintain.
 
 | Spec | Covers |
 | --- | --- |
 | `orchestrator-pipeline.spec.js` | Characterization of the tool pipeline (readonly tools, HITL allow/deny/allow_session, browser pause/resume, Ask-mode write block) — safety net for ToolRunner / HITL-policy architecture work |
-| `hitl-and-undo.spec.js` | Browser HITL card wiring + (later) Non-preallowable HITL, settings snapshot, `undo-last-actions` (mvp-abilities Task 01) |
-| `content-and-plugins.spec.js` | Existing content/plugin/site abilities + `list-post-types`, `analyze-plugins`, `list-themes`, `replace-in-content`, revisions (Tasks 02–06) |
-| `settings-abilities.spec.js` | Settings discovery + theme/global-styles/template-part/option writes and their undo paths (Tasks 07–11) |
-| `users-abilities.spec.js` | User list/create/update/delete (Task 12) |
-| `media-abilities.spec.js` | Media writes + describe/generate-image (Tasks 13–15) |
+| `hitl-and-undo.spec.js` | Browser HITL card wiring + non-preallowable HITL, settings snapshot, `undo-last-actions` |
+| `content-and-plugins.spec.js` | Content/plugin/site abilities + `list-post-types`, `analyze-plugins`, `list-themes`, `replace-in-content`, revisions |
+| `settings-abilities.spec.js` | Settings discovery + theme/global-styles/template-part/option writes and their undo paths |
+| `users-abilities.spec.js` | User list/create/update/delete |
+| `media-abilities.spec.js` | Media writes + describe/generate-image |
 | `sidebar-chat.spec.js` | Browser-driven smoke: composer → mocked assistant bubble |
 
 Add new `describe()` blocks to the relevant existing spec file for each new

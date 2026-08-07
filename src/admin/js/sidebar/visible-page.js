@@ -63,8 +63,92 @@ export function collectVisiblePage() {
 		},
 		notes: [
 			'Read-only snapshot of visible page content (Ahentic UI excluded).',
-			'Prefer server abilities for site changes; use this to explain the screen or plan fills.',
+			'Prefer server abilities for site changes; use this to explain the screen or plan fills via ahentic-browser/fill-fields (does not submit).',
 		],
+	}
+}
+
+/**
+ * Fill visible form fields on the open page (never submits).
+ *
+ * Targets by name (preferred), then id; optional label disambiguates.
+ *
+ * @param {{ fields?: Array<{ name?: string, id?: string, label?: string, value: * }> }} input
+ * @return {{ ok: boolean, filled: Array<Object>, skipped: Array<Object>, notes: string[] }} Fill result with per-field outcomes.
+ */
+export function fillFields( input ) {
+	const requests = Array.isArray( input?.fields ) ? input.fields : []
+	const filled = []
+	const skipped = []
+	const notes = [
+		'Does not submit the form — user must click Save/Update.',
+		'Prefer server abilities when they cover the change.',
+	]
+
+	if ( requests.length === 0 ) {
+		return {
+			ok: false,
+			filled,
+			skipped: [ { reason: 'empty_fields', message: 'fields array is required and must not be empty.' } ],
+			notes,
+		}
+	}
+
+	const root = resolveContentRoot()
+	if ( ! root ) {
+		return {
+			ok: false,
+			filled,
+			skipped: requests.map( field => ( {
+				...pickTarget( field ),
+				reason: 'no_content_root',
+				message: 'No main content root found.',
+			} ) ),
+			notes,
+		}
+	}
+
+	const nodes = listFillableNodes( root )
+
+	for ( const field of requests ) {
+		if ( ! field || typeof field !== 'object' || ! Object.prototype.hasOwnProperty.call( field, 'value' ) ) {
+			skipped.push( {
+				reason: 'invalid_field',
+				message: 'Each field needs a value.',
+			} )
+			continue
+		}
+
+		const target = pickTarget( field )
+		const match = matchFillableNode( nodes, field )
+		if ( match.error ) {
+			skipped.push( { ...target, ...match.error } )
+			continue
+		}
+
+		const applied = applyFieldValue( match.node, field.value )
+		if ( applied.error ) {
+			skipped.push( { ...target, ...applied.error } )
+			continue
+		}
+
+		filled.push( {
+			...target,
+			type: applied.type,
+			value: applied.value,
+		} )
+	}
+
+	return {
+		ok: filled.length > 0,
+		filled,
+		skipped,
+		counts: {
+			filled: filled.length,
+			skipped: skipped.length,
+			requested: requests.length,
+		},
+		notes,
 	}
 }
 
@@ -262,38 +346,14 @@ function collectActions( root ) {
  */
 function collectFields( root ) {
 	const out = []
-	const nodes = root.querySelectorAll( 'input, select, textarea' )
-
-	for ( const node of nodes ) {
-		if ( ! isVisible( node ) ) {
-			continue
-		}
-		const type = String( node.getAttribute( 'type' ) || ( node.tagName === 'SELECT' ? 'select' : node.tagName === 'TEXTAREA' ? 'textarea' : 'text' ) ).toLowerCase()
-		if ( [ 'hidden', 'file', 'submit', 'button', 'reset', 'image' ].includes( type ) ) {
-			continue
-		}
-
-		const name = String( node.getAttribute( 'name' ) || '' )
-		const id = String( node.getAttribute( 'id' ) || '' )
-		const label = resolveFieldLabel( node, id )
-		let value = ''
-		if ( type === 'checkbox' || type === 'radio' ) {
-			value = node.checked ? 'checked' : 'unchecked'
-		} else if ( node.tagName === 'SELECT' ) {
-			const selected = node.selectedOptions?.[ 0 ]
-			value = clip( selected?.text || node.value || '', FIELD_VALUE_MAX )
-		} else if ( type === 'password' ) {
-			value = node.value ? '••••••' : ''
-		} else {
-			value = clip( node.value || '', FIELD_VALUE_MAX )
-		}
-
+	for ( const node of listFillableNodes( root ) ) {
+		const meta = describeFillableNode( node )
 		out.push( {
-			label,
-			name,
-			id,
-			type,
-			value,
+			label: meta.label,
+			name: meta.name,
+			id: meta.id,
+			type: meta.type,
+			value: meta.value,
 			required: Boolean( node.required ),
 			placeholder: clip( node.getAttribute( 'placeholder' ) || '', 80 ),
 		} )
@@ -302,6 +362,223 @@ function collectFields( root ) {
 		}
 	}
 	return out
+}
+
+/**
+ * @param {Element} root
+ * @return {Element[]} Visible fillable input/select/textarea nodes.
+ */
+function listFillableNodes( root ) {
+	const out = []
+	const nodes = root.querySelectorAll( 'input, select, textarea' )
+	for ( const node of nodes ) {
+		if ( ! isVisible( node ) ) {
+			continue
+		}
+		const type = fieldType( node )
+		if ( UNSUPPORTED_FIELD_TYPES.includes( type ) ) {
+			continue
+		}
+		out.push( node )
+	}
+	return out
+}
+
+const UNSUPPORTED_FIELD_TYPES = [ 'hidden', 'file', 'submit', 'button', 'reset', 'image' ]
+
+/**
+ * @param {Element} node
+ * @return {string} Normalized field type.
+ */
+function fieldType( node ) {
+	return String(
+		node.getAttribute( 'type' ) ||
+			( node.tagName === 'SELECT' ? 'select' : node.tagName === 'TEXTAREA' ? 'textarea' : 'text' )
+	).toLowerCase()
+}
+
+/**
+ * @param {Element} node
+ * @return {{ label: string, name: string, id: string, type: string, value: string }} Field metadata for agents.
+ */
+function describeFillableNode( node ) {
+	const type = fieldType( node )
+	const name = String( node.getAttribute( 'name' ) || '' )
+	const id = String( node.getAttribute( 'id' ) || '' )
+	const label = resolveFieldLabel( node, id )
+	let value = ''
+	if ( type === 'checkbox' || type === 'radio' ) {
+		value = node.checked ? 'checked' : 'unchecked'
+	} else if ( node.tagName === 'SELECT' ) {
+		const selected = node.selectedOptions?.[ 0 ]
+		value = clip( selected?.text || node.value || '', FIELD_VALUE_MAX )
+	} else if ( type === 'password' ) {
+		value = node.value ? '••••••' : ''
+	} else {
+		value = clip( node.value || '', FIELD_VALUE_MAX )
+	}
+	return {
+		label, name, id, type, value,
+	}
+}
+
+/**
+ * @param {Object} field
+ * @return {{ name: string, id: string, label: string }} Target selectors from the request.
+ */
+function pickTarget( field ) {
+	return {
+		name: String( field?.name || '' ),
+		id: String( field?.id || '' ),
+		label: String( field?.label || '' ),
+	}
+}
+
+/**
+ * @param {Element[]}                                      nodes
+ * @param {{ name?: string, id?: string, label?: string }} field
+ * @return {{ node?: Element, error?: { reason: string, message: string } }} Matched node or error.
+ */
+function matchFillableNode( nodes, field ) {
+	const name = String( field.name || '' ).trim()
+	const id = String( field.id || '' ).trim()
+	const labelNeedle = String( field.label || '' ).trim().toLowerCase()
+
+	if ( ! name && ! id && ! labelNeedle ) {
+		return {
+			error: {
+				reason: 'missing_target',
+				message: 'Provide name, id, or label to target a field.',
+			},
+		}
+	}
+
+	let candidates = nodes
+	if ( name ) {
+		candidates = nodes.filter( node => String( node.getAttribute( 'name' ) || '' ) === name )
+		if ( candidates.length === 0 && id ) {
+			candidates = nodes.filter( node => String( node.getAttribute( 'id' ) || '' ) === id )
+		}
+	} else if ( id ) {
+		candidates = nodes.filter( node => String( node.getAttribute( 'id' ) || '' ) === id )
+	}
+
+	if ( labelNeedle ) {
+		const labeled = candidates.filter( node => {
+			const meta = describeFillableNode( node )
+			return meta.label.toLowerCase().includes( labelNeedle )
+		} )
+		if ( labeled.length > 0 || ( ! name && ! id ) ) {
+			candidates = labeled
+		}
+	}
+
+	if ( candidates.length === 0 ) {
+		return {
+			error: {
+				reason: 'not_found',
+				message: 'No matching visible field.',
+			},
+		}
+	}
+
+	if ( candidates.length > 1 ) {
+		return {
+			error: {
+				reason: 'ambiguous',
+				message: `Matched ${ candidates.length } fields — add id or label to disambiguate.`,
+			},
+		}
+	}
+
+	return { node: candidates[ 0 ] }
+}
+
+/**
+ * @param {Element} node
+ * @param {*}       rawValue
+ * @return {{ type?: string, value?: *, error?: { reason: string, message: string } }} Applied value or error.
+ */
+function applyFieldValue( node, rawValue ) {
+	const type = fieldType( node )
+
+	if ( type === 'checkbox' || type === 'radio' ) {
+		const checked = coerceChecked( rawValue )
+		if ( checked === null ) {
+			return {
+				error: {
+					reason: 'invalid_value',
+					message: 'Checkbox/radio value must be boolean or checked/unchecked/on/off/1/0.',
+				},
+			}
+		}
+		node.checked = checked
+		dispatchFieldEvents( node )
+		return { type, value: checked }
+	}
+
+	const stringValue = rawValue === null || rawValue === undefined ? '' : String( rawValue )
+
+	if ( node.tagName === 'SELECT' ) {
+		const matched = matchSelectValue( node, stringValue )
+		if ( ! matched ) {
+			return {
+				error: {
+					reason: 'invalid_value',
+					message: `No select option matches “${ stringValue }”.`,
+				},
+			}
+		}
+		node.value = matched
+		dispatchFieldEvents( node )
+		return { type: 'select', value: matched }
+	}
+
+	node.value = stringValue
+	dispatchFieldEvents( node )
+	return { type, value: type === 'password' && stringValue ? '••••••' : stringValue }
+}
+
+/**
+ * @param {*} rawValue
+ * @return {boolean|null} Checked state, or null when the value is invalid.
+ */
+function coerceChecked( rawValue ) {
+	if ( typeof rawValue === 'boolean' ) {
+		return rawValue
+	}
+	const normalized = String( rawValue ).trim().toLowerCase()
+	if ( [ '1', 'true', 'yes', 'on', 'checked' ].includes( normalized ) ) {
+		return true
+	}
+	if ( [ '0', 'false', 'no', 'off', 'unchecked' ].includes( normalized ) ) {
+		return false
+	}
+	return null
+}
+
+/**
+ * @param {HTMLSelectElement} node
+ * @param {string}            stringValue
+ * @return {string|null} Option value to set.
+ */
+function matchSelectValue( node, stringValue ) {
+	const options = Array.from( node.options || [] )
+	const byValue = options.find( opt => opt.value === stringValue )
+	if ( byValue ) {
+		return byValue.value
+	}
+	const needle = stringValue.toLowerCase()
+	const byText = options.find( opt => String( opt.text || '' ).trim().toLowerCase() === needle )
+	return byText ? byText.value : null
+}
+
+/**
+ * @param {Element} node
+ */
+function dispatchFieldEvents( node ) {
+	node.dispatchEvent( new Event( 'input', { bubbles: true } ) )
+	node.dispatchEvent( new Event( 'change', { bubbles: true } ) )
 }
 
 /**

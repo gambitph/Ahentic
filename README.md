@@ -54,6 +54,7 @@ Toggle the sidebar with **Cmd/Ctrl+I** (users with `manage_options`).
 | `npm run build:premium` | Premium package (needs `pro__premium_only/`) |
 | `npm run lint` / `lint:js` / `lint:css` | Lint |
 | `npm run format` | Prettier |
+| (git pre-commit) | lint-staged on staged `*.js` / `*.css` (Husky) |
 | `composer test` | PHPUnit — pure PHP + Brain Monkey-mocked, no real WordPress |
 | `npm run test:e2e` | Playwright against `@wp-playground/cli` (WASM WordPress, no Docker) |
 | `npm run test:debug` | Same, in Playwright UI mode (real Chromium window) |

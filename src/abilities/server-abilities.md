@@ -171,7 +171,7 @@ Full policy: [`docs/agents/testing.md`](../../docs/agents/testing.md).
    make WP-dependent code fit in PHPUnit instead — that behaviour belongs in
    the Playwright suite.
 2. **Add or extend a Playwright module spec** (`tests/e2e/specs/`, grouped by
-   `tasks/mvp-abilities` track, not one file per ability) calling the ability
+   subsystem / module, not one file per ability) calling the ability
    through `runAbility()` (`tests/e2e/utils/ability-client.js`) against a real
    (if WASM, via `@wp-playground/cli`) WordPress — no LLM turn needed. That hits
    `Ahentic_Abilities::execute` (dispatch), not the Tool runner. Confirm:

@@ -251,6 +251,49 @@ class AbilityPolicyTest extends TestCase {
 	}
 
 	/**
+	 * fill-fields: browser write, always HITL, non-preallowable; summary lists field→value.
+	 */
+	public function test_browser_fill_fields_policy() {
+		$name = 'ahentic-browser/fill-fields';
+
+		$this->assertContains( $name, Ahentic_Abilities_Browser::names() );
+		$this->assertContains( $name, Ahentic_Abilities_Browser::write_names() );
+		$this->assertTrue( Ahentic_Abilities_Browser::is_browser( $name ) );
+		$this->assertFalse( Ahentic_Abilities_Browser::is_readonly( $name ) );
+		$this->assertTrue( Ahentic_Abilities_Browser::requires_hitl( $name ) );
+		$this->assertTrue( Ahentic_Abilities_Browser::is_non_preallowable( $name ) );
+		$this->assertTrue( Ahentic_Abilities::requires_browser_runtime( $name ) );
+		$this->assertTrue( Ahentic_Abilities::requires_hitl( $name ) );
+		$this->assertTrue( Ahentic_Abilities::is_non_preallowable( $name ) );
+		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( $name, 'allow_session' ) );
+		$this->assertSame(
+			'Filling form fields…',
+			Ahentic_Abilities_Browser::progress_label( $name )
+		);
+
+		$summary = Ahentic_Abilities_Browser::hitl_summary(
+			$name,
+			array(
+				'fields' => array(
+					array(
+						'name'  => 'blogname',
+						'value' => 'Acme',
+					),
+					array(
+						'id'    => 'blogdescription',
+						'value' => 'Hello',
+					),
+				),
+			)
+		);
+		$this->assertStringContainsString( 'blogname', $summary );
+		$this->assertStringContainsString( 'Acme', $summary );
+		$this->assertStringContainsString( 'blogdescription', $summary );
+		$this->assertStringContainsString( 'Hello', $summary );
+		$this->assertMatchesRegularExpression( '/does not submit/i', $summary );
+	}
+
+	/**
 	 * delete-blocks / update-post-document are browser writes without HITL.
 	 */
 	public function test_browser_delete_blocks_and_update_post_document_policy() {

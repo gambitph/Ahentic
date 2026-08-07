@@ -5,7 +5,7 @@
 /* eslint-disable camelcase -- Ability I/O matches PHP schema snake_case. */
 
 import { collectPageContext } from './page-context'
-import { collectVisiblePage } from './visible-page'
+import { collectVisiblePage, fillFields } from './visible-page'
 import {
 	getEditorState,
 	getBlocks,
@@ -51,6 +51,8 @@ export async function runBrowserAbility( pending ) {
 				return { result: collectPageContext() }
 			case 'ahentic-browser/get-visible-page':
 				return { result: collectVisiblePage() }
+			case 'ahentic-browser/fill-fields':
+				return { result: fillFields( input ) }
 			case 'ahentic-browser/get-editor-state':
 				return { result: getEditorState() }
 			case 'ahentic-browser/get-blocks':

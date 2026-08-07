@@ -131,8 +131,8 @@ await seed( requestUtils, { posts: [ { post_title: 'Fixture post', post_status: 
 
 ## Spec grouping
 
-One spec file per `tasks/mvp-abilities` track / subsystem, not one per
-ability — see `docs/agents/testing.md` for the current list and rationale.
+One spec file per subsystem / module, not one per ability — see
+`docs/agents/testing.md` for the current list and rationale.
 
 ## Files
 
@@ -147,7 +147,7 @@ ability — see `docs/agents/testing.md` for the current list and rationale.
 | `fixtures/ahentic-sidebar.js` | `AhenticSidebar` fixture (open a session, send a message, HITL decisions) + `mockReply()` |
 | `fixtures/test.js` | Extends `@wordpress/e2e-test-utils-playwright`'s `test` with the `ahenticSidebar` fixture |
 | `specs/orchestrator-pipeline.spec.js` | Tool pipeline characterization (HITL / browser / Ask) for architecture refactors |
-| `specs/hitl-and-undo.spec.js` | Browser HITL card + Task 01 surface |
+| `specs/hitl-and-undo.spec.js` | Browser HITL card + undo / settings snapshot surface |
 | `specs/*.spec.js` | Module-grouped specs |
 | `.auth/` | Gitignored; written by global setup |
 

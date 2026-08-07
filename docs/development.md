@@ -151,6 +151,8 @@ npm run format
 npm run build          # free zip via scripts/package.js
 ```
 
+Pre-commit runs **lint-staged** (via Husky) on staged `*.js` / `*.css` — the same ESLint / stylelint rules as `npm run lint`. A dirty lint blocks the commit. After `npm install`, the `prepare` script installs the hook automatically.
+
 Free builds should stay Plugin Check clean. Do not ship `pro__premium_only/` in the free package.
 
 ---

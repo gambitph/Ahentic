@@ -1889,6 +1889,7 @@ a.ahentic-empty__ai-install:hover {
 }
 
 /* Deferred attach/mic — keep markup; attach = free v3, voice = Premium v3 */
+
 /* See future-prompt-file-attachments.md / future-prompt-voice-input.md */
 .ahentic-composer__affordance--deferred,
 .ahentic-composer__affordance--deferred[hidden] {

@@ -69,8 +69,8 @@ function resolveFloatingViewport( viewport ) {
 /**
  * Default geometry for floating placements (viewport-relative).
  *
- * @param {string} placement
- * @param {number} [width]
+ * @param {string}                                             placement
+ * @param {number}                                             [width]
  * @param {{ viewport?: { width?: number, height?: number } }} [options]
  * @return {{ left: number, top: number, width: number, height: number }} Default rect for the placement.
  */
@@ -102,7 +102,7 @@ export function getDefaultFloatingRect( placement, width = DEFAULT_WIDTH, option
  * Keep a floating rect usable inside the viewport.
  *
  * @param {{ left: number, top: number, width: number, height: number }} rect
- * @param {{ viewport?: { width?: number, height?: number } }} [options]
+ * @param {{ viewport?: { width?: number, height?: number } }}           [options]
  * @return {{ left: number, top: number, width: number, height: number }} Rect clamped to the viewport.
  */
 export function clampFloatingRect( rect, options = {} ) {
@@ -128,8 +128,8 @@ export function clampFloatingRect( rect, options = {} ) {
  * viewport using floating margins. Prefer minimal position changes.
  *
  * @param {{ left?: number, top?: number, width?: number, height?: number }|null} rect
- * @param {string} placement Floating placement id.
- * @param {{ viewport?: { width?: number, height?: number } }} [options]
+ * @param {string}                                                                placement Floating placement id.
+ * @param {{ viewport?: { width?: number, height?: number } }}                    [options]
  * @return {{ left: number, top: number, width: number, height: number }} Recovered rect.
  */
 export function recoverFloatingRectOnOpen( rect, placement, options = {} ) {

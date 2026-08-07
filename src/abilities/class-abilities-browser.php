@@ -37,11 +37,12 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		const SET_FEATURED_IMAGE        = 'ahentic-browser/set-featured-image';
 		const SET_POST_TERMS            = 'ahentic-browser/set-post-terms';
 		const SAVE_POST                 = 'ahentic-browser/save-post';
+		const FILL_FIELDS               = 'ahentic-browser/fill-fields';
 
 		/**
-		 * Single policy catalog: drives names / write / HITL / progress / summary.
+		 * Single policy catalog: drives names / write / HITL / non_preallowable / progress / summary.
 		 *
-		 * @return array<string, array{write?:bool, hitl?:bool, progress:string, summary:string, hitl_summary?:string}>
+		 * @return array<string, array{write?:bool, hitl?:bool, non_preallowable?:bool, progress:string, summary:string, hitl_summary?:string}>
 		 */
 		private static function catalog() {
 			return array(
@@ -161,6 +162,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 					'summary'      => __( 'Save the post in the editor', 'ahentic' ),
 					'hitl_summary' => __( 'Save the post currently open in the block editor', 'ahentic' ),
 				),
+				self::FILL_FIELDS               => array(
+					'write'            => true,
+					'hitl'             => true,
+					'non_preallowable' => true,
+					'progress'         => __( 'Filling form fields…', 'ahentic' ),
+					'summary'          => __( 'Fill form fields on the open page', 'ahentic' ),
+				),
 			);
 		}
 
@@ -231,6 +239,29 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		 */
 		public static function requires_hitl( $name ) {
 			return in_array( (string) $name, self::hitl_names(), true );
+		}
+
+		/**
+		 * Form fills that must never honor session/always allowlists.
+		 *
+		 * @return string[]
+		 */
+		public static function non_preallowable_names() {
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['non_preallowable'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
+		}
+
+		/**
+		 * @param string $name Ability.
+		 * @return bool
+		 */
+		public static function is_non_preallowable( $name ) {
+			return in_array( (string) $name, self::non_preallowable_names(), true );
 		}
 
 		/**
@@ -759,6 +790,43 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 						'additionalProperties' => false,
 					),
 				),
+				array(
+					'name'        => self::FILL_FIELDS,
+					'label'       => __( 'Fill fields', 'ahentic' ),
+					'description' => __( 'Fills visible form inputs on the open tab (name preferred, then id; label only to disambiguate). Use only when no server write ability covers the change — prefer ahentic/* settings/content tools and editor-store ahentic-browser/* for block canvas / document fields. Does NOT submit the form; the user clicks Save/Update. Requires human approval. Native input/select/textarea only — fill password fields only when the user explicitly asked. Runs in the browser.', 'ahentic' ),
+					'meta'        => $mutate_meta,
+					'input'       => array(
+						'type'       => 'object',
+						'required'   => array( 'fields' ),
+						'properties' => array(
+							'fields' => array(
+								'type'        => 'array',
+								'description' => __( 'Fields to fill. Prefer name, then id; optional label to disambiguate. value is a string or boolean (checkbox/radio).', 'ahentic' ),
+								'items'       => array(
+									'type'       => 'object',
+									'required'   => array( 'value' ),
+									'properties' => array(
+										'name'  => array(
+											'type'        => 'string',
+											'description' => __( 'HTML name attribute (preferred).', 'ahentic' ),
+										),
+										'id'    => array(
+											'type'        => 'string',
+											'description' => __( 'HTML id when name is missing or ambiguous.', 'ahentic' ),
+										),
+										'label' => array(
+											'type'        => 'string',
+											'description' => __( 'Visible label text for disambiguation only.', 'ahentic' ),
+										),
+										'value' => array(
+											'description' => __( 'Value to set. Strings for text/select/textarea; boolean or checked/unchecked for checkbox/radio.', 'ahentic' ),
+										),
+									),
+								),
+							),
+						),
+					),
+				),
 			);
 
 			foreach ( $defs as $def ) {
@@ -828,13 +896,73 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		 * @return string
 		 */
 		public static function hitl_summary( $name, $input = array() ) {
-			unset( $input );
+			$input = is_array( $input ) ? $input : array();
+			$key   = (string) $name;
+
+			if ( self::FILL_FIELDS === $key ) {
+				return self::hitl_summary_fill_fields( $input );
+			}
+
 			$catalog = self::catalog();
-			$key     = (string) $name;
 			if ( isset( $catalog[ $key ]['hitl_summary'] ) ) {
 				return $catalog[ $key ]['hitl_summary'];
 			}
 			return self::summary( $name );
+		}
+
+		/**
+		 * HITL copy listing field→value pairs (no submit).
+		 *
+		 * @param array $input Ability input.
+		 * @return string
+		 */
+		private static function hitl_summary_fill_fields( $input ) {
+			$fields = isset( $input['fields'] ) && is_array( $input['fields'] ) ? $input['fields'] : array();
+			if ( empty( $fields ) ) {
+				return __( 'Fill form fields on the open page (does not submit)', 'ahentic' );
+			}
+
+			$parts = array();
+			foreach ( $fields as $field ) {
+				if ( ! is_array( $field ) ) {
+					continue;
+				}
+				$target = '';
+				if ( ! empty( $field['name'] ) ) {
+					$target = (string) $field['name'];
+				} elseif ( ! empty( $field['id'] ) ) {
+					$target = (string) $field['id'];
+				} elseif ( ! empty( $field['label'] ) ) {
+					$target = (string) $field['label'];
+				} else {
+					$target = __( 'field', 'ahentic' );
+				}
+				$value = array_key_exists( 'value', $field ) ? $field['value'] : '';
+				if ( is_bool( $value ) ) {
+					$value = $value ? 'true' : 'false';
+				} else {
+					$value = (string) $value;
+					if ( 'password' === strtolower( (string) ( $field['type'] ?? '' ) ) || preg_match( '/pass(word)?/i', $target ) ) {
+						$value = $value !== '' ? '••••••' : '';
+					}
+				}
+				$parts[] = $target . '=' . $value;
+				if ( count( $parts ) >= 8 ) {
+					break;
+				}
+			}
+
+			$count = count( $fields );
+			$list  = implode( ', ', $parts );
+			if ( $count > count( $parts ) ) {
+				$list .= ', …';
+			}
+
+			return sprintf(
+				/* translators: %s: field=value list */
+				__( 'Fill form fields (does not submit): %s', 'ahentic' ),
+				$list
+			);
 		}
 
 		/**
