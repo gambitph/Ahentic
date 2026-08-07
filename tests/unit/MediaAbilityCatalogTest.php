@@ -82,4 +82,25 @@ class MediaAbilityCatalogTest extends TestCase {
 			$this->assertTrue( Ahentic_Abilities_Media::is_non_preallowable( $name ), $name );
 		}
 	}
+
+	/**
+	 * list-media / get-media are catalogued readonly browse abilities.
+	 */
+	public function test_list_and_get_media_are_readonly() {
+		$names = Ahentic_Abilities_Media::names();
+		$this->assertContains( 'ahentic/list-media', $names );
+		$this->assertContains( 'ahentic/get-media', $names );
+		$this->assertTrue( Ahentic_Abilities_Media::is_readonly( 'ahentic/list-media' ) );
+		$this->assertTrue( Ahentic_Abilities_Media::is_readonly( 'ahentic/get-media' ) );
+		$this->assertFalse( Ahentic_Abilities_Media::requires_hitl( 'ahentic/list-media' ) );
+		$this->assertFalse( Ahentic_Abilities_Media::requires_hitl( 'ahentic/get-media' ) );
+		$this->assertSame(
+			'List media',
+			Ahentic_Abilities_Media::summary( 'ahentic/list-media' )
+		);
+		$this->assertSame(
+			'Get media',
+			Ahentic_Abilities_Media::summary( 'ahentic/get-media' )
+		);
+	}
 }

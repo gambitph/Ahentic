@@ -1,5 +1,5 @@
 /**
- * Track E — media writes: update / featured / delete-quarantine / replace.
+ * Track E — media reads + writes: list/get, update / featured / delete-quarantine / replace.
  */
 /* eslint-disable camelcase -- Ability / REST I/O matches PHP schema snake_case. */
 const { test, expect } = require( '@wordpress/e2e-test-utils-playwright' )
@@ -9,6 +9,70 @@ const {
 const { createSession } = require( '../utils/session-client' )
 
 test.describe.configure( { mode: 'serial', timeout: 90_000 } )
+
+test.describe( 'ahentic/list-media + get-media', () => {
+	test( 'lists by search/mime and get returns detail; missing id is not-found', async ( {
+		requestUtils,
+	} ) => {
+		const suffix = Date.now()
+		const title = `List media ${ suffix }`
+
+		const seeded = await seed( requestUtils, {
+			attachments: [
+				{
+					title,
+					alt_text: 'List media alt',
+					filename: `list-media-${ suffix }.png`,
+				},
+			],
+		} )
+		expect( seeded.ok ).toBe( true )
+		const attachmentId = seeded.created.attachments[ 0 ]
+		expect( attachmentId ).toBeGreaterThan( 0 )
+
+		const listed = await runAbility( requestUtils, 'ahentic/list-media', {
+			search: title,
+			mime_type: 'image',
+			per_page: 10,
+		} )
+		expect( listed.ok, JSON.stringify( listed ) ).toBe( true )
+		expect( listed.data.per_page ).toBeLessThanOrEqual( 50 )
+		const hit = ( listed.data.items || [] ).find( ( item ) => item.id === attachmentId )
+		expect( hit ).toBeTruthy()
+		expect( hit.title ).toBe( title )
+		expect( hit.alt ).toBe( 'List media alt' )
+		expect( hit.mime_type ).toMatch( /^image\// )
+		expect( hit.url ).toBeTruthy()
+
+		const got = await runAbility( requestUtils, 'ahentic/get-media', {
+			id: attachmentId,
+		} )
+		expect( got.ok, JSON.stringify( got ) ).toBe( true )
+		expect( got.data.id ).toBe( attachmentId )
+		expect( got.data.alt ).toBe( 'List media alt' )
+		expect( got.data ).toHaveProperty( 'caption' )
+		expect( got.data ).toHaveProperty( 'description' )
+		expect( got.data ).toHaveProperty( 'media_details' )
+		expect( got.data ).toHaveProperty( 'size_urls' )
+		expect( got.data ).toHaveProperty( 'usage' )
+
+		const missing = await runAbility( requestUtils, 'ahentic/get-media', {
+			id: 999999999,
+		} )
+		expect( missing.ok ).toBe( false )
+		expect( missing.error ).toBe( 'ahentic_attachment_not_found' )
+	} )
+
+	test( 'caps per_page at 50', async ( { requestUtils } ) => {
+		const listed = await runAbility( requestUtils, 'ahentic/list-media', {
+			mime_type: 'image',
+			per_page: 500,
+			page: 1,
+		} )
+		expect( listed.ok, JSON.stringify( listed ) ).toBe( true )
+		expect( listed.data.per_page ).toBe( 50 )
+	} )
+} )
 
 test.describe( 'ahentic/update-media', () => {
 	test( 'writes alt/title/caption/description and undo restores prior', async ( {

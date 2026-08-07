@@ -7,7 +7,7 @@ Delete or rewrite this file when a surface is promoted to its own numbered task 
 
 ## Bar
 
-Every usual wp-admin area should eventually have list + create + update + delete (or an explicit “refuse / soft-only” policy). Shipping now is Tasks **09–14** plus existing done tracks — not the rows below.
+Every usual wp-admin area should eventually have list + create + update + delete (or an explicit “refuse / soft-only” policy). Tasks **09–14** (and earlier tracks) are **shipped** — see [`00-INDEX.md`](./00-INDEX.md). Only the rows below remain deferred.
 
 ## Deferred surfaces
 

@@ -27,6 +27,7 @@ import {
 	updatePostTitle,
 	updatePostDocument,
 	setFeaturedImage,
+	setPostTerms,
 	savePost,
 } from './editor-abilities'
 
@@ -90,6 +91,8 @@ export async function runBrowserAbility( pending ) {
 				return { result: updatePostDocument( input ) }
 			case 'ahentic-browser/set-featured-image':
 				return { result: setFeaturedImage( input ) }
+			case 'ahentic-browser/set-post-terms':
+				return { result: setPostTerms( input ) }
 			case 'ahentic-browser/save-post':
 				return { result: await savePost() }
 			case 'ahentic/http-fetch':

@@ -1,6 +1,7 @@
 <?php
 /**
- * Settings discovery and write abilities: context, Customizer index, theme settings, global styles.
+ * Settings discovery and write abilities: context, Customizer index, theme settings,
+ * global styles, template parts, and registered/vetted options.
  *
  * @package Ahentic
  */
@@ -13,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 	/**
 	 * Theme/settings discovery and writes for the agent loop (Track C):
-	 * Customizer theme settings + block-theme global styles.
+	 * Customizer theme settings, block-theme global styles, template parts, options.
 	 */
 	class Ahentic_Abilities_Settings {
 		const GET_CONTEXT           = 'ahentic/get-settings-context';
@@ -21,6 +22,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 		const GET_SETTING           = 'ahentic/get-setting';
 		const UPDATE_THEME_SETTING  = 'ahentic/update-theme-setting';
 		const UPDATE_GLOBAL_STYLES  = 'ahentic/update-global-styles';
+		const UPDATE_TEMPLATE_PART  = 'ahentic/update-template-part';
+		const UPDATE_OPTION         = 'ahentic/update-option';
 
 		const LIST_PAGE_SIZE      = 50;
 		const VALUE_SUMMARY_BYTES = 2048;
@@ -31,7 +34,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 		/**
 		 * Single policy catalog: drives names / write / HITL / progress / summary.
 		 *
-		 * @return array<string, array{write?:bool, hitl?:bool, progress:string, summary:string}>
+		 * @return array<string, array{write?:bool, hitl?:bool, non_preallowable?:bool, progress:string, summary:string}>
 		 */
 		private static function catalog() {
 			return array(
@@ -58,6 +61,19 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 					'hitl'     => true,
 					'progress' => __( 'Updating global styles…', 'ahentic' ),
 					'summary'  => __( 'Update global styles', 'ahentic' ),
+				),
+				self::UPDATE_TEMPLATE_PART => array(
+					'write'            => true,
+					'hitl'             => true,
+					'non_preallowable' => true,
+					'progress'         => __( 'Updating template part…', 'ahentic' ),
+					'summary'          => __( 'Update template part', 'ahentic' ),
+				),
+				self::UPDATE_OPTION        => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Updating option…', 'ahentic' ),
+					'summary'  => __( 'Update option', 'ahentic' ),
 				),
 			);
 		}
@@ -122,6 +138,29 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 		}
 
 		/**
+		 * Irreversible / first-override writes that must never honor session/always allowlists.
+		 *
+		 * @return string[]
+		 */
+		public static function non_preallowable_names() {
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['non_preallowable'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
+		}
+
+		/**
+		 * @param string $name Ability.
+		 * @return bool
+		 */
+		public static function is_non_preallowable( $name ) {
+			return in_array( (string) $name, self::non_preallowable_names(), true );
+		}
+
+		/**
 		 * Short summary for pending-tool UI / progress.
 		 *
 		 * @param string $name Ability.
@@ -162,6 +201,23 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 			$input = is_array( $input ) ? $input : array();
 			$key   = (string) $name;
 
+			if ( self::UPDATE_OPTION === $key ) {
+				$option = isset( $input['key'] ) ? (string) $input['key'] : '';
+				$label  = $option ? $option : __( 'option', 'ahentic' );
+				if ( ! empty( $input['dry_run'] ) ) {
+					return sprintf(
+						/* translators: %s: option key */
+						__( 'Preview option update for “%s” (dry run)', 'ahentic' ),
+						$label
+					);
+				}
+				return sprintf(
+					/* translators: %s: option key */
+					__( 'Update WordPress option “%s”', 'ahentic' ),
+					$label
+				);
+			}
+
 			if ( self::UPDATE_GLOBAL_STYLES === $key ) {
 				$parts = array();
 				if ( isset( $input['styles'] ) && is_array( $input['styles'] ) ) {
@@ -183,6 +239,23 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 					/* translators: %s: styles and/or settings */
 					__( 'Update block-theme global styles (%s)', 'ahentic' ),
 					$surface
+				);
+			}
+
+			if ( self::UPDATE_TEMPLATE_PART === $key ) {
+				$part_id = isset( $input['template_part_id'] ) ? (string) $input['template_part_id'] : '';
+				$label   = $part_id ? $part_id : __( 'template part', 'ahentic' );
+				if ( ! empty( $input['dry_run'] ) ) {
+					return sprintf(
+						/* translators: %s: template part id */
+						__( 'Preview template part update for “%s” (dry run)', 'ahentic' ),
+						$label
+					);
+				}
+				return sprintf(
+					/* translators: %s: template part id */
+					__( 'Update template part “%s” — this creates or keeps a database override that no longer follows future theme file updates for this part', 'ahentic' ),
+					$label
 				);
 			}
 
@@ -637,7 +710,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 					'stylesheet'     => $stylesheet,
 					'is_block_theme' => true,
 					'surfaces'       => array( 'global_styles', 'template_parts' ),
-					'routing_hint'   => __( 'Active theme is a block theme. Prefer ahentic/update-global-styles for theme.json user-layer colors/typography/spacing (not template-part HTML), and template parts for header/footer markup. Classic Customizer theme_settings are not the primary surface. Call ahentic/get-settings-context before choosing a write path.', 'ahentic' ),
+					'routing_hint'   => __( 'Active theme is a block theme. Prefer ahentic/update-global-styles for theme.json user-layer colors/typography/spacing (not template-part HTML). Edit header/footer markup with ahentic/update-template-part when the Site Editor is closed, or ahentic-browser block tools when that part is open. Classic Customizer theme_settings are not the primary surface. Call ahentic/get-settings-context before choosing a write path.', 'ahentic' ),
 				);
 			}
 
@@ -648,6 +721,115 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 				'surfaces'       => array( 'theme_settings' ),
 				'routing_hint'   => __( 'Active theme is classic. Discover Customizer settings with ahentic/list-settings (always pass query, section, or prefix — never unfiltered) and ahentic/get-setting for full values.', 'ahentic' ),
 			);
+		}
+
+		/**
+		 * Hard denylist for update-option — checked before registration / allowlist.
+		 * Never writable via this ability (schema/code gate, not merely HITL).
+		 *
+		 * @return string[]
+		 */
+		public static function option_write_denylist() {
+			return array(
+				'siteurl',
+				'home',
+				'default_role',
+				'users_can_register',
+				'admin_email',
+			);
+		}
+
+		/**
+		 * Curated core keys writable without register_setting() registration.
+		 * Distinct from Ahentic_Abilities_Site::option_allowlist() (read list).
+		 *
+		 * @return string[]
+		 */
+		public static function option_write_allowlist() {
+			return array(
+				'blogname',
+				'blogdescription',
+				'blog_public',
+				'date_format',
+				'time_format',
+				'start_of_week',
+				'timezone_string',
+				'permalink_structure',
+			);
+		}
+
+		/**
+		 * Pure writability gate for update-option.
+		 *
+		 * Denylist wins even when the key is registered or allowlisted.
+		 * Pass option names from get_registered_settings() as $registered_names.
+		 *
+		 * @param string   $key              Option key.
+		 * @param string[] $registered_names Keys from get_registered_settings().
+		 * @return array{ok:bool, via?:string, error?:string, message?:string}
+		 */
+		public static function resolve_option_writability( $key, array $registered_names = array() ) {
+			$key = trim( (string) $key );
+			if ( '' === $key ) {
+				return array(
+					'ok'      => false,
+					'error'   => 'ahentic_missing_option_key',
+					'message' => __( 'An option key is required.', 'ahentic' ),
+				);
+			}
+
+			if ( in_array( $key, self::option_write_denylist(), true ) ) {
+				return array(
+					'ok'      => false,
+					'error'   => 'ahentic_option_denied',
+					'message' => sprintf(
+						/* translators: %s: option key */
+						__( 'Option “%s” cannot be changed through ahentic/update-option (hard denylist).', 'ahentic' ),
+						$key
+					),
+				);
+			}
+
+			$registered_names = array_map( 'strval', $registered_names );
+			if ( in_array( $key, $registered_names, true ) ) {
+				return array(
+					'ok'  => true,
+					'via' => 'registered',
+				);
+			}
+
+			if ( in_array( $key, self::option_write_allowlist(), true ) ) {
+				return array(
+					'ok'  => true,
+					'via' => 'allowlist',
+				);
+			}
+
+			return array(
+				'ok'      => false,
+				'error'   => 'ahentic_option_not_registered',
+				'message' => sprintf(
+					/* translators: %s: option key */
+					__( 'Option “%s” is not registered via register_setting() and is not on the vetted write allowlist, so it cannot be validated. Refusing to write.', 'ahentic' ),
+					$key
+				),
+			);
+		}
+
+		/**
+		 * Option names currently registered with the Settings API.
+		 *
+		 * @return string[]
+		 */
+		public static function registered_option_names() {
+			if ( ! function_exists( 'get_registered_settings' ) ) {
+				return array();
+			}
+			$registered = get_registered_settings();
+			if ( ! is_array( $registered ) ) {
+				return array();
+			}
+			return array_map( 'strval', array_keys( $registered ) );
 		}
 
 		/**
@@ -866,6 +1048,93 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 					),
 				)
 			);
+
+			wp_register_ability(
+				self::UPDATE_TEMPLATE_PART,
+				array(
+					'label'               => __( 'Update template part', 'ahentic' ),
+					'description'         => __( 'Creates or updates a block-theme template part override (header/footer/etc.) as a wp_template_part database row. Pass template_part_id (theme//slug) plus blocks or content. When the Site Editor has that part open, use ahentic-browser block tools instead — server writes are refused. First override permanently decouples the part from future theme file updates; always requires a fresh Allow. Snapshot + undo via ahentic/undo-last-actions (first-override undo deletes the created row).', 'ahentic' ),
+					'category'            => 'ahentic-settings',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'template_part_id' ),
+						'properties' => array(
+							'template_part_id' => array(
+								'type'        => 'string',
+								'description' => __( 'Template part id as stylesheet//slug (e.g. twentytwentyfour//header).', 'ahentic' ),
+							),
+							'blocks'           => array(
+								'type'        => 'array',
+								'description' => __( 'Full replacement block tree as agent {name, attributes, innerBlocks} objects. Preferred over content.', 'ahentic' ),
+							),
+							'content'          => array(
+								'type'        => 'string',
+								'description' => __( 'Serialized block markup when blocks is omitted.', 'ahentic' ),
+							),
+							'title'            => array(
+								'type'        => 'string',
+								'description' => __( 'Optional display title for the template part.', 'ahentic' ),
+							),
+							'dry_run'          => array(
+								'type'        => 'boolean',
+								'description' => __( 'When true, report prior/next without writing.', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_update_template_part' ),
+					'permission_callback' => $write_permission,
+					'meta'                => array(
+						'annotations'  => array(
+							'readonly'    => false,
+							'destructive' => true,
+							'idempotent'  => false,
+						),
+						'show_in_rest' => false,
+					),
+				)
+			);
+
+			$option_permission = static function () {
+				return current_user_can( 'manage_options' );
+			};
+
+			wp_register_ability(
+				self::UPDATE_OPTION,
+				array(
+					'label'               => __( 'Update option', 'ahentic' ),
+					'description'         => __( 'Writes a WordPress option when it is registered via register_setting() or on a small vetted core allowlist. Hard-denies siteurl, home, default_role, users_can_register, and admin_email. Values pass through sanitize_option / Settings API sanitize callbacks. Snapshot + undo via ahentic/undo-last-actions. Interactive HITL only.', 'ahentic' ),
+					'category'            => 'ahentic-settings',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'key', 'value' ),
+						'properties' => array(
+							'key'     => array(
+								'type'        => 'string',
+								'description' => __( 'Option name (must be Settings-API registered or on the vetted write allowlist; denylist keys are refused).', 'ahentic' ),
+							),
+							'value'   => array(
+								'description' => __( 'New option value (sanitized via Settings API / sanitize_option).', 'ahentic' ),
+							),
+							'dry_run' => array(
+								'type'        => 'boolean',
+								'description' => __( 'When true, report the prior/next value without writing.', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_update_option' ),
+					'permission_callback' => $option_permission,
+					'meta'                => array(
+						'annotations'  => array(
+							'readonly'    => false,
+							'destructive' => false,
+							'idempotent'  => false,
+						),
+						'show_in_rest' => false,
+					),
+				)
+			);
 		}
 
 		/**
@@ -927,6 +1196,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 					return self::execute_update_theme_setting( $input );
 				case self::UPDATE_GLOBAL_STYLES:
 					return self::execute_update_global_styles( $input );
+				case self::UPDATE_TEMPLATE_PART:
+					return self::execute_update_template_part( $input );
+				case self::UPDATE_OPTION:
+					return self::execute_update_option( $input );
 				default:
 					return new WP_Error( 'ahentic_ability_unknown', __( 'Unknown settings ability.', 'ahentic' ) );
 			}
@@ -1711,6 +1984,512 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 		}
 
 		/**
+		 * Parse template_part_id into stylesheet + slug.
+		 *
+		 * @param string $id theme//slug.
+		 * @return array{ok:true,stylesheet:string,slug:string,id:string}|array{ok:false,error:string,message:string}
+		 */
+		public static function parse_template_part_id( $id ) {
+			$id = trim( (string) $id );
+			if ( '' === $id || false === strpos( $id, '//' ) ) {
+				return array(
+					'ok'      => false,
+					'error'   => 'ahentic_invalid_template_part_id',
+					'message' => __( 'template_part_id must look like stylesheet//slug (e.g. twentytwentyfour//header).', 'ahentic' ),
+				);
+			}
+			$parts = explode( '//', $id, 2 );
+			$stylesheet_raw = (string) $parts[0];
+			$slug_raw       = (string) $parts[1];
+			$stylesheet     = function_exists( 'sanitize_title' )
+				? sanitize_title( $stylesheet_raw )
+				: strtolower( preg_replace( '/[^a-zA-Z0-9_\-]+/', '-', $stylesheet_raw ) );
+			$slug           = function_exists( 'sanitize_title' )
+				? sanitize_title( $slug_raw )
+				: strtolower( preg_replace( '/[^a-zA-Z0-9_\-]+/', '-', $slug_raw ) );
+			$stylesheet = trim( (string) $stylesheet, '-' );
+			$slug       = trim( (string) $slug, '-' );
+			if ( '' === $stylesheet || '' === $slug ) {
+				return array(
+					'ok'      => false,
+					'error'   => 'ahentic_invalid_template_part_id',
+					'message' => __( 'template_part_id must include a non-empty stylesheet and slug.', 'ahentic' ),
+				);
+			}
+			return array(
+				'ok'         => true,
+				'stylesheet' => $stylesheet,
+				'slug'       => $slug,
+				'id'         => $stylesheet . '//' . $slug,
+			);
+		}
+
+		/**
+		 * Resolve markup from blocks or content input.
+		 *
+		 * @param array $input Ability input.
+		 * @return array{ok:true,content:string}|array{ok:false,error:string,message:string}
+		 */
+		public static function resolve_template_part_content_input( array $input ) {
+			if ( isset( $input['blocks'] ) && is_array( $input['blocks'] ) ) {
+				if ( empty( $input['blocks'] ) ) {
+					return array(
+						'ok'      => false,
+						'error'   => 'ahentic_empty_template_part_blocks',
+						'message' => __( 'blocks cannot be an empty array. Pass a full replacement tree or omit blocks and use content.', 'ahentic' ),
+					);
+				}
+				if ( ! class_exists( 'Ahentic_Session_Artifacts' ) || ! method_exists( 'Ahentic_Session_Artifacts', 'serialize_agent_blocks' ) ) {
+					return array(
+						'ok'      => false,
+						'error'   => 'ahentic_blocks_unavailable',
+						'message' => __( 'Block serialization is unavailable.', 'ahentic' ),
+					);
+				}
+				$content = Ahentic_Session_Artifacts::serialize_agent_blocks( $input['blocks'] );
+				if ( ! is_string( $content ) || '' === $content ) {
+					return array(
+						'ok'      => false,
+						'error'   => 'ahentic_invalid_template_part_blocks',
+						'message' => __( 'Could not serialize the provided blocks.', 'ahentic' ),
+					);
+				}
+				return array(
+					'ok'      => true,
+					'content' => $content,
+				);
+			}
+
+			if ( array_key_exists( 'content', $input ) ) {
+				$content = (string) $input['content'];
+				if ( '' === trim( $content ) ) {
+					return array(
+						'ok'      => false,
+						'error'   => 'ahentic_empty_template_part_content',
+						'message' => __( 'content cannot be empty.', 'ahentic' ),
+					);
+				}
+				return array(
+					'ok'      => true,
+					'content' => $content,
+				);
+			}
+
+			return array(
+				'ok'      => false,
+				'error'   => 'ahentic_missing_template_part_body',
+				'message' => __( 'Provide blocks (preferred) or content for the template part body.', 'ahentic' ),
+			);
+		}
+
+		/**
+		 * Whether a block template object is a database override (not theme file only).
+		 *
+		 * @param object|null $template Block template.
+		 * @return bool
+		 */
+		public static function template_part_prior_existed( $template ) {
+			if ( ! is_object( $template ) ) {
+				return false;
+			}
+			if ( ! empty( $template->wp_id ) ) {
+				return true;
+			}
+			$source = isset( $template->source ) ? (string) $template->source : '';
+			return 'custom' === $source || 'plugin' === $source;
+		}
+
+		/**
+		 * Execute update-template-part (block themes only).
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_update_template_part( $input = array() ) {
+			$input   = is_array( $input ) ? $input : array();
+			$dry_run = ! empty( $input['dry_run'] );
+
+			if ( ! current_user_can( 'edit_theme_options' ) ) {
+				return new WP_Error(
+					'ahentic_template_part_forbidden',
+					__( 'You need edit_theme_options to update template parts.', 'ahentic' )
+				);
+			}
+
+			$theme    = wp_get_theme();
+			$is_block = class_exists( 'Ahentic_Abilities_Site' )
+				? Ahentic_Abilities_Site::theme_is_block_theme( $theme )
+				: ( method_exists( $theme, 'is_block_theme' ) && $theme->is_block_theme() );
+
+			if ( ! $is_block ) {
+				return new WP_Error(
+					'ahentic_not_block_theme',
+					__( 'ahentic/update-template-part only applies to block themes.', 'ahentic' ),
+					array(
+						'hint'   => __( 'Call ahentic/get-settings-context first to confirm surfaces.', 'ahentic' ),
+						'status' => 400,
+					)
+				);
+			}
+
+			if ( ! function_exists( 'get_block_template' ) ) {
+				return new WP_Error(
+					'ahentic_template_part_unavailable',
+					__( 'Block template APIs are not available on this site.', 'ahentic' )
+				);
+			}
+
+			$parsed = self::parse_template_part_id( isset( $input['template_part_id'] ) ? $input['template_part_id'] : '' );
+			if ( empty( $parsed['ok'] ) ) {
+				return new WP_Error(
+					isset( $parsed['error'] ) ? $parsed['error'] : 'ahentic_invalid_template_part_id',
+					isset( $parsed['message'] ) ? $parsed['message'] : __( 'Invalid template_part_id.', 'ahentic' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$part_id    = $parsed['id'];
+			$stylesheet = $parsed['stylesheet'];
+			$slug       = $parsed['slug'];
+
+			if ( get_stylesheet() !== $stylesheet ) {
+				return new WP_Error(
+					'ahentic_template_part_theme_mismatch',
+					sprintf(
+						/* translators: 1: requested stylesheet, 2: active stylesheet */
+						__( 'template_part_id stylesheet “%1$s” does not match the active theme “%2$s”.', 'ahentic' ),
+						$stylesheet,
+						get_stylesheet()
+					),
+					array( 'status' => 400 )
+				);
+			}
+
+			$body = self::resolve_template_part_content_input( $input );
+			if ( empty( $body['ok'] ) ) {
+				return new WP_Error(
+					isset( $body['error'] ) ? $body['error'] : 'ahentic_missing_template_part_body',
+					isset( $body['message'] ) ? $body['message'] : __( 'Missing template part body.', 'ahentic' ),
+					array( 'status' => 400 )
+				);
+			}
+			$next_content = $body['content'];
+
+			$template = get_block_template( $part_id, 'wp_template_part' );
+			if ( ! $template ) {
+				return new WP_Error(
+					'ahentic_template_part_not_found',
+					sprintf(
+						/* translators: %s: template part id */
+						__( 'Template part “%s” was not found in the active theme.', 'ahentic' ),
+						$part_id
+					),
+					array( 'status' => 404 )
+				);
+			}
+
+			$prior_existed = self::template_part_prior_existed( $template );
+			$prior_post_id = ! empty( $template->wp_id ) ? (int) $template->wp_id : 0;
+			$prior_content = isset( $template->content ) ? (string) $template->content : '';
+			$prior_title   = isset( $template->title ) ? (string) $template->title : '';
+
+			$editor_block = self::reject_server_template_part_while_editor_open( $part_id, $prior_post_id );
+			if ( is_wp_error( $editor_block ) ) {
+				return $editor_block;
+			}
+
+			$next_title = array_key_exists( 'title', $input ) ? trim( (string) $input['title'] ) : $prior_title;
+			if ( '' === $next_title ) {
+				$next_title = $slug;
+			}
+
+			$response = array(
+				'ok'               => true,
+				'dry_run'          => $dry_run,
+				'surface'          => 'template_parts',
+				'template_part_id' => $part_id,
+				'stylesheet'       => $stylesheet,
+				'slug'             => $slug,
+				'prior_existed'    => $prior_existed,
+				'prior'            => array(
+					'content' => $prior_content,
+					'title'   => $prior_title,
+					'post_id' => $prior_post_id,
+				),
+				'next'             => array(
+					'content' => $next_content,
+					'title'   => $next_title,
+				),
+			);
+
+			if ( $dry_run ) {
+				return $response;
+			}
+
+			$session_id = 0;
+			if ( class_exists( 'Ahentic_Orchestrator' ) && method_exists( 'Ahentic_Orchestrator', 'current_session_id' ) ) {
+				$session_id = (int) Ahentic_Orchestrator::current_session_id();
+			}
+
+			if ( $session_id && class_exists( 'Ahentic_Settings_Snapshots' ) ) {
+				$raw = array(
+					'ability'       => self::UPDATE_TEMPLATE_PART,
+					'target'        => array(
+						'template_part_id' => $part_id,
+						'post_id'          => $prior_post_id,
+						'stylesheet'       => $stylesheet,
+						'slug'             => $slug,
+					),
+					'prior_existed' => $prior_existed,
+				);
+				if ( $prior_existed ) {
+					$raw['prior_value'] = array(
+						'content' => $prior_content,
+						'title'   => $prior_title,
+					);
+				}
+				Ahentic_Settings_Snapshots::record( $session_id, $raw );
+			}
+
+			$persisted = self::persist_template_part(
+				$part_id,
+				$stylesheet,
+				$slug,
+				$next_content,
+				$next_title,
+				isset( $template->area ) ? (string) $template->area : '',
+				$prior_post_id
+			);
+			if ( is_wp_error( $persisted ) ) {
+				return $persisted;
+			}
+
+			$response['post_id']  = isset( $persisted['post_id'] ) ? (int) $persisted['post_id'] : 0;
+			$response['created']  = ! empty( $persisted['created'] );
+			$response['next']['post_id'] = $response['post_id'];
+			return $response;
+		}
+
+		/**
+		 * Execute update-option (registered Settings API keys + curated write allowlist).
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_update_option( $input = array() ) {
+			$input   = is_array( $input ) ? $input : array();
+			$dry_run = ! empty( $input['dry_run'] );
+			$key     = isset( $input['key'] ) ? trim( (string) $input['key'] ) : '';
+
+			if ( ! array_key_exists( 'value', $input ) ) {
+				return new WP_Error(
+					'ahentic_missing_option_value',
+					__( 'Provide a value for the option.', 'ahentic' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			if ( ! current_user_can( 'manage_options' ) ) {
+				return new WP_Error(
+					'ahentic_option_forbidden',
+					__( 'You need manage_options to update site options.', 'ahentic' )
+				);
+			}
+
+			$gate = self::resolve_option_writability( $key, self::registered_option_names() );
+			if ( empty( $gate['ok'] ) ) {
+				$code = isset( $gate['error'] ) ? (string) $gate['error'] : 'ahentic_option_not_writable';
+				$msg  = isset( $gate['message'] ) ? (string) $gate['message'] : __( 'Option cannot be updated.', 'ahentic' );
+				$data = array(
+					'status' => 400,
+					'key'    => $key,
+				);
+				if ( 'ahentic_option_not_registered' === $code ) {
+					$data['hint'] = __( 'Register the option with register_setting() (so a sanitize_callback runs), or use a vetted core key such as blogname / blogdescription / blog_public.', 'ahentic' );
+				} elseif ( 'ahentic_option_denied' === $code ) {
+					$data['hint'] = __( 'Change this option from wp-admin Settings screens only — Ahentic will not write it.', 'ahentic' );
+				}
+				return new WP_Error( $code, $msg, $data );
+			}
+
+			$sentinel      = new stdClass();
+			$prior_raw     = get_option( $key, $sentinel );
+			$prior_existed = ( $prior_raw !== $sentinel );
+			$prior         = $prior_existed ? $prior_raw : null;
+
+			$value     = $input['value'];
+			$sanitized = function_exists( 'sanitize_option' ) ? sanitize_option( $key, $value ) : $value;
+
+			$response = array(
+				'ok'            => true,
+				'dry_run'       => $dry_run,
+				'surface'       => 'option',
+				'key'           => $key,
+				'via'           => isset( $gate['via'] ) ? (string) $gate['via'] : '',
+				'prior'         => $prior,
+				'prior_existed' => $prior_existed,
+				'next'          => $sanitized,
+			);
+
+			if ( $dry_run ) {
+				return $response;
+			}
+
+			$session_id = 0;
+			if ( class_exists( 'Ahentic_Orchestrator' ) && method_exists( 'Ahentic_Orchestrator', 'current_session_id' ) ) {
+				$session_id = (int) Ahentic_Orchestrator::current_session_id();
+			}
+
+			if ( $session_id && class_exists( 'Ahentic_Settings_Snapshots' ) ) {
+				$raw = array(
+					'ability'       => self::UPDATE_OPTION,
+					'target'        => array(
+						'key' => $key,
+					),
+					'prior_existed' => $prior_existed,
+				);
+				if ( $prior_existed ) {
+					$raw['prior_value'] = array(
+						'value' => $prior,
+					);
+				}
+				Ahentic_Settings_Snapshots::record( $session_id, $raw );
+			}
+
+			// update_option re-runs sanitize_option — Settings API path for registered callbacks.
+			update_option( $key, $sanitized );
+
+			$live = get_option( $key, $sentinel );
+			if ( $live !== $sentinel ) {
+				$response['next'] = $live;
+			}
+
+			return $response;
+		}
+
+		/**
+		 * Create or update a wp_template_part DB row.
+		 *
+		 * @param string $part_id     theme//slug.
+		 * @param string $stylesheet  Theme stylesheet.
+		 * @param string $slug        Part slug.
+		 * @param string $content     Serialized blocks.
+		 * @param string $title       Title.
+		 * @param string $area        Template part area.
+		 * @param int    $prior_post_id Existing post id or 0.
+		 * @return array{post_id:int,created:bool}|\WP_Error
+		 */
+		public static function persist_template_part( $part_id, $stylesheet, $slug, $content, $title, $area, $prior_post_id ) {
+			unset( $part_id );
+			$prior_post_id = (int) $prior_post_id;
+			$created       = false;
+
+			if ( $prior_post_id > 0 ) {
+				$result = wp_update_post(
+					wp_slash(
+						array(
+							'ID'           => $prior_post_id,
+							'post_content' => $content,
+							'post_title'   => $title,
+						)
+					),
+					true
+				);
+				if ( is_wp_error( $result ) ) {
+					return $result;
+				}
+				if ( ! $result ) {
+					return new WP_Error( 'ahentic_template_part_update_failed', __( 'Failed to update the template part.', 'ahentic' ) );
+				}
+				$post_id = $prior_post_id;
+			} else {
+				$post_id = wp_insert_post(
+					wp_slash(
+						array(
+							'post_content' => $content,
+							'post_title'   => $title,
+							'post_status'  => 'publish',
+							'post_type'    => 'wp_template_part',
+							'post_name'    => $slug,
+						)
+					),
+					true
+				);
+				if ( is_wp_error( $post_id ) ) {
+					return $post_id;
+				}
+				if ( ! $post_id ) {
+					return new WP_Error( 'ahentic_template_part_create_failed', __( 'Failed to create the template part override.', 'ahentic' ) );
+				}
+				$created = true;
+
+				if ( taxonomy_exists( 'wp_theme' ) ) {
+					wp_set_object_terms( (int) $post_id, $stylesheet, 'wp_theme' );
+				}
+				if ( '' !== $area && taxonomy_exists( 'wp_template_part_area' ) ) {
+					wp_set_object_terms( (int) $post_id, $area, 'wp_template_part_area' );
+				}
+			}
+
+			return array(
+				'post_id' => (int) $post_id,
+				'created' => $created,
+			);
+		}
+
+		/**
+		 * Refuse server writes when the Site Editor has this template part open.
+		 *
+		 * @param string $part_id  theme//slug.
+		 * @param int    $post_id  DB post id when known.
+		 * @return true|\WP_Error
+		 */
+		private static function reject_server_template_part_while_editor_open( $part_id, $post_id = 0 ) {
+			if ( ! class_exists( 'Ahentic_Orchestrator' ) || ! class_exists( 'Ahentic_Session_Repository' ) ) {
+				return true;
+			}
+
+			$session_id = (int) Ahentic_Orchestrator::current_session_id();
+			if ( $session_id <= 0 ) {
+				return true;
+			}
+
+			$ctx = Ahentic_Session_Repository::get_page_context( $session_id );
+			if ( empty( $ctx ) || empty( $ctx['is_block_editor'] ) ) {
+				return true;
+			}
+
+			$open_type = isset( $ctx['post_type'] ) ? (string) $ctx['post_type'] : '';
+			$open_id   = isset( $ctx['post_id'] ) ? (int) $ctx['post_id'] : 0;
+			$open_part = isset( $ctx['template_part_id'] ) ? (string) $ctx['template_part_id'] : '';
+
+			$matches = false;
+			if ( 'wp_template_part' === $open_type ) {
+				if ( $open_part && $open_part === (string) $part_id ) {
+					$matches = true;
+				} elseif ( $post_id > 0 && $open_id === (int) $post_id ) {
+					$matches = true;
+				}
+			}
+
+			if ( ! $matches ) {
+				return true;
+			}
+
+			return new WP_Error(
+				'ahentic_use_browser_editor',
+				__( 'The Site Editor is open for this template part. Use ahentic-browser block tools (get-blocks, set-blocks, insert-blocks, replace-blocks, …) and save via ahentic-browser/save-post — do not ahentic/update-template-part while it is open.', 'ahentic' ),
+				array(
+					'template_part_id' => $part_id,
+					'post_id'          => $post_id,
+					'editor_post_id'   => $open_id,
+					'is_block_editor'  => true,
+					'hint'             => __( 'Edit the open canvas with ahentic-browser tools, then save only if the user asked to persist.', 'ahentic' ),
+				)
+			);
+		}
+
+		/**
 		 * Persist merged user-layer styles/settings via the global-styles REST controller.
 		 *
 		 * @param array $styles   Full styles object to write.
@@ -1758,7 +2537,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 		}
 
 		/**
-		 * Wire snapshot restore for theme setting + global styles writes.
+		 * Wire snapshot restore for theme setting, global styles, template part, and option writes.
 		 */
 		public static function boot_restore() {
 			if ( ! class_exists( 'Ahentic_Settings_Snapshots' ) ) {
@@ -1771,6 +2550,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 			Ahentic_Settings_Snapshots::register_restore(
 				self::UPDATE_GLOBAL_STYLES,
 				array( __CLASS__, 'restore_update_global_styles' )
+			);
+			Ahentic_Settings_Snapshots::register_restore(
+				self::UPDATE_TEMPLATE_PART,
+				array( __CLASS__, 'restore_update_template_part' )
+			);
+			Ahentic_Settings_Snapshots::register_restore(
+				self::UPDATE_OPTION,
+				array( __CLASS__, 'restore_update_option' )
 			);
 		}
 
@@ -1804,6 +2591,132 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 			$persisted = self::persist_user_global_styles( $styles, $settings );
 			if ( is_wp_error( $persisted ) ) {
 				return $persisted;
+			}
+			return true;
+		}
+
+		/**
+		 * Restore prior template part content (or delete override if none existed).
+		 *
+		 * @param array $entry Snapshot entry.
+		 * @return true|\WP_Error
+		 */
+		public static function restore_update_template_part( array $entry ) {
+			$target     = isset( $entry['target'] ) && is_array( $entry['target'] ) ? $entry['target'] : array();
+			$stylesheet = isset( $target['stylesheet'] ) ? (string) $target['stylesheet'] : get_stylesheet();
+			$slug       = isset( $target['slug'] ) ? (string) $target['slug'] : '';
+			$part_id    = isset( $target['template_part_id'] ) ? (string) $target['template_part_id'] : '';
+			$post_id    = isset( $target['post_id'] ) ? (int) $target['post_id'] : 0;
+
+			if ( $stylesheet && function_exists( 'get_stylesheet' ) && get_stylesheet() !== $stylesheet ) {
+				return new WP_Error(
+					'ahentic_undo_template_part_theme_mismatch',
+					__( 'Cannot undo template part: snapshot is for a different stylesheet than the active theme.', 'ahentic' )
+				);
+			}
+
+			if ( '' === $part_id && $stylesheet && $slug ) {
+				$part_id = $stylesheet . '//' . $slug;
+			}
+
+			if ( empty( $entry['prior_existed'] ) ) {
+				return self::delete_template_part_override( $part_id, $post_id, $stylesheet, $slug );
+			}
+
+			$prior_pack = array_key_exists( 'prior_value', $entry ) && is_array( $entry['prior_value'] )
+				? $entry['prior_value']
+				: array();
+			$content = isset( $prior_pack['content'] ) ? (string) $prior_pack['content'] : '';
+			$title   = isset( $prior_pack['title'] ) ? (string) $prior_pack['title'] : $slug;
+
+			if ( $post_id <= 0 && $part_id && function_exists( 'get_block_template' ) ) {
+				$template = get_block_template( $part_id, 'wp_template_part' );
+				if ( $template && ! empty( $template->wp_id ) ) {
+					$post_id = (int) $template->wp_id;
+				}
+			}
+
+			if ( $post_id <= 0 ) {
+				return new WP_Error(
+					'ahentic_undo_template_part_missing',
+					__( 'Cannot undo template part: prior override post was not found.', 'ahentic' )
+				);
+			}
+
+			$result = wp_update_post(
+				wp_slash(
+					array(
+						'ID'           => $post_id,
+						'post_content' => $content,
+						'post_title'   => $title,
+					)
+				),
+				true
+			);
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+			if ( ! $result ) {
+				return new WP_Error(
+					'ahentic_undo_template_part_failed',
+					__( 'Could not restore the template part on undo.', 'ahentic' )
+				);
+			}
+			return true;
+		}
+
+		/**
+		 * Delete a first-write template part override.
+		 *
+		 * @param string $part_id       theme//slug.
+		 * @param int    $prior_post_id Prior post id from snapshot (0 when created).
+		 * @param string $stylesheet    Stylesheet.
+		 * @param string $slug          Slug.
+		 * @return true|\WP_Error
+		 */
+		public static function delete_template_part_override( $part_id, $prior_post_id = 0, $stylesheet = '', $slug = '' ) {
+			$post_id = 0;
+			if ( $part_id && function_exists( 'get_block_template' ) ) {
+				$template = get_block_template( (string) $part_id, 'wp_template_part' );
+				if ( $template && ! empty( $template->wp_id ) ) {
+					$post_id = (int) $template->wp_id;
+				}
+			}
+
+			if ( $post_id <= 0 && $stylesheet && $slug ) {
+				$query = new WP_Query(
+					array(
+						'post_type'      => 'wp_template_part',
+						'post_status'    => 'any',
+						'name'           => $slug,
+						'posts_per_page' => 1,
+						'no_found_rows'  => true,
+						'tax_query'      => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+							array(
+								'taxonomy' => 'wp_theme',
+								'field'    => 'name',
+								'terms'    => $stylesheet,
+							),
+						),
+					)
+				);
+				if ( ! empty( $query->posts[0] ) && $query->posts[0] instanceof WP_Post ) {
+					$post_id = (int) $query->posts[0]->ID;
+				}
+			}
+
+			unset( $prior_post_id );
+
+			if ( $post_id <= 0 ) {
+				return true;
+			}
+
+			$deleted = wp_delete_post( $post_id, true );
+			if ( ! $deleted ) {
+				return new WP_Error(
+					'ahentic_undo_template_part_delete_failed',
+					__( 'Could not delete the template part override on undo.', 'ahentic' )
+				);
 			}
 			return true;
 		}
@@ -1892,6 +2805,45 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
+			return true;
+		}
+
+		/**
+		 * Restore a prior option value (or delete the option if none existed).
+		 *
+		 * @param array $entry Snapshot entry.
+		 * @return true|\WP_Error
+		 */
+		public static function restore_update_option( array $entry ) {
+			$target = isset( $entry['target'] ) ? $entry['target'] : null;
+			$key    = '';
+			if ( is_array( $target ) ) {
+				$key = isset( $target['key'] ) ? (string) $target['key'] : '';
+			} elseif ( is_string( $target ) || is_numeric( $target ) ) {
+				$key = (string) $target;
+			}
+
+			if ( '' === $key ) {
+				return new WP_Error(
+					'ahentic_undo_option_missing_target',
+					__( 'Cannot undo option: missing option key.', 'ahentic' )
+				);
+			}
+
+			if ( empty( $entry['prior_existed'] ) ) {
+				delete_option( $key );
+				return true;
+			}
+
+			$prior_pack = array_key_exists( 'prior_value', $entry ) ? $entry['prior_value'] : null;
+			$value      = null;
+			if ( is_array( $prior_pack ) && array_key_exists( 'value', $prior_pack ) ) {
+				$value = $prior_pack['value'];
+			} else {
+				$value = $prior_pack;
+			}
+
+			update_option( $key, $value );
 			return true;
 		}
 

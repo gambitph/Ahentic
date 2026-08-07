@@ -136,7 +136,8 @@ Remove blocks with `delete-blocks` (refs or selection). Reorder/reparent with `m
 | Block editor open for this document | `ahentic-browser/*` (live canvas) |
 | Title / excerpt / slug while editor open | `ahentic-browser/update-post-document` (not server `update-post`) |
 | Featured image while editor open for that post | `ahentic-browser/set-featured-image` (not server `set_post_thumbnail` — panel stays live) |
-| Editor not open | `ahentic/create-post`, `update-post`, `set-post-status`, server `ahentic/set-featured-image` |
+| Categories/tags while editor open | `ahentic-browser/set-post-terms` (term IDs; panel stays live); taxonomy-only `ahentic/update-post` also allowed |
+| Editor not open | `ahentic/create-post`, `update-post`, `set-post-status`, server `ahentic/set-featured-image`, term CRUD + post tax fields |
 | Need logged-in HTML of wp-admin | `http-fetch` + `as_user: true` |
 | Public URL | `http-fetch` without `as_user` |
 

@@ -35,6 +35,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		const UPDATE_POST_TITLE         = 'ahentic-browser/update-post-title';
 		const UPDATE_POST_DOCUMENT      = 'ahentic-browser/update-post-document';
 		const SET_FEATURED_IMAGE        = 'ahentic-browser/set-featured-image';
+		const SET_POST_TERMS            = 'ahentic-browser/set-post-terms';
 		const SAVE_POST                 = 'ahentic-browser/save-post';
 
 		/**
@@ -147,6 +148,11 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 					'write'    => true,
 					'progress' => __( 'Updating the featured image…', 'ahentic' ),
 					'summary'  => __( 'Set the editor featured image', 'ahentic' ),
+				),
+				self::SET_POST_TERMS            => array(
+					'write'    => true,
+					'progress' => __( 'Updating post terms…', 'ahentic' ),
+					'summary'  => __( 'Set the editor post terms', 'ahentic' ),
 				),
 				self::SAVE_POST                 => array(
 					'write'        => true,
@@ -710,6 +716,32 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 								'description' => __( 'Media Library attachment ID to set as featured image, or 0 to clear.', 'ahentic' ),
 							),
 							'post_id'       => array(
+								'type'        => 'integer',
+								'description' => __( 'Optional. When set, must match the post open in the editor or the ability fails.', 'ahentic' ),
+							),
+						),
+					),
+				),
+				array(
+					'name'        => self::SET_POST_TERMS,
+					'label'       => __( 'Set post terms', 'ahentic' ),
+					'description' => __( 'Sets categories, tags, and/or custom taxonomy terms on the post open in the block editor via the editor store (replace-per-taxonomy). Does not save — leave the document dirty. Prefer this while the editor is open so the document panel stays in sync; use ahentic/update-post tax fields when the editor is closed (taxonomy-only server update-post is also allowed while the editor is open). Pass term IDs (from list-terms/get-term/create-term). Omit a key to leave that taxonomy unchanged; pass [] to clear. Runs in the browser.', 'ahentic' ),
+					'meta'        => $mutate_meta,
+					'input'       => array(
+						'type'       => 'object',
+						'properties' => array(
+							'categories' => array(
+								'description' => __( 'Full set of category term IDs (replace). Omit to leave unchanged; [] clears.', 'ahentic' ),
+							),
+							'tags'       => array(
+								'description' => __( 'Full set of tag term IDs (replace). Omit to leave unchanged; [] clears.', 'ahentic' ),
+							),
+							'tax_input'  => array(
+								'type'                 => 'object',
+								'description'          => __( 'Map of taxonomy slug (or REST base) → full list of term IDs. Overrides categories/tags for the same taxonomy when both are set.', 'ahentic' ),
+								'additionalProperties' => true,
+							),
+							'post_id'    => array(
 								'type'        => 'integer',
 								'description' => __( 'Optional. When set, must match the post open in the editor or the ability fails.', 'ahentic' ),
 							),

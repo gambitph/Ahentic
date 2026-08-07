@@ -2,7 +2,7 @@
 
 Abilities that run entirely in PHP when the Tool runner reaches server execute (`Ahentic_Abilities::execute`). No browser pause unless the ability opts into browser runtime for a specific input (today: `ahentic/http-fetch` with `as_user`).
 
-**Code:** `class-abilities-*.php` (content, plugins, site, settings, media, taxonomy), snapshot in `class-abilities-snapshot.php`, artifacts + settings snapshots / undo in `src/session/`
+**Code:** `class-abilities-*.php` (content, plugins, site, settings, media, taxonomy, users), snapshot in `class-abilities-snapshot.php`, artifacts + settings snapshots / undo in `src/session/`
 
 **Related:** [Abilities overview](./abilities.md) · [Client abilities](./client-abilities.md) · [Orchestrator](../orchestrator/orchestrator.md) · [Orchestrator CONTRACT](../orchestrator/CONTRACT.md)
 
@@ -150,11 +150,13 @@ Stage with `ahentic/stage-artifact`, then `create-post` / `update-post` with `fr
 | Category | Examples |
 | --- | --- |
 | `ahentic-site` | Snapshot, health, options, http-fetch, admin context, debug log |
-| `ahentic-settings` | get-settings-context, list-settings, get-setting, update-theme-setting, update-global-styles |
+| `ahentic-settings` | get-settings-context, list-settings, get-setting, update-theme-setting, update-global-styles, update-template-part, update-option |
 | `ahentic-content` | list/get/search/create/update/set-status |
 | `ahentic-plugins` | list/search/install/activate/deactivate/uninstall |
-| `ahentic-media` | unused media scan, … |
-| `ahentic-taxonomy` | update term, … |
+| `ahentic-media` | list-media, get-media, unused scan, describe/generate/upload, update/delete/replace, set-featured-image |
+| `ahentic-taxonomy` | list/get/create/update/delete term; post term helpers for create-post/update-post |
+| `ahentic-users` | list-users; create/update/delete user (non-preallowable HITL; role ceiling; delete requires reassign_to) |
+| `ahentic-menus` | list-menus, list-menu-items, get-menu, update-menu (classic nav; not wp_navigation) |
 | `ahentic-session` | stage/list/delete artifacts |
 
 ---

@@ -20,6 +20,7 @@ function peekEditorContext() {
 		is_dirty: false,
 		is_new: false,
 		blocks_count: 0,
+		template_part_id: '',
 	}
 
 	const wp = typeof window !== 'undefined' ? window.wp : null
@@ -48,6 +49,19 @@ function peekEditorContext() {
 			return empty
 		}
 
+		let templatePartId = ''
+		if ( postType === 'wp_template_part' ) {
+			if ( typeof postId === 'string' && postId.includes( '//' ) ) {
+				templatePartId = postId
+			} else {
+				const slug = editor.getEditedPostAttribute?.( 'slug' ) || ''
+				const theme = editor.getEditedPostAttribute?.( 'theme' ) || ''
+				if ( theme && slug ) {
+					templatePartId = `${ theme }//${ slug }`
+				}
+			}
+		}
+
 		return {
 			is_block_editor: true,
 			post_id: postId === undefined || postId === null ? null : postId,
@@ -57,6 +71,7 @@ function peekEditorContext() {
 			is_dirty: Boolean( editor.isEditedPostDirty?.() ),
 			is_new: Boolean( editor.isEditedPostNew?.() ),
 			blocks_count: ( blockEditor.getBlocks?.() || [] ).length,
+			template_part_id: templatePartId,
 		}
 	} catch ( error ) {
 		return empty

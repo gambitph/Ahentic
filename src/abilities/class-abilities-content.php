@@ -468,7 +468,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::CREATE,
 				array(
 					'label'               => __( 'Create post', 'ahentic' ),
-					'description'         => __( 'Creates a new post/page/CPT as a draft (default). Only use when the block editor is NOT open — if the user is already editing a post/page in Gutenberg, edit that document with ahentic-browser/update-post-document + set-blocks/insert-blocks/replace-blocks/delete-blocks instead. Pass a real title (the document H1) and real post content without a duplicate level-1 heading (playbook post-title-headings). Pass real post content (not bracket stubs like [full article]), or from_memory with a staged artifact key. For publish/schedule use ahentic/set-post-status after creation. Requires human approval in Ahentic.', 'ahentic' ),
+					'description'         => __( 'Creates a new post/page/CPT as a draft (default). Only use when the block editor is NOT open — if the user is already editing a post/page in Gutenberg, edit that document with ahentic-browser/update-post-document + set-blocks/insert-blocks/replace-blocks/delete-blocks instead. Pass a real title (the document H1) and real post content without a duplicate level-1 heading (playbook post-title-headings). Pass real post content (not bracket stubs like [full article]), or from_memory with a staged artifact key. Optional categories/tags/tax_input assign terms (replace-per-taxonomy; omit a key to leave that taxonomy empty on create). Missing term names/slugs error — create-term first. For publish/schedule use ahentic/set-post-status after creation. Requires human approval in Ahentic.', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -501,6 +501,17 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 								'type'                 => 'object',
 								'additionalProperties' => true,
 							),
+							'categories'   => array(
+								'description' => __( 'Full set of category term ids and/or slugs/names (replace). Omit to leave categories unset.', 'ahentic' ),
+							),
+							'tags'         => array(
+								'description' => __( 'Full set of tag term ids and/or slugs/names (replace). Omit to leave tags unset.', 'ahentic' ),
+							),
+							'tax_input'    => array(
+								'type'                 => 'object',
+								'description'          => __( 'Map of taxonomy slug → full list of term ids/slugs/names (replace-per-taxonomy). Overrides categories/tags for the same taxonomy when both are set.', 'ahentic' ),
+								'additionalProperties' => true,
+							),
 						),
 					),
 					'output_schema'       => array( 'type' => 'object' ),
@@ -514,7 +525,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::UPDATE,
 				array(
 					'label'               => __( 'Update post', 'ahentic' ),
-					'description'         => __( 'Updates an existing post or page: content, title, excerpt, slug, and post meta (exact keys from get-content; WooCommerce _price/_regular_price allowed). Content may use from_memory for a staged artifact. Does not change publish status. When the block editor is open for this post, use ahentic-browser/set-blocks/insert/replace/delete and ahentic-browser/update-post-document instead — server updates for those fields are refused. Requires human approval in Ahentic.', 'ahentic' ),
+					'description'         => __( 'Updates an existing post or page: content, title, excerpt, slug, post meta, and/or taxonomy assignment (categories/tags/tax_input). Content may use from_memory for a staged artifact. Does not change publish status. Taxonomy keys use replace-per-taxonomy: if a key is present it becomes the full set; omit a key to leave that taxonomy unchanged. Missing term refs error — create-term first. When the block editor is open for this post, body/title/excerpt/slug must use ahentic-browser tools; taxonomy-only updates are allowed on the server, or use ahentic-browser/set-post-terms to keep the document panel in sync. Requires human approval in Ahentic.', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -547,6 +558,17 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 							'meta'         => array(
 								'type'                 => 'object',
 								'description'          => __( 'Post meta key/value pairs to set (exact keys from get-content). Underscore keys like WooCommerce _price are allowed; sensitive/system keys are blocked.', 'ahentic' ),
+								'additionalProperties' => true,
+							),
+							'categories'   => array(
+								'description' => __( 'Full set of category term ids and/or slugs/names (replace). Omit to leave categories unchanged.', 'ahentic' ),
+							),
+							'tags'         => array(
+								'description' => __( 'Full set of tag term ids and/or slugs/names (replace). Omit to leave tags unchanged.', 'ahentic' ),
+							),
+							'tax_input'    => array(
+								'type'                 => 'object',
+								'description'          => __( 'Map of taxonomy slug → full list of term ids/slugs/names (replace-per-taxonomy). Overrides categories/tags for the same taxonomy when both are set.', 'ahentic' ),
 								'additionalProperties' => true,
 							),
 						),
@@ -1208,6 +1230,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				$payload['meta'] = self::get_safe_meta( $post->ID, $keys );
 			}
 
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) ) {
+				$payload['terms'] = Ahentic_Abilities_Taxonomy::summarize_post_terms( (int) $post->ID );
+			}
+
 			return $payload;
 		}
 
@@ -1432,6 +1458,16 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				}
 			}
 
+			$terms_applied = array();
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' )
+				&& Ahentic_Abilities_Taxonomy::input_has_term_assignment( $input ) ) {
+				$term_result = Ahentic_Abilities_Taxonomy::apply_post_terms( (int) $post_id, $input );
+				if ( is_wp_error( $term_result ) ) {
+					return $term_result;
+				}
+				$terms_applied = isset( $term_result['applied'] ) ? $term_result['applied'] : array();
+			}
+
 			$fresh = get_post( (int) $post_id );
 			if ( ! $fresh instanceof WP_Post ) {
 				return new WP_Error( 'ahentic_post_reload_failed', __( 'Post created but could not be reloaded.', 'ahentic' ) );
@@ -1441,6 +1477,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			$content_raw     = (string) $fresh->post_content;
 			$content_chars   = strlen( $content_raw );
 			$content_preview = self::substr( wp_strip_all_tags( $content_raw ), 0, 160 );
+			$terms           = class_exists( 'Ahentic_Abilities_Taxonomy' )
+				? Ahentic_Abilities_Taxonomy::summarize_post_terms( (int) $fresh->ID )
+				: array();
 			return array(
 				'ok'               => true,
 				'id'               => (int) $fresh->ID,
@@ -1448,6 +1487,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				'post_type'        => $fresh->post_type,
 				'meta_updated'     => $meta_updated,
 				'meta_skipped'     => $meta_skipped,
+				'terms_applied'    => $terms_applied,
+				'terms'            => $terms,
 				'post'             => $summary,
 				'content_chars'    => $content_chars,
 				'content_preview'  => $content_preview,
@@ -1710,13 +1751,19 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				return $meta_plan;
 			}
 
-			if ( count( $args ) <= 1 && empty( $meta_plan['set'] ) ) {
+			$has_terms = class_exists( 'Ahentic_Abilities_Taxonomy' )
+				&& Ahentic_Abilities_Taxonomy::input_has_term_assignment( $input );
+
+			if ( count( $args ) <= 1 && empty( $meta_plan['set'] ) && ! $has_terms ) {
 				return self::nothing_to_update_error( $input, $meta_plan, (int) $post->ID );
 			}
 
 			$before = self::summarize_post( $post, true );
 			$before['content_chars'] = strlen( (string) $post->post_content );
 			$before['excerpt']       = (string) $post->post_excerpt;
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) ) {
+				$before['terms'] = Ahentic_Abilities_Taxonomy::summarize_post_terms( (int) $post->ID );
+			}
 
 			if ( count( $args ) > 1 ) {
 				$result = wp_update_post( wp_slash( $args ), true );
@@ -1743,6 +1790,18 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				$meta_updated[] = $key;
 			}
 
+			$terms_applied = array();
+			if ( $has_terms ) {
+				$term_result = Ahentic_Abilities_Taxonomy::apply_post_terms( (int) $post->ID, $input );
+				if ( is_wp_error( $term_result ) ) {
+					return $term_result;
+				}
+				$terms_applied = isset( $term_result['applied'] ) ? $term_result['applied'] : array();
+				if ( ! empty( $terms_applied ) ) {
+					$changed_fields[] = 'terms';
+				}
+			}
+
 			$fresh = get_post( $post->ID );
 			if ( ! $fresh instanceof WP_Post ) {
 				return new WP_Error( 'ahentic_post_reload_failed', __( 'Post updated but could not be reloaded.', 'ahentic' ) );
@@ -1761,6 +1820,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			}
 			$after['content_preview']   = $content_preview;
 			$after['content_truncated'] = $truncated;
+			if ( class_exists( 'Ahentic_Abilities_Taxonomy' ) ) {
+				$after['terms'] = Ahentic_Abilities_Taxonomy::summarize_post_terms( (int) $fresh->ID );
+			}
 
 			return array(
 				'ok'             => true,
@@ -1768,6 +1830,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				'changed_fields' => $changed_fields,
 				'meta_updated'   => $meta_updated,
 				'meta_skipped'   => $meta_skipped,
+				'terms_applied'  => $terms_applied,
 				'before'         => $before,
 				'post'           => $after,
 				'edit_url'       => isset( $after['edit_url'] ) ? $after['edit_url'] : '',
@@ -1784,7 +1847,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return \WP_Error
 		 */
 		private static function nothing_to_update_error( array $input, array $meta_plan, $post_id ) {
-			$recognized = array( 'id', 'content', 'title', 'excerpt', 'slug', 'meta' );
+			$recognized = array( 'id', 'content', 'title', 'excerpt', 'slug', 'meta', 'categories', 'tags', 'tax_input' );
 			$ignored    = array();
 			foreach ( array_keys( $input ) as $key ) {
 				$key = (string) $key;
@@ -1817,7 +1880,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				);
 				$code = 'ahentic_nothing_to_update';
 			} else {
-				$message = __( 'Provide at least one of: content, title, excerpt, slug, or meta (with exact keys from get-content).', 'ahentic' );
+				$message = __( 'Provide at least one of: content, title, excerpt, slug, meta, categories, tags, or tax_input.', 'ahentic' );
 				$code    = 'ahentic_nothing_to_update';
 			}
 
@@ -1826,10 +1889,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				$message,
 				array(
 					'status'            => 400,
-					'recognized_fields' => array( 'content', 'title', 'excerpt', 'slug', 'meta' ),
+					'recognized_fields' => array( 'content', 'title', 'excerpt', 'slug', 'meta', 'categories', 'tags', 'tax_input' ),
 					'ignored_keys'      => $ignored,
 					'meta_skipped'      => $skipped,
-					'hint'              => __( 'Call ahentic/get-content with this post id and include_meta=true, copy the exact meta key names from the result, then retry update-post with {"id":…,"meta":{"exact_key":"…"}}.', 'ahentic' ),
+					'hint'              => __( 'Call ahentic/get-content with this post id and include_meta=true, copy the exact meta key names from the result, then retry update-post with {"id":…,"meta":{"exact_key":"…"}}. For categories/tags use those keys or tax_input; create missing terms with ahentic/create-term first.', 'ahentic' ),
 					'next_tool'         => array(
 						'name'  => self::GET,
 						'input' => array(
@@ -2221,17 +2284,17 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					'ahentic'
 				)
 				: __(
-					'Use ahentic-browser/update-post-document for title, excerpt, or slug while this post is open in the block editor (keeps the document dirty until save-post).',
+					'Use ahentic-browser/update-post-document for title, excerpt, or slug while this post is open in the block editor (keeps the document dirty until save-post). For categories/tags only, ahentic/update-post or ahentic-browser/set-post-terms is allowed.',
 					'ahentic'
 				);
 
 			$message = ( 'content' === $field )
 				? __(
-					'The block editor is open for this document. Use ahentic-browser/set-blocks, insert-blocks, replace-blocks, delete-blocks, or update-block-attributes so edits appear live — do not ahentic/update-post for the body while the editor is open.',
+					'The block editor is open for this document. Use ahentic-browser/set-blocks, insert-blocks, replace-blocks, delete-blocks, or update-block-attributes so edits appear live — do not ahentic/update-post for the body while the editor is open. Taxonomy-only updates may use ahentic/update-post or ahentic-browser/set-post-terms.',
 					'ahentic'
 				)
 				: __(
-					'The block editor is open for this document. Use ahentic-browser/update-post-document for title, excerpt, or slug — do not ahentic/update-post for those fields while the editor is open.',
+					'The block editor is open for this document. Use ahentic-browser/update-post-document for title, excerpt, or slug — do not ahentic/update-post for those fields while the editor is open. For categories/tags use ahentic-browser/set-post-terms or taxonomy-only ahentic/update-post.',
 					'ahentic'
 				);
 

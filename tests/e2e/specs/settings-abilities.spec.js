@@ -1,6 +1,7 @@
 /**
  * Track C — settings discovery (Task 07) + update-theme-setting (Task 08)
- * + update-global-styles (Task 09).
+ * + update-global-styles (Task 09) + update-template-part (Task 10)
+ * + update-option (Task 11).
  */
 /* eslint-disable camelcase -- Ability / REST I/O matches PHP schema snake_case. */
 const { test, expect } = require( '@wordpress/e2e-test-utils-playwright' )
@@ -272,5 +273,174 @@ test.describe( 'ahentic/update-global-styles', () => {
 		)
 		expect( undo.ok, JSON.stringify( undo ) ).toBe( true )
 		expect( undo.data.undone ).toBe( 1 )
+	} )
+} )
+
+test.describe( 'ahentic/update-template-part', () => {
+	test( 'refuses classic themes; dry-run + first-override undo deletes on block themes', async ( {
+		requestUtils,
+	} ) => {
+		const context = await runAbility( requestUtils, 'ahentic/get-settings-context' )
+		expect( context.ok ).toBe( true )
+
+		if ( ! context.data.is_block_theme ) {
+			const refused = await runAbility( requestUtils, 'ahentic/update-template-part', {
+				template_part_id: 'classic//header',
+				content: '<!-- wp:paragraph --><p>x</p><!-- /wp:paragraph -->',
+			} )
+			expect( refused.ok ).toBe( false )
+			expect( refused.error ).toBe( 'ahentic_not_block_theme' )
+			return
+		}
+
+		const stylesheet = context.data.stylesheet
+		const partId = `${ stylesheet }//header`
+		const marker = `<!-- wp:paragraph --><p>Ahentic template part ${ Date.now() }</p><!-- /wp:paragraph -->`
+
+		const preview = await runAbility( requestUtils, 'ahentic/update-template-part', {
+			template_part_id: partId,
+			content: marker,
+			dry_run: true,
+		} )
+		expect( preview.ok, JSON.stringify( preview ) ).toBe( true )
+		expect( preview.data.dry_run ).toBe( true )
+		expect( preview.data.template_part_id ).toBe( partId )
+		expect( typeof preview.data.prior_existed ).toBe( 'boolean' )
+
+		const session = await createSession( requestUtils )
+		const sessionId = session.id || session.ID
+
+		const written = await runAbility(
+			requestUtils,
+			'ahentic/update-template-part',
+			{
+				template_part_id: partId,
+				content: marker,
+			},
+			{ sessionId }
+		)
+		expect( written.ok, JSON.stringify( written ) ).toBe( true )
+		expect( written.data.dry_run ).toBe( false )
+		expect( written.data.post_id ).toBeGreaterThan( 0 )
+		expect( written.data.next.content ).toContain( 'Ahentic template part' )
+
+		const wasFirstOverride = written.data.prior_existed === false
+
+		const undo = await runAbility(
+			requestUtils,
+			'ahentic/undo-last-actions',
+			{ count: 1 },
+			{ sessionId }
+		)
+		expect( undo.ok, JSON.stringify( undo ) ).toBe( true )
+		expect( undo.data.undone ).toBe( 1 )
+
+		if ( wasFirstOverride ) {
+			const after = await runAbility( requestUtils, 'ahentic/update-template-part', {
+				template_part_id: partId,
+				content: marker,
+				dry_run: true,
+			} )
+			expect( after.ok, JSON.stringify( after ) ).toBe( true )
+			expect( after.data.prior_existed ).toBe( false )
+		}
+	} )
+
+	test( 'HITL summary names theme-update decoupling', async ( { requestUtils } ) => {
+		const result = await runAbility( requestUtils, 'ahentic/update-template-part', {
+			template_part_id: 'theme//header',
+			content: 'x',
+			dry_run: true,
+		} )
+		// Classic may refuse; block may succeed dry_run or 404 if no header.
+		// Policy is covered in PHPUnit; here we only ensure the ability is registered.
+		expect( result.error === 'ahentic_ability_unknown' ).toBe( false )
+	} )
+} )
+
+test.describe( 'ahentic/update-option', () => {
+	test( 'refuses hard-denylist keys under any input', async ( { requestUtils } ) => {
+		for ( const key of [
+			'siteurl',
+			'home',
+			'default_role',
+			'users_can_register',
+			'admin_email',
+		] ) {
+			const result = await runAbility( requestUtils, 'ahentic/update-option', {
+				key,
+				value: 'should-never-write',
+			} )
+			expect( result.ok, key + ' ' + JSON.stringify( result ) ).toBe( false )
+			expect( result.error ).toBe( 'ahentic_option_denied' )
+		}
+	} )
+
+	test( 'refuses unregistered unschematized options', async ( { requestUtils } ) => {
+		const result = await runAbility( requestUtils, 'ahentic/update-option', {
+			key: 'ahentic_invented_raw_option_xyz',
+			value: 'nope',
+		} )
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'ahentic_option_not_registered' )
+		expect( String( result.message || '' ).toLowerCase() ).toMatch( /not registered|cannot validate/ )
+	} )
+
+	test( 'dry_run / write+undo for blogname', async ( { requestUtils } ) => {
+		const priorRead = await runAbility( requestUtils, 'ahentic/get-option', {
+			key: 'blogname',
+		} )
+		expect( priorRead.ok, JSON.stringify( priorRead ) ).toBe( true )
+		const prior = priorRead.data.value
+		const nextTitle = `Ahentic Option E2E ${ Date.now() }`
+
+		const dry = await runAbility( requestUtils, 'ahentic/update-option', {
+			key: 'blogname',
+			value: nextTitle,
+			dry_run: true,
+		} )
+		expect( dry.ok, JSON.stringify( dry ) ).toBe( true )
+		expect( dry.data.dry_run ).toBe( true )
+		expect( dry.data.key ).toBe( 'blogname' )
+		expect( dry.data.prior ).toBe( prior )
+		expect( dry.data.next ).toBe( nextTitle )
+
+		const afterDry = await runAbility( requestUtils, 'ahentic/get-option', {
+			key: 'blogname',
+		} )
+		expect( afterDry.ok ).toBe( true )
+		expect( afterDry.data.value ).toBe( prior )
+
+		const session = await createSession( requestUtils )
+		const sessionId = session.id || session.ID
+
+		const written = await runAbility(
+			requestUtils,
+			'ahentic/update-option',
+			{ key: 'blogname', value: nextTitle },
+			{ sessionId }
+		)
+		expect( written.ok, JSON.stringify( written ) ).toBe( true )
+		expect( written.data.dry_run ).toBe( false )
+		expect( written.data.next ).toBe( nextTitle )
+
+		const live = await runAbility( requestUtils, 'ahentic/get-option', {
+			key: 'blogname',
+		} )
+		expect( live.data.value ).toBe( nextTitle )
+
+		const undo = await runAbility(
+			requestUtils,
+			'ahentic/undo-last-actions',
+			{ count: 1 },
+			{ sessionId }
+		)
+		expect( undo.ok, JSON.stringify( undo ) ).toBe( true )
+		expect( undo.data.undone ).toBe( 1 )
+
+		const restored = await runAbility( requestUtils, 'ahentic/get-option', {
+			key: 'blogname',
+		} )
+		expect( restored.data.value ).toBe( prior )
 	} )
 } )

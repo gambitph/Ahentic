@@ -263,4 +263,153 @@ test.describe( 'ahentic-browser surgery + document fields (PHP stubs)', () => {
 		expect( result.ok ).toBe( false )
 		expect( result.error ).toBe( 'ahentic_browser_runtime' )
 	} )
+
+	test( 'set-post-terms refuses server execute', async ( { requestUtils } ) => {
+		const result = await runAbility( requestUtils, 'ahentic-browser/set-post-terms', {
+			categories: [ 1 ],
+		} )
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'ahentic_browser_runtime' )
+	} )
+} )
+
+test.describe( 'taxonomy CRUD + post term assignment', () => {
+	test( 'list/get/create/update terms and assign on posts', async ( { requestUtils } ) => {
+		const suffix = Date.now()
+		const name = `Ahentic Cat ${ suffix }`
+
+		const created = await runAbility( requestUtils, 'ahentic/create-term', {
+			taxonomy: 'category',
+			name,
+			description: 'Task 09 create',
+		} )
+		expect( created.ok, JSON.stringify( created ) ).toBe( true )
+		const termId = created.data.term_id
+		expect( termId ).toBeGreaterThan( 0 )
+
+		const listed = await runAbility( requestUtils, 'ahentic/list-terms', {
+			taxonomy: 'category',
+			search: name,
+		} )
+		expect( listed.ok, JSON.stringify( listed ) ).toBe( true )
+		expect( listed.data.terms.some( ( t ) => t.term_id === termId ) ).toBe( true )
+
+		const got = await runAbility( requestUtils, 'ahentic/get-term', {
+			taxonomy: 'category',
+			term_id: termId,
+		} )
+		expect( got.ok, JSON.stringify( got ) ).toBe( true )
+		expect( got.data.term.name ).toBe( name )
+
+		const updated = await runAbility( requestUtils, 'ahentic/update-term', {
+			taxonomy: 'category',
+			term_id: termId,
+			description: 'Task 09 updated',
+		} )
+		expect( updated.ok, JSON.stringify( updated ) ).toBe( true )
+		expect( updated.data.term.description ).toBe( 'Task 09 updated' )
+
+		const seeded = await seed( requestUtils, {
+			posts: [
+				{
+					post_title: `Tax post ${ suffix }`,
+					post_status: 'draft',
+					post_type: 'post',
+					post_content: '<!-- wp:paragraph --><p>Hi</p><!-- /wp:paragraph -->',
+				},
+			],
+		} )
+		expect( seeded.ok ).toBe( true )
+		const postId = seeded.created.posts[ 0 ]
+
+		const assigned = await runAbility( requestUtils, 'ahentic/update-post', {
+			id: postId,
+			categories: [ termId ],
+		} )
+		expect( assigned.ok, JSON.stringify( assigned ) ).toBe( true )
+		expect( assigned.data.terms_applied.category ).toEqual( [ termId ] )
+
+		const content = await runAbility( requestUtils, 'ahentic/get-content', { id: postId } )
+		expect( content.ok, JSON.stringify( content ) ).toBe( true )
+		expect( content.data.terms.category.some( ( t ) => t.id === termId ) ).toBe( true )
+
+		const missing = await runAbility( requestUtils, 'ahentic/update-post', {
+			id: postId,
+			tags: [ `missing-tag-${ suffix }` ],
+		} )
+		expect( missing.ok ).toBe( false )
+		expect( missing.error ).toBe( 'ahentic_term_not_found' )
+
+		const inUse = await runAbility( requestUtils, 'ahentic/delete-term', {
+			taxonomy: 'category',
+			term_id: termId,
+		} )
+		expect( inUse.ok ).toBe( false )
+		expect( inUse.error ).toBe( 'ahentic_term_in_use' )
+
+		const cleared = await runAbility( requestUtils, 'ahentic/update-post', {
+			id: postId,
+			categories: [],
+		} )
+		expect( cleared.ok, JSON.stringify( cleared ) ).toBe( true )
+
+		const deleted = await runAbility( requestUtils, 'ahentic/delete-term', {
+			taxonomy: 'category',
+			term_id: termId,
+		} )
+		expect( deleted.ok, JSON.stringify( deleted ) ).toBe( true )
+	} )
+
+	test( 'taxonomy-only update-post allowed while editor is open for that post', async ( {
+		requestUtils,
+	} ) => {
+		const suffix = Date.now()
+		const created = await runAbility( requestUtils, 'ahentic/create-term', {
+			taxonomy: 'category',
+			name: `Editor Tax ${ suffix }`,
+		} )
+		expect( created.ok, JSON.stringify( created ) ).toBe( true )
+		const termId = created.data.term_id
+
+		const session = await createSession( requestUtils )
+		const sessionId = session.id || session.ID
+
+		const seeded = await seed( requestUtils, {
+			posts: [
+				{
+					post_title: `Editor tax post ${ suffix }`,
+					post_status: 'draft',
+					post_type: 'post',
+				},
+			],
+		} )
+		expect( seeded.ok ).toBe( true )
+		const postId = seeded.created.posts[ 0 ]
+
+		await seed( requestUtils, {
+			session_id: sessionId,
+			page_context: {
+				is_block_editor: true,
+				post_id: postId,
+				post_type: 'post',
+			},
+		} )
+
+		const taxOnly = await runAbility(
+			requestUtils,
+			'ahentic/update-post',
+			{ id: postId, categories: [ termId ] },
+			{ sessionId }
+		)
+		expect( taxOnly.ok, JSON.stringify( taxOnly ) ).toBe( true )
+
+		const bodyBlocked = await runAbility(
+			requestUtils,
+			'ahentic/update-post',
+			{ id: postId, title: 'Nope' },
+			{ sessionId }
+		)
+		expect( bodyBlocked.ok ).toBe( false )
+		expect( bodyBlocked.error ).toBe( 'ahentic_use_browser_editor' )
+	} )
 } )

@@ -77,9 +77,13 @@ class AbilityPolicyTest extends TestCase {
 	 */
 	public function test_site_and_media_track_b_readonly_flags() {
 		$this->assertContains( 'ahentic/list-themes', Ahentic_Abilities_Site::names() );
+		$this->assertContains( 'ahentic/list-media', Ahentic_Abilities_Media::names() );
+		$this->assertContains( 'ahentic/get-media', Ahentic_Abilities_Media::names() );
 		$this->assertContains( 'ahentic/describe-image', Ahentic_Abilities_Media::names() );
 		$this->assertContains( 'ahentic/generate-image', Ahentic_Abilities_Media::names() );
 		$this->assertContains( 'ahentic/upload-media', Ahentic_Abilities_Media::names() );
+		$this->assertTrue( Ahentic_Abilities_Media::is_readonly( 'ahentic/list-media' ) );
+		$this->assertTrue( Ahentic_Abilities_Media::is_readonly( 'ahentic/get-media' ) );
 		$this->assertTrue( Ahentic_Abilities_Media::is_readonly( 'ahentic/describe-image' ) );
 		$this->assertTrue( Ahentic_Abilities_Media::is_readonly( 'ahentic/generate-image' ) );
 		$this->assertFalse( Ahentic_Abilities_Media::is_readonly( 'ahentic/upload-media' ) );
@@ -89,7 +93,7 @@ class AbilityPolicyTest extends TestCase {
 	}
 
 	/**
-	 * Track C settings discovery is readonly (no HITL); theme/global-styles writes are HITL.
+	 * Track C settings discovery is readonly (no HITL); theme/global-styles/option writes are HITL.
 	 */
 	public function test_settings_discovery_readonly_flags() {
 		foreach (
@@ -109,6 +113,7 @@ class AbilityPolicyTest extends TestCase {
 			array(
 				'ahentic/update-theme-setting',
 				'ahentic/update-global-styles',
+				'ahentic/update-option',
 			) as $write
 		) {
 			$this->assertContains( $write, Ahentic_Abilities_Settings::names() );
@@ -119,6 +124,10 @@ class AbilityPolicyTest extends TestCase {
 			$this->assertNotContains( $write, Ahentic_Abilities::available_for_mode( 'ask' ) );
 			$this->assertFalse( Ahentic_Abilities::is_non_preallowable( $write ) );
 		}
+
+		$this->assertTrue( Ahentic_Abilities::requires_hitl( 'ahentic/update-template-part' ) );
+		$this->assertTrue( Ahentic_Abilities::is_non_preallowable( 'ahentic/update-template-part' ) );
+		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/update-template-part', 'allow_session' ) );
 	}
 
 	/**
@@ -151,6 +160,48 @@ class AbilityPolicyTest extends TestCase {
 		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/replace-media-file', 'always_allow' ) );
 		$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/replace-media-file', 'allow_once' ) );
 		$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/update-media', 'allow_session' ) );
+	}
+
+	/**
+	 * Track D users: list readonly; create/update/delete HITL + non-preallowable.
+	 */
+	public function test_users_crud_policy() {
+		$this->assertTrue( Ahentic_Abilities_Users::is_readonly( 'ahentic/list-users' ) );
+		$this->assertFalse( Ahentic_Abilities_Users::requires_hitl( 'ahentic/list-users' ) );
+
+		foreach ( array( 'ahentic/create-user', 'ahentic/update-user', 'ahentic/delete-user' ) as $write ) {
+			$this->assertContains( $write, Ahentic_Abilities_Users::names() );
+			$this->assertFalse( Ahentic_Abilities_Users::is_readonly( $write ), $write );
+			$this->assertTrue( Ahentic_Abilities_Users::requires_hitl( $write ), $write );
+			$this->assertTrue( Ahentic_Abilities::requires_hitl( $write ), 'facade: ' . $write );
+			$this->assertTrue( Ahentic_Abilities::is_non_preallowable( $write ), 'facade non_pre: ' . $write );
+			$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( $write, 'allow_session' ), $write );
+			$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( $write, 'always_allow' ), $write );
+			$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( $write, 'allow_once' ), $write );
+			$this->assertContains( $write, Ahentic_Abilities::available_for_agent() );
+			$this->assertNotContains( $write, Ahentic_Abilities::available_for_mode( 'ask' ) );
+		}
+
+		$this->assertContains( 'ahentic/list-users', Ahentic_Abilities::available_for_mode( 'ask' ) );
+		$this->assertTrue( Ahentic_Abilities::is_readonly( 'ahentic/list-users' ) );
+	}
+
+	/**
+	 * Taxonomy CRUD: reads readonly; create/update HITL preallowable; delete non-preallowable.
+	 */
+	public function test_taxonomy_crud_policy() {
+		$this->assertTrue( Ahentic_Abilities_Taxonomy::is_readonly( 'ahentic/list-terms' ) );
+		$this->assertTrue( Ahentic_Abilities_Taxonomy::is_readonly( 'ahentic/get-term' ) );
+		$this->assertTrue( Ahentic_Abilities_Taxonomy::requires_hitl( 'ahentic/create-term' ) );
+		$this->assertTrue( Ahentic_Abilities_Taxonomy::requires_hitl( 'ahentic/update-term' ) );
+		$this->assertTrue( Ahentic_Abilities_Taxonomy::requires_hitl( 'ahentic/delete-term' ) );
+		$this->assertFalse( Ahentic_Abilities::is_non_preallowable( 'ahentic/create-term' ) );
+		$this->assertFalse( Ahentic_Abilities::is_non_preallowable( 'ahentic/update-term' ) );
+		$this->assertTrue( Ahentic_Abilities::is_non_preallowable( 'ahentic/delete-term' ) );
+		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/delete-term', 'allow_session' ) );
+		$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/create-term', 'allow_session' ) );
+		$this->assertContains( 'ahentic-browser/set-post-terms', Ahentic_Abilities_Browser::names() );
+		$this->assertFalse( Ahentic_Abilities_Browser::is_readonly( 'ahentic-browser/set-post-terms' ) );
 	}
 
 	/**

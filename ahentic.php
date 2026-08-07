@@ -70,6 +70,8 @@ require_once __DIR__ . '/src/abilities/class-abilities-site.php';
 require_once __DIR__ . '/src/abilities/class-abilities-settings.php';
 require_once __DIR__ . '/src/abilities/class-abilities-plugins.php';
 require_once __DIR__ . '/src/abilities/class-abilities-taxonomy.php';
+require_once __DIR__ . '/src/abilities/class-abilities-users.php';
+require_once __DIR__ . '/src/abilities/class-abilities-menus.php';
 require_once __DIR__ . '/src/abilities/class-abilities-browser.php';
 require_once __DIR__ . '/src/abilities/class-capability-request.php';
 require_once __DIR__ . '/src/session/class-artifacts.php';

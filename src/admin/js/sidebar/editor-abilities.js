@@ -692,11 +692,25 @@ export function getEditorState() {
 	const blocks = blockEditor.getBlocks?.() || []
 	syncFromBlocks( blocks, editor.getCurrentPostId?.() || 0 )
 	const selected = blockEditor.getSelectedBlockClientIds?.() || []
+	const postType = editor.getCurrentPostType?.() ?? ''
+	const postId = editor.getCurrentPostId?.() ?? null
+	let templatePartId = ''
+	if ( postType === 'wp_template_part' ) {
+		if ( typeof postId === 'string' && postId.includes( '//' ) ) {
+			templatePartId = postId
+		} else {
+			const slug = editor.getEditedPostAttribute?.( 'slug' ) || ''
+			const theme = editor.getEditedPostAttribute?.( 'theme' ) || ''
+			if ( theme && slug ) {
+				templatePartId = `${ theme }//${ slug }`
+			}
+		}
+	}
 	return {
 		ok: true,
 		is_block_editor: true,
-		post_id: editor.getCurrentPostId?.() ?? null,
-		post_type: editor.getCurrentPostType?.() ?? '',
+		post_id: postId,
+		post_type: postType,
 		title: editor.getEditedPostAttribute?.( 'title' ) ?? '',
 		status: editor.getEditedPostAttribute?.( 'status' ) ?? '',
 		is_dirty: Boolean( editor.isEditedPostDirty?.() ),
@@ -704,6 +718,7 @@ export function getEditorState() {
 		is_new: Boolean( editor.isEditedPostNew?.() ),
 		blocks_count: blocks.length,
 		selected_refs: refsForClientIds( selected ),
+		template_part_id: templatePartId,
 	}
 }
 
@@ -1828,7 +1843,12 @@ export function updatePostDocument( input = {} ) {
 		return planned
 	}
 
-	ctx.dispatch( 'core/editor' ).editPost( planned.edits )
+	const postType = editor.getCurrentPostType?.() || ''
+	if ( postType === 'wp_template_part' && currentPostId !== null && currentPostId !== undefined ) {
+		ctx.dispatch( 'core' ).editEntityRecord( 'postType', 'wp_template_part', currentPostId, planned.edits )
+	} else {
+		ctx.dispatch( 'core/editor' ).editPost( planned.edits )
+	}
 
 	const applied = {}
 	for ( const key of Object.keys( planned.edits ) ) {
@@ -1841,6 +1861,7 @@ export function updatePostDocument( input = {} ) {
 		...applied,
 		updated_fields: Object.keys( planned.edits ),
 		post_id: currentPostId,
+		post_type: postType,
 	}
 }
 
@@ -1922,6 +1943,138 @@ export function setFeaturedImage( input = {} ) {
 	}
 }
 
+/**
+ * Normalize a list of term refs to positive integer IDs.
+ *
+ * @param {*} refs Term id list or single id.
+ * @return {{ ok: true, ids: number[] } | { ok: false, error: string, message: string }}
+ */
+function normalizeTermIdList( refs ) {
+	if ( refs === undefined || refs === null || refs === '' ) {
+		return { ok: true, ids: [] }
+	}
+	const list = Array.isArray( refs ) ? refs : [ refs ]
+	const ids = []
+	for ( const ref of list ) {
+		if ( ref === undefined || ref === null || ref === '' ) {
+			continue
+		}
+		const id = Number( ref )
+		if ( ! Number.isFinite( id ) || id <= 0 || ! Number.isInteger( id ) ) {
+			return {
+				ok: false,
+				error: 'invalid_term_id',
+				message: 'Term refs must be positive integer IDs when using ahentic-browser/set-post-terms (resolve names via list-terms/create-term first).',
+			}
+		}
+		ids.push( id )
+	}
+	return { ok: true, ids: [ ...new Set( ids ) ] }
+}
+
+/**
+ * Set categories/tags/custom taxonomy terms on the open editor document.
+ *
+ * Replace-per-taxonomy: present key = full set; omit = unchanged; [] clears.
+ * Prefer term IDs from list-terms / create-term.
+ *
+ * @param {{ categories?: number[], tags?: number[], tax_input?: Object, post_id?: number }} input
+ * @return {Object} Ability result.
+ */
+export function setPostTerms( input = {} ) {
+	const ctx = requireEditor()
+	if ( ! ctx.ok ) {
+		return ctx
+	}
+
+	const editor = ctx.select( 'core/editor' )
+	const currentPostId = editor.getCurrentPostId?.() ?? null
+
+	if ( input.post_id !== undefined && input.post_id !== null && input.post_id !== '' ) {
+		const expected = Number( input.post_id )
+		const openId = Number( currentPostId )
+		if ( ! Number.isFinite( expected ) || expected <= 0 ) {
+			return {
+				ok: false,
+				error: 'invalid_post_id',
+				message: 'post_id must be a positive integer when provided.',
+			}
+		}
+		if ( ! Number.isFinite( openId ) || openId !== expected ) {
+			return {
+				ok: false,
+				error: 'post_mismatch',
+				message: `Open editor post (${ currentPostId ?? 'none' }) does not match post_id ${ expected }. Use ahentic/update-post with categories/tags/tax_input when the target post is not open in the block editor.`,
+				post_id: currentPostId,
+				expected_post_id: expected,
+			}
+		}
+	}
+
+	const edits = {}
+	const applied = {}
+
+	if ( Object.prototype.hasOwnProperty.call( input, 'categories' ) ) {
+		const normalized = normalizeTermIdList( input.categories )
+		if ( ! normalized.ok ) {
+			return normalized
+		}
+		edits.categories = normalized.ids
+		applied.category = normalized.ids
+	}
+
+	if ( Object.prototype.hasOwnProperty.call( input, 'tags' ) ) {
+		const normalized = normalizeTermIdList( input.tags )
+		if ( ! normalized.ok ) {
+			return normalized
+		}
+		edits.tags = normalized.ids
+		applied.post_tag = normalized.ids
+	}
+
+	if ( Object.prototype.hasOwnProperty.call( input, 'tax_input' ) ) {
+		const taxInput = input.tax_input
+		if ( taxInput === null || typeof taxInput !== 'object' || Array.isArray( taxInput ) ) {
+			return {
+				ok: false,
+				error: 'invalid_tax_input',
+				message: 'tax_input must be an object mapping taxonomy slug → list of term IDs.',
+			}
+		}
+		for ( const [ taxonomy, refs ] of Object.entries( taxInput ) ) {
+			const key = String( taxonomy || '' ).trim()
+			if ( ! key ) {
+				continue
+			}
+			const normalized = normalizeTermIdList( refs )
+			if ( ! normalized.ok ) {
+				return normalized
+			}
+			// Editor store uses REST attribute names: categories / tags / custom rest_base.
+			const attr = key === 'category' ? 'categories' : ( key === 'post_tag' ? 'tags' : key )
+			edits[ attr ] = normalized.ids
+			applied[ key ] = normalized.ids
+		}
+	}
+
+	if ( Object.keys( edits ).length === 0 ) {
+		return {
+			ok: false,
+			error: 'nothing_to_update',
+			message: 'Provide at least one of: categories, tags, or tax_input.',
+		}
+	}
+
+	ctx.dispatch( 'core/editor' ).editPost( edits )
+
+	return {
+		ok: true,
+		post_id: currentPostId,
+		terms_applied: applied,
+		edits,
+	}
+}
+
 export async function savePost() {
 	const ctx = requireEditor()
 	if ( ! ctx.ok ) {
@@ -1929,13 +2082,19 @@ export async function savePost() {
 	}
 	const editor = ctx.select( 'core/editor' )
 	const dispatch = ctx.dispatch( 'core/editor' )
+	const postType = editor.getCurrentPostType?.() || ''
+	const postId = editor.getCurrentPostId?.() ?? null
 	if ( editor.isSavingPost?.() ) {
 		return {
 			ok: false, error: 'already_saving', message: 'A save is already in progress.',
 		}
 	}
 	try {
-		await dispatch.savePost()
+		if ( postType === 'wp_template_part' && postId !== null && postId !== undefined ) {
+			await ctx.dispatch( 'core' ).saveEditedEntityRecord( 'postType', 'wp_template_part', postId )
+		} else {
+			await dispatch.savePost()
+		}
 	} catch ( error ) {
 		return {
 			ok: false,
@@ -1946,6 +2105,7 @@ export async function savePost() {
 	return {
 		ok: true,
 		post_id: editor.getCurrentPostId?.() ?? null,
+		post_type: postType,
 		is_dirty: Boolean( editor.isEditedPostDirty?.() ),
 		status: editor.getEditedPostAttribute?.( 'status' ) ?? '',
 	}

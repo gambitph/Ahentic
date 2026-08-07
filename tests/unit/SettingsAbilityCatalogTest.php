@@ -74,21 +74,29 @@ class SettingsAbilityCatalogTest extends TestCase {
 	}
 
 	/**
-	 * update-theme-setting and update-global-styles are standard HITL writes (not non-preallowable).
+	 * update-theme-setting, update-global-styles, and update-option are standard HITL writes (not non-preallowable).
+	 * update-template-part is HITL + non-preallowable (theme-file decoupling).
 	 */
 	public function test_settings_write_abilities_are_hitl() {
 		foreach (
 			array(
 				'ahentic/update-theme-setting',
 				'ahentic/update-global-styles',
+				'ahentic/update-option',
 			) as $name
 		) {
 			$this->assertContains( $name, Ahentic_Abilities_Settings::names() );
 			$this->assertContains( $name, Ahentic_Abilities_Settings::write_names() );
 			$this->assertFalse( Ahentic_Abilities_Settings::is_readonly( $name ) );
 			$this->assertTrue( Ahentic_Abilities_Settings::requires_hitl( $name ) );
+			$this->assertFalse( Ahentic_Abilities_Settings::is_non_preallowable( $name ), $name );
 			$this->assertNotSame( '', Ahentic_Abilities_Settings::progress_label( $name ) );
 			$this->assertNotSame( $name, Ahentic_Abilities_Settings::summary( $name ) );
 		}
+
+		$this->assertContains( 'ahentic/update-template-part', Ahentic_Abilities_Settings::names() );
+		$this->assertTrue( Ahentic_Abilities_Settings::requires_hitl( 'ahentic/update-template-part' ) );
+		$this->assertTrue( Ahentic_Abilities_Settings::is_non_preallowable( 'ahentic/update-template-part' ) );
+		$this->assertSame( array( 'ahentic/update-template-part' ), Ahentic_Abilities_Settings::non_preallowable_names() );
 	}
 }

@@ -1,6 +1,6 @@
 <?php
 /**
- * Media abilities: unused scan, describe/generate/upload, and Track E writes.
+ * Media abilities: list/get, unused scan, describe/generate/upload, and Track E writes.
  */
 
 // Exit if accessed directly.
@@ -13,6 +13,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 	 * Media inspection and AI image helpers for the agent loop.
 	 */
 	class Ahentic_Abilities_Media {
+		const LIST_MEDIA          = 'ahentic/list-media';
+		const GET_MEDIA           = 'ahentic/get-media';
 		const FIND_UNUSED         = 'ahentic/find-unused-media';
 		const DESCRIBE_IMAGE      = 'ahentic/describe-image';
 		const GENERATE_IMAGE      = 'ahentic/generate-image';
@@ -22,8 +24,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		const DELETE_MEDIA        = 'ahentic/delete-media';
 		const REPLACE_MEDIA_FILE  = 'ahentic/replace-media-file';
 
-		const MAX_SCAN   = 100;
-		const MAX_REPORT = 50;
+		const MAX_SCAN     = 100;
+		const MAX_REPORT   = 50;
+		const MAX_PER_PAGE = 50;
 
 		const VISION_MIN_LONG_EDGE = 1024;
 		const VISION_MAX_BYTES     = 10485760; // 10MB
@@ -40,6 +43,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		 */
 		private static function catalog() {
 			return array(
+				self::LIST_MEDIA         => array(
+					'progress' => __( 'Listing media…', 'ahentic' ),
+					'summary'  => __( 'List media', 'ahentic' ),
+				),
+				self::GET_MEDIA          => array(
+					'progress' => __( 'Loading media…', 'ahentic' ),
+					'summary'  => __( 'Get media', 'ahentic' ),
+				),
 				self::FIND_UNUSED        => array(
 					'progress' => __( 'Scanning media for unused images…', 'ahentic' ),
 					'summary'  => __( 'Find unused media', 'ahentic' ),
@@ -284,6 +295,83 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 					'idempotent' => true,
 				),
 				'show_in_rest' => false,
+			);
+
+			wp_register_ability(
+				self::LIST_MEDIA,
+				array(
+					'label'               => __( 'List media', 'ahentic' ),
+					'description'         => __( 'Browses Media Library attachments (id, title, mime, url, alt, date, author, parent). Filter by search, mime_type (use "image" for all images), parent_id, and date after/before. Paginate with page/per_page (max 50). Prefer this over inventing attachment ids; use find-unused-media only for unused/hygiene reports.', 'ahentic' ),
+					'category'            => 'ahentic-media',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'properties' => array(
+							'search'     => array(
+								'type'        => 'string',
+								'description' => __( 'Optional title/filename search string.', 'ahentic' ),
+							),
+							'mime_type'  => array(
+								'type'        => 'string',
+								'description' => __( 'MIME type or prefix (e.g. image, image/png, application/pdf). Omit for all types.', 'ahentic' ),
+							),
+							'parent_id'  => array(
+								'type'        => 'integer',
+								'description' => __( 'Only attachments attached to this post ID. Use 0 for unattached.', 'ahentic' ),
+							),
+							'after'      => array(
+								'type'        => 'string',
+								'description' => __( 'Include attachments uploaded on or after this date (ISO 8601 or Y-m-d).', 'ahentic' ),
+							),
+							'before'     => array(
+								'type'        => 'string',
+								'description' => __( 'Include attachments uploaded on or before this date (ISO 8601 or Y-m-d).', 'ahentic' ),
+							),
+							'per_page'   => array(
+								'type'        => 'integer',
+								'description' => __( 'Results per page (1–50, default 20).', 'ahentic' ),
+							),
+							'page'       => array(
+								'type'        => 'integer',
+								'description' => __( 'Page number (1-based).', 'ahentic' ),
+							),
+							'orderby'    => array(
+								'type' => 'string',
+								'enum' => array( 'date', 'title', 'ID' ),
+							),
+							'order'      => array(
+								'type' => 'string',
+								'enum' => array( 'ASC', 'DESC', 'asc', 'desc' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_list_media' ),
+					'permission_callback' => $permission,
+					'meta'                => $meta,
+				)
+			);
+
+			wp_register_ability(
+				self::GET_MEDIA,
+				array(
+					'label'               => __( 'Get media', 'ahentic' ),
+					'description'         => __( 'Loads one Media Library attachment by id: list fields plus caption, description, size URLs / media_details, and cheap featured hints (parent thumbnail, site icon, logo). Prefer list-media then get-media instead of guessing ids.', 'ahentic' ),
+					'category'            => 'ahentic-media',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'id' ),
+						'properties' => array(
+							'id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Attachment ID.', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_get_media' ),
+					'permission_callback' => $permission,
+					'meta'                => $meta,
+				)
 			);
 
 			wp_register_ability(
@@ -576,6 +664,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		 */
 		public static function execute( $name, $input = array() ) {
 			switch ( $name ) {
+				case self::LIST_MEDIA:
+					return self::execute_list_media( $input );
+				case self::GET_MEDIA:
+					return self::execute_get_media( $input );
 				case self::FIND_UNUSED:
 					return self::execute_find_unused_media( $input );
 				case self::DESCRIBE_IMAGE:
@@ -1700,6 +1792,192 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		}
 
 		/**
+		 * Browse Media Library attachments (paginated, filtered).
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_list_media( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+
+			$per_page = isset( $input['per_page'] ) ? (int) $input['per_page'] : 20;
+			$page     = isset( $input['page'] ) ? (int) $input['page'] : 1;
+			$per_page = max( 1, min( self::MAX_PER_PAGE, $per_page ) );
+			$page     = max( 1, $page );
+
+			$orderby = isset( $input['orderby'] ) ? (string) $input['orderby'] : 'date';
+			if ( ! in_array( $orderby, array( 'date', 'title', 'ID' ), true ) ) {
+				$orderby = 'date';
+			}
+			$order = isset( $input['order'] ) ? strtoupper( (string) $input['order'] ) : 'DESC';
+			$order = ( 'ASC' === $order ) ? 'ASC' : 'DESC';
+
+			$args = array(
+				'post_type'              => 'attachment',
+				'post_status'            => array( 'inherit', 'private' ),
+				'posts_per_page'         => $per_page,
+				'paged'                  => $page,
+				'orderby'                => $orderby,
+				'order'                  => $order,
+				'no_found_rows'          => false,
+				'update_post_meta_cache' => true,
+				'update_post_term_cache' => false,
+			);
+
+			if ( ! empty( $input['search'] ) ) {
+				$args['s'] = sanitize_text_field( (string) $input['search'] );
+			}
+
+			if ( isset( $input['mime_type'] ) && '' !== (string) $input['mime_type'] ) {
+				$args['post_mime_type'] = sanitize_text_field( (string) $input['mime_type'] );
+			}
+
+			if ( array_key_exists( 'parent_id', $input ) ) {
+				$args['post_parent'] = (int) $input['parent_id'];
+			}
+
+			$date_query = self::build_media_date_query( $input );
+			if ( is_wp_error( $date_query ) ) {
+				return $date_query;
+			}
+			if ( ! empty( $date_query ) ) {
+				$args['date_query'] = $date_query;
+			}
+
+			$query = new WP_Query( $args );
+			$items = array();
+			foreach ( $query->posts as $post ) {
+				if ( ! $post instanceof WP_Post ) {
+					continue;
+				}
+				if ( ! self::can_read_attachment( (int) $post->ID ) ) {
+					continue;
+				}
+				$items[] = self::summarize_attachment( $post, false );
+			}
+
+			return array(
+				'ok'                => true,
+				'items'             => $items,
+				'total'             => (int) $query->found_posts,
+				'page'              => $page,
+				'per_page'          => $per_page,
+				'total_pages'       => (int) $query->max_num_pages,
+				'media_library_url' => admin_url( 'upload.php' ),
+			);
+		}
+
+		/**
+		 * Load one attachment by id.
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_get_media( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$id    = isset( $input['id'] ) ? (int) $input['id'] : 0;
+			if ( $id <= 0 ) {
+				return new WP_Error(
+					'ahentic_missing_id',
+					__( 'A valid attachment id is required.', 'ahentic' )
+				);
+			}
+
+			$post = get_post( $id );
+			if ( ! ( $post instanceof WP_Post ) || 'attachment' !== $post->post_type ) {
+				return new WP_Error(
+					'ahentic_attachment_not_found',
+					__( 'Attachment not found.', 'ahentic' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			if ( ! self::can_read_attachment( $id ) ) {
+				return new WP_Error(
+					'ahentic_get_media_forbidden',
+					__( 'You cannot read this attachment.', 'ahentic' ),
+					array( 'status' => 403 )
+				);
+			}
+
+			$row = self::summarize_attachment( $post, true );
+			$row['ok'] = true;
+			return $row;
+		}
+
+		/**
+		 * Whether the current user may inspect this attachment.
+		 *
+		 * @param int $id Attachment ID.
+		 * @return bool
+		 */
+		private static function can_read_attachment( $id ) {
+			$id = (int) $id;
+			if ( $id <= 0 ) {
+				return false;
+			}
+			if ( current_user_can( 'manage_options' ) ) {
+				return true;
+			}
+			return current_user_can( 'read_post', $id ) || current_user_can( 'edit_post', $id );
+		}
+
+		/**
+		 * Build a WP date_query from after/before inputs.
+		 *
+		 * @param array $input Input.
+		 * @return array|\WP_Error Empty array when unused.
+		 */
+		private static function build_media_date_query( array $input ) {
+			$after  = isset( $input['after'] ) ? trim( (string) $input['after'] ) : '';
+			$before = isset( $input['before'] ) ? trim( (string) $input['before'] ) : '';
+			if ( '' === $after && '' === $before ) {
+				return array();
+			}
+
+			$clause = array( 'inclusive' => true );
+			if ( '' !== $after ) {
+				$normalized = self::normalize_media_date( $after );
+				if ( is_wp_error( $normalized ) ) {
+					return $normalized;
+				}
+				$clause['after'] = $normalized;
+			}
+			if ( '' !== $before ) {
+				$normalized = self::normalize_media_date( $before );
+				if ( is_wp_error( $normalized ) ) {
+					return $normalized;
+				}
+				$clause['before'] = $normalized;
+			}
+
+			return array( $clause );
+		}
+
+		/**
+		 * Accept ISO 8601 or Y-m-d for date_query.
+		 *
+		 * @param string $raw Raw date.
+		 * @return string|\WP_Error
+		 */
+		private static function normalize_media_date( $raw ) {
+			$raw = trim( (string) $raw );
+			if ( '' === $raw ) {
+				return new WP_Error( 'ahentic_invalid_date', __( 'Date filter is empty.', 'ahentic' ) );
+			}
+
+			$ts = strtotime( $raw );
+			if ( false === $ts ) {
+				return new WP_Error(
+					'ahentic_invalid_date',
+					__( 'Date filter must be ISO 8601 or Y-m-d.', 'ahentic' )
+				);
+			}
+
+			return gmdate( 'Y-m-d H:i:s', $ts );
+		}
+
+		/**
 		 * Find image attachments that appear unused.
 		 *
 		 * @param mixed $input Input.
@@ -1900,12 +2178,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		}
 
 		/**
-		 * Compact attachment card.
+		 * Compact attachment card (list) or detailed card (get).
 		 *
-		 * @param \WP_Post $post Attachment.
+		 * @param \WP_Post $post   Attachment.
+		 * @param bool     $detail When true, include caption/description/sizes/usage hints.
 		 * @return array
 		 */
-		private static function summarize_attachment( WP_Post $post ) {
+		private static function summarize_attachment( WP_Post $post, $detail = false ) {
 			$id    = (int) $post->ID;
 			$url   = wp_get_attachment_url( $id );
 			$edit  = get_edit_post_link( $id, 'raw' );
@@ -1925,17 +2204,84 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				$dims = (int) $meta['width'] . '×' . (int) $meta['height'];
 			}
 
-			return array(
+			$mime = (string) $post->post_mime_type;
+			$row  = array(
 				'id'        => $id,
 				'title'     => get_the_title( $post ),
-				'mime_type' => $post->post_mime_type,
+				'mime_type' => $mime,
 				'url'       => $url ? $url : '',
-				'edit_url'  => $edit ? $edit : '',
+				'alt'       => (string) get_post_meta( $id, '_wp_attachment_image_alt', true ),
 				'date'      => $post->post_date_gmt ? $post->post_date_gmt . 'Z' : $post->post_date,
+				'author_id' => (int) $post->post_author,
+				'parent_id' => (int) $post->post_parent,
+				'edit_url'  => $edit ? $edit : '',
 				'filesize'  => $bytes,
 				'dimensions'=> $dims,
-				'parent_id' => (int) $post->post_parent,
 			);
+
+			if ( 0 === strpos( $mime, 'image/' ) && is_array( $meta ) ) {
+				$sizes = array();
+				if ( ! empty( $meta['sizes'] ) && is_array( $meta['sizes'] ) ) {
+					foreach ( $meta['sizes'] as $size_name => $size_meta ) {
+						if ( ! is_array( $size_meta ) ) {
+							continue;
+						}
+						$sizes[ (string) $size_name ] = array(
+							'width'  => isset( $size_meta['width'] ) ? (int) $size_meta['width'] : 0,
+							'height' => isset( $size_meta['height'] ) ? (int) $size_meta['height'] : 0,
+						);
+					}
+				}
+				$row['sizes'] = $sizes;
+				if ( ! empty( $meta['width'] ) ) {
+					$row['width'] = (int) $meta['width'];
+				}
+				if ( ! empty( $meta['height'] ) ) {
+					$row['height'] = (int) $meta['height'];
+				}
+			}
+
+			if ( ! $detail ) {
+				return $row;
+			}
+
+			$row['caption']     = (string) $post->post_excerpt;
+			$row['description'] = (string) $post->post_content;
+			$row['status']      = (string) $post->post_status;
+
+			$media_details = array(
+				'file'     => is_array( $meta ) && ! empty( $meta['file'] ) ? (string) $meta['file'] : '',
+				'filesize' => $bytes,
+			);
+			if ( is_array( $meta ) && ! empty( $meta['width'] ) && ! empty( $meta['height'] ) ) {
+				$media_details['width']  = (int) $meta['width'];
+				$media_details['height'] = (int) $meta['height'];
+			}
+			$row['media_details'] = $media_details;
+
+			$size_urls = array();
+			if ( $url ) {
+				$size_urls['full'] = $url;
+			}
+			if ( ! empty( $row['sizes'] ) && is_array( $row['sizes'] ) ) {
+				foreach ( array_keys( $row['sizes'] ) as $size_name ) {
+					$src = wp_get_attachment_image_src( $id, $size_name );
+					if ( is_array( $src ) && ! empty( $src[0] ) ) {
+						$size_urls[ (string) $size_name ] = (string) $src[0];
+					}
+				}
+			}
+			$row['size_urls'] = $size_urls;
+
+			// Cheap featured hints only — no site-wide N+1 scan.
+			$parent_id = (int) $post->post_parent;
+			$row['usage'] = array(
+				'is_featured_on_parent' => ( $parent_id > 0 && (int) get_post_thumbnail_id( $parent_id ) === $id ),
+				'is_site_icon'          => ( (int) get_option( 'site_icon' ) === $id ),
+				'is_custom_logo'        => ( (int) get_theme_mod( 'custom_logo' ) === $id ),
+			);
+
+			return $row;
 		}
 
 		/**
