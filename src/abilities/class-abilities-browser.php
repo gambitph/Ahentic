@@ -13,59 +13,158 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 	 * Client-runtime abilities for the agent loop.
 	 */
 	class Ahentic_Abilities_Browser {
-		const CURRENT_PAGE             = 'ahentic-browser/get-current-page';
-		const VISIBLE_PAGE             = 'ahentic-browser/get-visible-page';
-		const EDITOR_STATE             = 'ahentic-browser/get-editor-state';
-		const GET_BLOCKS               = 'ahentic-browser/get-blocks';
-		const GET_SELECTION            = 'ahentic-browser/get-selection';
-		const GET_BLOCK_TYPE           = 'ahentic-browser/get-block-type';
-		const LIST_BLOCK_TYPES         = 'ahentic-browser/list-block-types';
-		const FOCUS_BLOCK              = 'ahentic-browser/focus-block';
-		const UPDATE_BLOCK_ATTRIBUTES  = 'ahentic-browser/update-block-attributes';
-		const REPLACE_BLOCKS           = 'ahentic-browser/replace-blocks';
-		const SET_BLOCKS               = 'ahentic-browser/set-blocks';
-		const INSERT_BLOCKS            = 'ahentic-browser/insert-blocks';
-		const DUPLICATE_BLOCKS         = 'ahentic-browser/duplicate-blocks';
-		const DELETE_BLOCKS            = 'ahentic-browser/delete-blocks';
-		const MOVE_BLOCKS              = 'ahentic-browser/move-blocks';
-		const NORMALIZE_BLOCK_STYLES   = 'ahentic-browser/normalize-block-styles';
+		const CURRENT_PAGE              = 'ahentic-browser/get-current-page';
+		const VISIBLE_PAGE              = 'ahentic-browser/get-visible-page';
+		const EDITOR_STATE              = 'ahentic-browser/get-editor-state';
+		const GET_BLOCKS                = 'ahentic-browser/get-blocks';
+		const GET_SELECTION             = 'ahentic-browser/get-selection';
+		const GET_BLOCK_TYPE            = 'ahentic-browser/get-block-type';
+		const LIST_BLOCK_TYPES          = 'ahentic-browser/list-block-types';
+		const FOCUS_BLOCK               = 'ahentic-browser/focus-block';
+		const UPDATE_BLOCK_ATTRIBUTES   = 'ahentic-browser/update-block-attributes';
+		const REPLACE_BLOCKS            = 'ahentic-browser/replace-blocks';
+		const SET_BLOCKS                = 'ahentic-browser/set-blocks';
+		const INSERT_BLOCKS             = 'ahentic-browser/insert-blocks';
+		const DUPLICATE_BLOCKS          = 'ahentic-browser/duplicate-blocks';
+		const DELETE_BLOCKS             = 'ahentic-browser/delete-blocks';
+		const MOVE_BLOCKS               = 'ahentic-browser/move-blocks';
+		const NORMALIZE_BLOCK_STYLES    = 'ahentic-browser/normalize-block-styles';
 		const RESTYLE_BLOCKS_TO_PALETTE = 'ahentic-browser/restyle-blocks-to-palette';
-		const CONVERT_BLOCKS           = 'ahentic-browser/convert-blocks';
-		const AUDIT_ACCESSIBILITY      = 'ahentic-browser/audit-accessibility';
-		const UPDATE_POST_TITLE        = 'ahentic-browser/update-post-title';
-		const UPDATE_POST_DOCUMENT     = 'ahentic-browser/update-post-document';
-		const SET_FEATURED_IMAGE       = 'ahentic-browser/set-featured-image';
-		const SAVE_POST                = 'ahentic-browser/save-post';
+		const CONVERT_BLOCKS            = 'ahentic-browser/convert-blocks';
+		const AUDIT_ACCESSIBILITY       = 'ahentic-browser/audit-accessibility';
+		const UPDATE_POST_TITLE         = 'ahentic-browser/update-post-title';
+		const UPDATE_POST_DOCUMENT      = 'ahentic-browser/update-post-document';
+		const SET_FEATURED_IMAGE        = 'ahentic-browser/set-featured-image';
+		const SAVE_POST                 = 'ahentic-browser/save-post';
 
 		/**
-		 * @return string[]
+		 * Single policy catalog: drives names / write / HITL / progress / summary.
+		 *
+		 * @return array<string, array{write?:bool, hitl?:bool, progress:string, summary:string, hitl_summary?:string}>
+		 */
+		private static function catalog() {
+			return array(
+				self::CURRENT_PAGE              => array(
+					'progress' => __( 'Reading the current page…', 'ahentic' ),
+					'summary'  => __( 'Read the current browser page', 'ahentic' ),
+				),
+				self::VISIBLE_PAGE              => array(
+					'progress' => __( 'Reading what is on the screen…', 'ahentic' ),
+					'summary'  => __( 'Read what is visible on the page', 'ahentic' ),
+				),
+				self::EDITOR_STATE              => array(
+					'progress' => __( 'Reading the block editor…', 'ahentic' ),
+					'summary'  => __( 'Read the block editor state', 'ahentic' ),
+				),
+				self::GET_BLOCKS                => array(
+					'progress' => __( 'Reading editor blocks…', 'ahentic' ),
+					'summary'  => __( 'Read the editor block tree', 'ahentic' ),
+				),
+				self::GET_SELECTION             => array(
+					'progress' => __( 'Reading the editor selection…', 'ahentic' ),
+					'summary'  => __( 'Read the editor selection', 'ahentic' ),
+				),
+				self::GET_BLOCK_TYPE            => array(
+					'progress' => __( 'Reading block type schema…', 'ahentic' ),
+					'summary'  => __( 'Read a block type schema', 'ahentic' ),
+				),
+				self::LIST_BLOCK_TYPES          => array(
+					'progress' => __( 'Listing block types…', 'ahentic' ),
+					'summary'  => __( 'List registered block types', 'ahentic' ),
+				),
+				self::FOCUS_BLOCK               => array(
+					'write'    => true,
+					'progress' => __( 'Focusing a block…', 'ahentic' ),
+					'summary'  => __( 'Focus a block in the editor', 'ahentic' ),
+				),
+				self::UPDATE_BLOCK_ATTRIBUTES   => array(
+					'write'    => true,
+					'progress' => __( 'Updating block attributes…', 'ahentic' ),
+					'summary'  => __( 'Update block attributes', 'ahentic' ),
+				),
+				self::REPLACE_BLOCKS            => array(
+					'write'    => true,
+					'progress' => __( 'Replacing blocks…', 'ahentic' ),
+					'summary'  => __( 'Replace blocks in the editor', 'ahentic' ),
+				),
+				self::SET_BLOCKS                => array(
+					'write'    => true,
+					'progress' => __( 'Setting editor blocks…', 'ahentic' ),
+					'summary'  => __( 'Set the editor block tree', 'ahentic' ),
+				),
+				self::INSERT_BLOCKS             => array(
+					'write'    => true,
+					'progress' => __( 'Inserting blocks…', 'ahentic' ),
+					'summary'  => __( 'Insert blocks in the editor', 'ahentic' ),
+				),
+				self::DUPLICATE_BLOCKS          => array(
+					'write'    => true,
+					'progress' => __( 'Duplicating blocks…', 'ahentic' ),
+					'summary'  => __( 'Duplicate blocks', 'ahentic' ),
+				),
+				self::DELETE_BLOCKS             => array(
+					'write'    => true,
+					'progress' => __( 'Deleting blocks…', 'ahentic' ),
+					'summary'  => __( 'Delete blocks', 'ahentic' ),
+				),
+				self::MOVE_BLOCKS               => array(
+					'write'    => true,
+					'progress' => __( 'Moving blocks…', 'ahentic' ),
+					'summary'  => __( 'Move blocks', 'ahentic' ),
+				),
+				self::NORMALIZE_BLOCK_STYLES    => array(
+					'write'    => true,
+					'progress' => __( 'Stripping custom block styles…', 'ahentic' ),
+					'summary'  => __( 'Strip custom block styles', 'ahentic' ),
+				),
+				self::RESTYLE_BLOCKS_TO_PALETTE => array(
+					'write'    => true,
+					'progress' => __( 'Restyling blocks to palette…', 'ahentic' ),
+					'summary'  => __( 'Restyle blocks to a color palette', 'ahentic' ),
+				),
+				self::CONVERT_BLOCKS            => array(
+					'write'        => true,
+					'hitl'         => true,
+					'progress'     => __( 'Converting blocks to core…', 'ahentic' ),
+					'summary'      => __( 'Convert blocks to core', 'ahentic' ),
+					'hitl_summary' => __( 'Convert third-party blocks toward core Gutenberg blocks', 'ahentic' ),
+				),
+				self::AUDIT_ACCESSIBILITY       => array(
+					'progress' => __( 'Auditing editor accessibility…', 'ahentic' ),
+					'summary'  => __( 'Audit editor accessibility', 'ahentic' ),
+				),
+				self::UPDATE_POST_TITLE         => array(
+					'write'    => true,
+					'progress' => __( 'Updating the editor title…', 'ahentic' ),
+					'summary'  => __( 'Update the editor post title', 'ahentic' ),
+				),
+				self::UPDATE_POST_DOCUMENT      => array(
+					'write'    => true,
+					'progress' => __( 'Updating the editor document…', 'ahentic' ),
+					'summary'  => __( 'Update the editor post document fields', 'ahentic' ),
+				),
+				self::SET_FEATURED_IMAGE        => array(
+					'write'    => true,
+					'progress' => __( 'Updating the featured image…', 'ahentic' ),
+					'summary'  => __( 'Set the editor featured image', 'ahentic' ),
+				),
+				self::SAVE_POST                 => array(
+					'write'        => true,
+					'hitl'         => true,
+					'progress'     => __( 'Saving the post…', 'ahentic' ),
+					'summary'      => __( 'Save the post in the editor', 'ahentic' ),
+					'hitl_summary' => __( 'Save the post currently open in the block editor', 'ahentic' ),
+				),
+			);
+		}
+
+		/**
+		 * All browser ability names from the policy catalog.
+		 *
+		 * @return string[] Ability names.
 		 */
 		public static function names() {
-			return array(
-				self::CURRENT_PAGE,
-				self::VISIBLE_PAGE,
-				self::EDITOR_STATE,
-				self::GET_BLOCKS,
-				self::GET_SELECTION,
-				self::GET_BLOCK_TYPE,
-				self::LIST_BLOCK_TYPES,
-				self::FOCUS_BLOCK,
-				self::UPDATE_BLOCK_ATTRIBUTES,
-				self::REPLACE_BLOCKS,
-				self::SET_BLOCKS,
-				self::INSERT_BLOCKS,
-				self::DUPLICATE_BLOCKS,
-				self::DELETE_BLOCKS,
-				self::MOVE_BLOCKS,
-				self::NORMALIZE_BLOCK_STYLES,
-				self::RESTYLE_BLOCKS_TO_PALETTE,
-				self::CONVERT_BLOCKS,
-				self::AUDIT_ACCESSIBILITY,
-				self::UPDATE_POST_TITLE,
-				self::UPDATE_POST_DOCUMENT,
-				self::SET_FEATURED_IMAGE,
-				self::SAVE_POST,
-			);
+			return array_keys( self::catalog() );
 		}
 
 		/**
@@ -74,23 +173,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		 * @return string[]
 		 */
 		public static function write_names() {
-			return array(
-				self::FOCUS_BLOCK,
-				self::UPDATE_BLOCK_ATTRIBUTES,
-				self::REPLACE_BLOCKS,
-				self::SET_BLOCKS,
-				self::INSERT_BLOCKS,
-				self::DUPLICATE_BLOCKS,
-				self::DELETE_BLOCKS,
-				self::MOVE_BLOCKS,
-				self::NORMALIZE_BLOCK_STYLES,
-				self::RESTYLE_BLOCKS_TO_PALETTE,
-				self::CONVERT_BLOCKS,
-				self::UPDATE_POST_TITLE,
-				self::UPDATE_POST_DOCUMENT,
-				self::SET_FEATURED_IMAGE,
-				self::SAVE_POST,
-			);
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['write'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
 		}
 
 		/**
@@ -99,31 +188,40 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		 * @return string[]
 		 */
 		public static function hitl_names() {
-			return array(
-				self::SAVE_POST,
-				self::CONVERT_BLOCKS,
-			);
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['hitl'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
 		}
 
 		/**
+		 * Whether the ability is a browser-runtime tool in this module.
+		 *
 		 * @param string $name Ability name.
-		 * @return bool
+		 * @return bool True when listed in the browser catalog.
 		 */
 		public static function is_browser( $name ) {
 			return in_array( (string) $name, self::names(), true );
 		}
 
 		/**
+		 * Whether the ability is readonly (Ask-mode safe).
+		 *
 		 * @param string $name Ability name.
-		 * @return bool
+		 * @return bool True when not a write ability.
 		 */
 		public static function is_readonly( $name ) {
 			return ! in_array( (string) $name, self::write_names(), true );
 		}
 
 		/**
+		 * Whether the ability pauses for Allow/Deny before browser execution.
+		 *
 		 * @param string $name Ability name.
-		 * @return bool
+		 * @return bool True when HITL is required.
 		 */
 		public static function requires_hitl( $name ) {
 			return in_array( (string) $name, self::hitl_names(), true );
@@ -359,10 +457,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 					'input'       => array(
 						'type'       => 'object',
 						'properties' => array(
-							'blocks'       => array(
+							'blocks'      => array(
 								'description' => __( 'Full document blocks: array of {name, attributes, innerBlocks}. Ignored when from_memory is set.', 'ahentic' ),
 							),
-							'from_memory'  => array(
+							'from_memory' => array(
 								'type'        => 'string',
 								'description' => __( 'Session artifact key (kind=blocks from ahentic/stage-artifact). Expands to blocks; wins over inline blocks.', 'ahentic' ),
 							),
@@ -473,7 +571,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 					'input'       => array(
 						'type'       => 'object',
 						'properties' => array(
-							'scope'      => array(
+							'scope' => array(
 								'type'        => 'string',
 								'enum'        => array( 'selection', 'all' ),
 								'description' => __( 'Defaults to selection when blocks are selected, otherwise all.', 'ahentic' ),
@@ -664,9 +762,11 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		}
 
 		/**
+		 * Dispatch stub — browser abilities never execute in PHP.
+		 *
 		 * @param string $name  Ability.
 		 * @param array  $input Input.
-		 * @return mixed|\WP_Error
+		 * @return mixed|\WP_Error Always a browser-runtime error.
 		 */
 		public static function execute( $name, $input = array() ) {
 			unset( $name, $input );
@@ -680,33 +780,12 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		 * @return string
 		 */
 		public static function summary( $name ) {
-			$map = array(
-				self::CURRENT_PAGE              => __( 'Read the current browser page', 'ahentic' ),
-				self::VISIBLE_PAGE              => __( 'Read what is visible on the page', 'ahentic' ),
-				self::EDITOR_STATE              => __( 'Read the block editor state', 'ahentic' ),
-				self::GET_BLOCKS                => __( 'Read the editor block tree', 'ahentic' ),
-				self::GET_SELECTION             => __( 'Read the editor selection', 'ahentic' ),
-				self::GET_BLOCK_TYPE            => __( 'Read a block type schema', 'ahentic' ),
-				self::LIST_BLOCK_TYPES          => __( 'List registered block types', 'ahentic' ),
-				self::FOCUS_BLOCK               => __( 'Focus a block in the editor', 'ahentic' ),
-				self::UPDATE_BLOCK_ATTRIBUTES   => __( 'Update block attributes', 'ahentic' ),
-				self::REPLACE_BLOCKS            => __( 'Replace blocks in the editor', 'ahentic' ),
-				self::SET_BLOCKS                => __( 'Set the editor block tree', 'ahentic' ),
-				self::INSERT_BLOCKS             => __( 'Insert blocks in the editor', 'ahentic' ),
-				self::DUPLICATE_BLOCKS          => __( 'Duplicate blocks', 'ahentic' ),
-				self::DELETE_BLOCKS             => __( 'Delete blocks', 'ahentic' ),
-				self::MOVE_BLOCKS               => __( 'Move blocks', 'ahentic' ),
-				self::NORMALIZE_BLOCK_STYLES    => __( 'Strip custom block styles', 'ahentic' ),
-				self::RESTYLE_BLOCKS_TO_PALETTE => __( 'Restyle blocks to a color palette', 'ahentic' ),
-				self::CONVERT_BLOCKS            => __( 'Convert blocks to core', 'ahentic' ),
-				self::AUDIT_ACCESSIBILITY       => __( 'Audit editor accessibility', 'ahentic' ),
-				self::UPDATE_POST_TITLE         => __( 'Update the editor post title', 'ahentic' ),
-				self::UPDATE_POST_DOCUMENT      => __( 'Update the editor post document fields', 'ahentic' ),
-				self::SET_FEATURED_IMAGE        => __( 'Set the editor featured image', 'ahentic' ),
-				self::SAVE_POST                 => __( 'Save the post in the editor', 'ahentic' ),
-			);
-
-			return isset( $map[ $name ] ) ? $map[ $name ] : (string) $name;
+			$catalog = self::catalog();
+			$key     = (string) $name;
+			if ( isset( $catalog[ $key ]['summary'] ) ) {
+				return $catalog[ $key ]['summary'];
+			}
+			return $key;
 		}
 
 		/**
@@ -718,19 +797,20 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		 */
 		public static function hitl_summary( $name, $input = array() ) {
 			unset( $input );
-			if ( self::SAVE_POST === $name ) {
-				return __( 'Save the post currently open in the block editor', 'ahentic' );
-			}
-			if ( self::CONVERT_BLOCKS === $name ) {
-				return __( 'Convert third-party blocks toward core Gutenberg blocks', 'ahentic' );
+			$catalog = self::catalog();
+			$key     = (string) $name;
+			if ( isset( $catalog[ $key ]['hitl_summary'] ) ) {
+				return $catalog[ $key ]['hitl_summary'];
 			}
 			return self::summary( $name );
 		}
 
 		/**
+		 * Summary for awaiting_browser pending-tool UI.
+		 *
 		 * @param string $name  Ability.
 		 * @param array  $input Input.
-		 * @return string
+		 * @return string Human-readable summary or empty when not a browser ability.
 		 */
 		public static function browser_summary( $name, $input = array() ) {
 			unset( $input );
@@ -741,37 +821,15 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		}
 
 		/**
+		 * Live-status progress label for a browser ability.
+		 *
 		 * @param string $name Ability name.
-		 * @return string
+		 * @return string Progress label or empty string when unknown.
 		 */
 		public static function progress_label( $name ) {
-			$map = array(
-				self::CURRENT_PAGE              => __( 'Reading the current page…', 'ahentic' ),
-				self::VISIBLE_PAGE              => __( 'Reading what is on the screen…', 'ahentic' ),
-				self::EDITOR_STATE              => __( 'Reading the block editor…', 'ahentic' ),
-				self::GET_BLOCKS                => __( 'Reading editor blocks…', 'ahentic' ),
-				self::GET_SELECTION             => __( 'Reading the editor selection…', 'ahentic' ),
-				self::GET_BLOCK_TYPE            => __( 'Reading block type schema…', 'ahentic' ),
-				self::LIST_BLOCK_TYPES          => __( 'Listing block types…', 'ahentic' ),
-				self::FOCUS_BLOCK               => __( 'Focusing a block…', 'ahentic' ),
-				self::UPDATE_BLOCK_ATTRIBUTES   => __( 'Updating block attributes…', 'ahentic' ),
-				self::REPLACE_BLOCKS            => __( 'Replacing blocks…', 'ahentic' ),
-				self::SET_BLOCKS                => __( 'Setting editor blocks…', 'ahentic' ),
-				self::INSERT_BLOCKS             => __( 'Inserting blocks…', 'ahentic' ),
-				self::DUPLICATE_BLOCKS          => __( 'Duplicating blocks…', 'ahentic' ),
-				self::DELETE_BLOCKS             => __( 'Deleting blocks…', 'ahentic' ),
-				self::MOVE_BLOCKS               => __( 'Moving blocks…', 'ahentic' ),
-				self::NORMALIZE_BLOCK_STYLES    => __( 'Stripping custom block styles…', 'ahentic' ),
-				self::RESTYLE_BLOCKS_TO_PALETTE => __( 'Restyling blocks to palette…', 'ahentic' ),
-				self::CONVERT_BLOCKS            => __( 'Converting blocks to core…', 'ahentic' ),
-				self::AUDIT_ACCESSIBILITY       => __( 'Auditing editor accessibility…', 'ahentic' ),
-				self::UPDATE_POST_TITLE         => __( 'Updating the editor title…', 'ahentic' ),
-				self::UPDATE_POST_DOCUMENT      => __( 'Updating the editor document…', 'ahentic' ),
-				self::SET_FEATURED_IMAGE        => __( 'Updating the featured image…', 'ahentic' ),
-				self::SAVE_POST                 => __( 'Saving the post…', 'ahentic' ),
-			);
-			$name = (string) $name;
-			return isset( $map[ $name ] ) ? $map[ $name ] : '';
+			$catalog = self::catalog();
+			$key     = (string) $name;
+			return isset( $catalog[ $key ]['progress'] ) ? $catalog[ $key ]['progress'] : '';
 		}
 	}
 }

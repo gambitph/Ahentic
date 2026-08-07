@@ -17,12 +17,16 @@ Rewriting every abilities file in one PR. Progress-label UI map in sidebar (→ 
 
 ## Acceptance criteria
 
-- [ ] Adding an ability in the pilot module does not require hand-syncing sibling arrays.
-- [ ] `AbilityPolicyTest` (and related) stay green.
-- [ ] No third parallel classification path left in that module.
+- [x] Adding an ability in the pilot module does not require hand-syncing sibling arrays.
+- [x] `AbilityPolicyTest` (and related) stay green.
+- [x] No third parallel classification path left in that module.
+
+## Notes
+
+`register()` `$defs` schemas remain explicit product surface; write vs readonly *annotations* on registration are still hand-paired with catalog `write` (CONVERT_BLOCKS also sets `destructive`). Follow-up could set meta from `catalog()` when registering.
 
 ## Files likely touched
 
-- Pilot: `class-abilities-browser.php` or `class-abilities-content.php`
-- Possibly thin JS registration if browser
-- `tests/unit/AbilityPolicyTest.php`
+- `src/abilities/class-abilities-browser.php`
+- `tests/unit/BrowserAbilityCatalogTest.php`
+- `tests/unit/AbilityPolicyTest.php` (characterization still green)
