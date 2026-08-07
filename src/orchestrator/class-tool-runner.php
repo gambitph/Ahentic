@@ -383,7 +383,12 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 			if ( ! class_exists( 'Ahentic_Abilities_Browser' ) || ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				return null;
 			}
-			if ( Ahentic_Abilities_Browser::SET_BLOCKS !== $name && Ahentic_Abilities_Browser::UPDATE_POST_TITLE !== $name ) {
+			$supported = array(
+				Ahentic_Abilities_Browser::SET_BLOCKS,
+				Ahentic_Abilities_Browser::UPDATE_POST_TITLE,
+				Ahentic_Abilities_Browser::UPDATE_POST_DOCUMENT,
+			);
+			if ( ! in_array( $name, $supported, true ) ) {
 				return null;
 			}
 
@@ -394,6 +399,13 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 			}
 			if ( Ahentic_Abilities_Browser::UPDATE_POST_TITLE === $name && isset( $input['title'] ) ) {
 				$server_input['title'] = $input['title'];
+			}
+			if ( Ahentic_Abilities_Browser::UPDATE_POST_DOCUMENT === $name ) {
+				foreach ( array( 'title', 'excerpt', 'slug' ) as $field ) {
+					if ( array_key_exists( $field, $input ) ) {
+						$server_input[ $field ] = $input[ $field ];
+					}
+				}
 			}
 
 			if ( $post_id > 0 ) {

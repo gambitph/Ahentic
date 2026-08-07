@@ -19,7 +19,12 @@
     "ahentic-browser/get-selection",
     "ahentic-browser/insert-blocks",
     "ahentic-browser/replace-blocks",
+    "ahentic-browser/set-blocks",
+    "ahentic-browser/delete-blocks",
+    "ahentic-browser/move-blocks",
+    "ahentic-browser/duplicate-blocks",
     "ahentic-browser/update-block-attributes",
+    "ahentic-browser/update-post-document",
     "ahentic-browser/update-post-title",
     "ahentic-browser/set-featured-image",
     "ahentic-browser/save-post",
@@ -31,13 +36,15 @@
     "Trust page context: if is_block_editor=true, edit THIS open document with ahentic-browser/* — do not ahentic/create-post unless the user wants a separate post/page.",
     "Do not call ahentic-browser/save-post after canvas edits unless the user explicitly asks to save, publish, or persist — Gutenberg keeps unsaved edits.",
     "When the editor is NOT open: use ahentic/create-post / update-post / set-post-status (HITL for status).",
-    "Copy clientId values character-for-character from get-blocks / get-selection — never invent or recombine UUIDs.",
+    "While the editor is open: title/excerpt/slug via update-post-document (not server update-post); remove via delete-blocks; reorder via move-blocks (before_ref/after_ref preferred).",
+    "Leaving the content (featured/excerpt/etc.) is a composition — see playbook editor-leave-canvas — not move-blocks.",
+    "Copy refs character-for-character from get-blocks / get-selection — never invent or recombine UUIDs.",
     "For core/* text blocks, edit attributes directly; use get-block-type for third-party or after an attribute update fails.",
-    "If update/replace/insert returns ok:true, reply — do not re-fetch blocks only to verify unless the tool failed or the user asked to confirm."
+    "If update/replace/insert/delete/move returns ok:true, reply — do not re-fetch blocks only to verify unless the tool failed or the user asked to confirm."
   ],
   "steps": [
     "Read attached page context (or get-editor-state / get-current-page if URL looks like post.php / post-new.php / site-editor).",
-    "Editor open + build/edit request → update-post-title if needed, then insert-blocks / replace-blocks / update-block-attributes.",
+    "Editor open + build/edit request → update-post-document if needed, then insert-blocks / replace-blocks / set-blocks / update-block-attributes / delete-blocks / move-blocks.",
     "Editor closed + new content → create-post (draft-first) or update-post by id; publish only via set-post-status with HITL when asked.",
     "User says save/publish while editor open → save-post and/or set-post-status as appropriate with HITL.",
     "Ambiguous “create a contact page” while editing another draft → ask_user only if both intents are plausible; otherwise prefer editing the open doc when they said “this page” / “here”."
@@ -46,6 +53,8 @@
     "ahentic/create-post while the block editor is open for the page they mean to fill.",
     "save-post as a default last step after insert-blocks.",
     "Guessing clientIds instead of copying from tool results.",
-    "Calling get-block-type first for every core/heading or core/paragraph edit."
+    "Calling get-block-type first for every core/heading or core/paragraph edit.",
+    "ahentic/update-post for title/excerpt/slug/body while the same post is open in the editor.",
+    "Empty replace-blocks to delete — use delete-blocks instead."
   ]
 }

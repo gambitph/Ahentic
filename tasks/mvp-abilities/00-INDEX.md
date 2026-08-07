@@ -40,8 +40,15 @@ Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sid
 | --- | --- |
 | [13](./13-media-abilities.md) | Remaining: `update-media`, `set-featured-image` (server), `delete-media`, `replace-media-file` (`upload-media` + browser `set-featured-image` already shipped) |
 
+## Track F — Block editor (open canvas) — no Track A dependency
+
+| # | Task |
+| --- | --- |
+| [14](./14-block-editor-surgery-gaps.md) | Surgery gaps + editor doc fields (two workstreams): `delete-blocks`, relative `move-blocks`, leave-canvas/wrap playbooks, `update-post-document` (title/excerpt/slug) |
+
 ## Suggested order
 
 1. Track C (07 → 08 → 09 → 10 → 11) — **next**
-2. Track D (12)
-3. Track E remainder (13)
+2. **Track F (14)** — can run in parallel with C–E (browser-only; unblocks remove / move / leave-canvas product fails)
+3. Track D (12)
+4. Track E remainder (13)

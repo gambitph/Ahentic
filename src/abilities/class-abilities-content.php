@@ -388,7 +388,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::CREATE,
 				array(
 					'label'               => __( 'Create post', 'ahentic' ),
-					'description'         => __( 'Creates a new post/page/CPT as a draft (default). Only use when the block editor is NOT open — if the user is already editing a post/page in Gutenberg, edit that document with ahentic-browser/update-post-title + set-blocks/insert-blocks/replace-blocks instead. Pass real post content (not bracket stubs like [full article]), or from_memory with a staged artifact key. For publish/schedule use ahentic/set-post-status after creation. Requires human approval in Ahentic.', 'ahentic' ),
+					'description'         => __( 'Creates a new post/page/CPT as a draft (default). Only use when the block editor is NOT open — if the user is already editing a post/page in Gutenberg, edit that document with ahentic-browser/update-post-document + set-blocks/insert-blocks/replace-blocks/delete-blocks instead. Pass real post content (not bracket stubs like [full article]), or from_memory with a staged artifact key. For publish/schedule use ahentic/set-post-status after creation. Requires human approval in Ahentic.', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -434,7 +434,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::UPDATE,
 				array(
 					'label'               => __( 'Update post', 'ahentic' ),
-					'description'         => __( 'Updates an existing post or page: content, title, excerpt, slug, and post meta (exact keys from get-content; WooCommerce _price/_regular_price allowed). Content may use from_memory for a staged artifact. Does not change publish status. Requires human approval in Ahentic.', 'ahentic' ),
+					'description'         => __( 'Updates an existing post or page: content, title, excerpt, slug, and post meta (exact keys from get-content; WooCommerce _price/_regular_price allowed). Content may use from_memory for a staged artifact. Does not change publish status. When the block editor is open for this post, use ahentic-browser/set-blocks/insert/replace/delete and ahentic-browser/update-post-document instead — server updates for those fields are refused. Requires human approval in Ahentic.', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -1566,7 +1566,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			$changed_fields = array();
 
 			if ( array_key_exists( 'content', $input ) ) {
-				$editor_block = self::reject_server_body_write_while_editor_open( (int) $post->ID );
+				$editor_block = self::reject_server_doc_write_while_editor_open( (int) $post->ID, 'content' );
 				if ( is_wp_error( $editor_block ) ) {
 					return $editor_block;
 				}
@@ -1590,6 +1590,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			}
 
 			if ( array_key_exists( 'title', $input ) ) {
+				$editor_block = self::reject_server_doc_write_while_editor_open( (int) $post->ID, 'title' );
+				if ( is_wp_error( $editor_block ) ) {
+					return $editor_block;
+				}
 				$title = trim( (string) $input['title'] );
 				if ( '' === $title ) {
 					return new WP_Error( 'ahentic_invalid_title', __( 'Title cannot be empty.', 'ahentic' ) );
@@ -1599,11 +1603,19 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			}
 
 			if ( array_key_exists( 'excerpt', $input ) ) {
+				$editor_block = self::reject_server_doc_write_while_editor_open( (int) $post->ID, 'excerpt' );
+				if ( is_wp_error( $editor_block ) ) {
+					return $editor_block;
+				}
 				$args['post_excerpt'] = (string) $input['excerpt'];
 				$changed_fields[]     = 'excerpt';
 			}
 
 			if ( array_key_exists( 'slug', $input ) ) {
+				$editor_block = self::reject_server_doc_write_while_editor_open( (int) $post->ID, 'slug' );
+				if ( is_wp_error( $editor_block ) ) {
+					return $editor_block;
+				}
 				$slug = sanitize_title( (string) $input['slug'] );
 				if ( '' === $slug ) {
 					return new WP_Error( 'ahentic_invalid_slug', __( 'Slug cannot be empty.', 'ahentic' ) );
@@ -2121,12 +2133,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		}
 
 		/**
-		 * Block server body writes when the sidebar page context shows that post open in the block editor.
+		 * Block server content/title/excerpt/slug writes when that post is open in the block editor.
 		 *
-		 * @param int $post_id Post being updated.
+		 * @param int    $post_id Post being updated.
+		 * @param string $field   Field being written (content|title|excerpt|slug).
 		 * @return true|\WP_Error
 		 */
-		private static function reject_server_body_write_while_editor_open( $post_id ) {
+		private static function reject_server_doc_write_while_editor_open( $post_id, $field = 'content' ) {
 			$post_id = (int) $post_id;
 			if ( $post_id <= 0 || ! class_exists( 'Ahentic_Orchestrator' ) || ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				return true;
@@ -2148,20 +2161,35 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				return true;
 			}
 
+			$browser_hint = ( 'content' === $field )
+				? __(
+					'Call ahentic-browser tools against the open canvas. Pass real {name, attributes, innerBlocks} objects (prefer set-blocks for full rewrites). Use block refs (b1, b2), not clientId hashes. For title/excerpt/slug use ahentic-browser/update-post-document.',
+					'ahentic'
+				)
+				: __(
+					'Use ahentic-browser/update-post-document for title, excerpt, or slug while this post is open in the block editor (keeps the document dirty until save-post).',
+					'ahentic'
+				);
+
+			$message = ( 'content' === $field )
+				? __(
+					'The block editor is open for this document. Use ahentic-browser/set-blocks, insert-blocks, replace-blocks, delete-blocks, or update-block-attributes so edits appear live — do not ahentic/update-post for the body while the editor is open.',
+					'ahentic'
+				)
+				: __(
+					'The block editor is open for this document. Use ahentic-browser/update-post-document for title, excerpt, or slug — do not ahentic/update-post for those fields while the editor is open.',
+					'ahentic'
+				);
+
 			return new WP_Error(
 				'ahentic_use_browser_editor',
-				__(
-					'The block editor is open for this document. Use ahentic-browser/set-blocks, insert-blocks, replace-blocks, or update-block-attributes so edits appear live — do not ahentic/update-post for the body while the editor is open.',
-					'ahentic'
-				),
+				$message,
 				array(
 					'post_id'         => $post_id,
 					'editor_post_id'  => $open_id,
 					'is_block_editor' => true,
-					'hint'            => __(
-						'Call ahentic-browser tools against the open canvas. Pass real {name, attributes, innerBlocks} objects (prefer set-blocks for full rewrites). Use block refs (b1, b2), not clientId hashes.',
-						'ahentic'
-					),
+					'field'           => $field,
+					'hint'            => $browser_hint,
 				)
 			);
 		}

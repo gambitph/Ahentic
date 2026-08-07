@@ -18,6 +18,8 @@ import {
 	wipeEditorRefs,
 } from './block-ref-registry'
 import { pickMediaEssentialAttrs } from './media-essentials'
+import { resolveMovePlacement } from './move-placement'
+import { planPostDocumentEdits } from './post-document-edits'
 
 const MAX_BLOCKS_DEFAULT = 80
 const MAX_BLOCKS_FULL_UNSCOPED_CAP = 8
@@ -1427,6 +1429,39 @@ export function duplicateBlocks( input = {} ) {
 	return { ok: true, duplicated_refs: refsForClientIds( clientIds ) }
 }
 
+export function deleteBlocks( input = {} ) {
+	const ctx = requireEditor()
+	if ( ! ctx.ok ) {
+		return ctx
+	}
+	const blockSelect = ctx.select( 'core/block-editor' )
+	let { clientIds, missing } = resolveInputRefs( input, ctx.select, [
+		'refs', 'ref', 'client_ids', 'clientIds', 'client_id', 'clientId',
+	] )
+	if ( ! clientIds.length ) {
+		clientIds = blockSelect.getSelectedBlockClientIds?.() || []
+	}
+	if ( ! clientIds.length ) {
+		return missing.length
+			? missingRefsError( missing )
+			: {
+				ok: false, error: 'missing_refs', message: 'Provide refs or select blocks.',
+			}
+	}
+	if ( missing.length ) {
+		return missingRefsError( missing )
+	}
+	const deletedRefs = refsForClientIds( clientIds )
+	ctx.dispatch( 'core/block-editor' ).removeBlocks( clientIds )
+	syncRegistryFromEditor( ctx.select )
+	return {
+		ok: true,
+		deleted_refs: deletedRefs,
+		deleted_count: deletedRefs.length,
+		text_chars: blockTextChars( blockSelect.getBlocks?.() || [] ),
+	}
+}
+
 export function moveBlocks( input = {} ) {
 	const ctx = requireEditor()
 	if ( ! ctx.ok ) {
@@ -1445,41 +1480,42 @@ export function moveBlocks( input = {} ) {
 	if ( missing.length ) {
 		return missingRefsError( missing )
 	}
-	if ( input.index === undefined || input.index === null || input.index === '' ) {
-		return {
-			ok: false, error: 'missing_index', message: 'index is required.',
-		}
-	}
 	const blockSelect = ctx.select( 'core/block-editor' )
 	const fromRoot = blockSelect.getBlockRootClientId?.( clientIds[ 0 ] ) || ''
-	let toRoot = fromRoot
-	const hasRoot = Object.prototype.hasOwnProperty.call( input, 'root_ref' ) ||
-		Object.prototype.hasOwnProperty.call( input, 'rootRef' ) ||
-		Object.prototype.hasOwnProperty.call( input, 'root_client_id' ) ||
-		Object.prototype.hasOwnProperty.call( input, 'rootClientId' )
-	if ( hasRoot ) {
-		const rootToken = pickRefInput( input, [ 'root_ref', 'rootRef', 'root_client_id', 'rootClientId' ] )
-		if ( rootToken === '' || rootToken === null || rootToken === undefined ) {
-			toRoot = ''
-		} else {
-			const resolved = resolveToClientIds( rootToken, id => blockSelect.getBlock?.( id ) )
+	const placement = resolveMovePlacement( input, {
+		resolveRef: token => {
+			const resolved = resolveToClientIds( token, id => blockSelect.getBlock?.( id ) )
 			if ( resolved.missing.length || ! resolved.clientIds.length ) {
-				return missingRefsError( resolved.missing.length ? resolved.missing : [ String( rootToken ) ] )
+				return null
 			}
-			toRoot = resolved.clientIds[ 0 ]
+			return resolved.clientIds[ 0 ]
+		},
+		getRootClientId: id => blockSelect.getBlockRootClientId?.( id ) || '',
+		getBlockOrder: root => blockSelect.getBlockOrder?.( root || undefined ) || [],
+		defaultRootClientId: fromRoot,
+	} )
+	if ( ! placement.ok ) {
+		if ( placement.error === 'missing_refs' && placement.missing?.length ) {
+			return missingRefsError( placement.missing )
+		}
+		return {
+			ok: false,
+			error: placement.error,
+			message: placement.message,
 		}
 	}
+	const toRoot = placement.toRoot
 	ctx.dispatch( 'core/block-editor' ).moveBlocksToPosition(
 		clientIds,
 		fromRoot || undefined,
 		toRoot || undefined,
-		Number( input.index )
+		placement.index
 	)
 	syncRegistryFromEditor( ctx.select )
 	return {
 		ok: true,
 		moved_refs: refsForClientIds( clientIds ),
-		index: Number( input.index ),
+		index: placement.index,
 		root_ref: toRoot ? refForClientId( toRoot ) : null,
 	}
 }
@@ -1791,26 +1827,71 @@ export function auditAccessibility() {
 	}
 }
 
-export function updatePostTitle( input = {} ) {
+/**
+ * Update title / excerpt / slug on the open post (editor store only — does not save).
+ *
+ * @param {{ title?: string, excerpt?: string, slug?: string, post_id?: number }} input
+ * @return {Object} Ability result.
+ */
+export function updatePostDocument( input = {} ) {
 	const ctx = requireEditor()
 	if ( ! ctx.ok ) {
 		return ctx
 	}
-	const title = typeof input.title === 'string' ? input.title.trim() : ''
-	if ( ! title ) {
-		return {
-			ok: false, error: 'invalid_title', message: 'title cannot be empty.',
+
+	const editor = ctx.select( 'core/editor' )
+	const currentPostId = editor.getCurrentPostId?.() ?? null
+
+	if ( input.post_id !== undefined && input.post_id !== null && input.post_id !== '' ) {
+		const expected = Number( input.post_id )
+		const openId = Number( currentPostId )
+		if ( ! Number.isFinite( expected ) || expected <= 0 ) {
+			return {
+				ok: false,
+				error: 'invalid_post_id',
+				message: 'post_id must be a positive integer when provided.',
+			}
+		}
+		if ( ! Number.isFinite( openId ) || openId !== expected ) {
+			return {
+				ok: false,
+				error: 'post_mismatch',
+				message: `Open editor post (${ currentPostId ?? 'none' }) does not match post_id ${ expected }. Use ahentic/update-post when the target post is not open in the block editor.`,
+				post_id: currentPostId,
+				expected_post_id: expected,
+			}
 		}
 	}
-	ctx.dispatch( 'core/editor' ).editPost( { title } )
 
-	// Report the stored title, not the input, so the result is proof of the applied state.
-	const applied = ctx.select( 'core/editor' ).getEditedPostAttribute?.( 'title' )
+	const planned = planPostDocumentEdits( input )
+	if ( ! planned.ok ) {
+		return planned
+	}
+
+	ctx.dispatch( 'core/editor' ).editPost( planned.edits )
+
+	const applied = {}
+	for ( const key of Object.keys( planned.edits ) ) {
+		const value = editor.getEditedPostAttribute?.( key )
+		applied[ key ] = typeof value === 'string' ? value : planned.edits[ key ]
+	}
+
 	return {
 		ok: true,
-		title: typeof applied === 'string' ? applied : title,
-		post_id: ctx.select( 'core/editor' ).getCurrentPostId?.() ?? null,
+		...applied,
+		updated_fields: Object.keys( planned.edits ),
+		post_id: currentPostId,
 	}
+}
+
+/**
+ * Thin alias of updatePostDocument for title-only edits (legacy ability name).
+ *
+ * @param {{ title?: string, post_id?: number }} input
+ * @return {Object} Ability result.
+ */
+export function updatePostTitle( input = {} ) {
+	return updatePostDocument( { title: input.title, post_id: input.post_id } )
 }
 
 /**

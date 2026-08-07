@@ -104,6 +104,28 @@ class ToolRunnerPipelineTest extends TestCase {
 	}
 
 	/**
+	 * update-post-document with a post id falls back to update-post.
+	 */
+	public function test_server_fallback_document_with_post_updates() {
+		$fallback = Ahentic_Tool_Runner::server_fallback_for_browser(
+			'ahentic-browser/update-post-document',
+			array(
+				'title'   => 'Hello',
+				'excerpt' => 'Summary',
+				'slug'    => 'hello',
+			),
+			array( 'post_id' => 42 )
+		);
+
+		$this->assertIsArray( $fallback );
+		$this->assertSame( 'ahentic/update-post', $fallback['name'] );
+		$this->assertSame( 42, $fallback['input']['id'] );
+		$this->assertSame( 'Hello', $fallback['input']['title'] );
+		$this->assertSame( 'Summary', $fallback['input']['excerpt'] );
+		$this->assertSame( 'hello', $fallback['input']['slug'] );
+	}
+
+	/**
 	 * Browser abilities without a server twin do not invent a fallback.
 	 */
 	public function test_server_fallback_null_for_unsupported() {

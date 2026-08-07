@@ -123,7 +123,7 @@ class AbilityPolicyTest extends TestCase {
 	}
 
 	/**
-	 * set-featured-image is a browser write like update-post-title (no HITL; editor undo / not-saving).
+	 * set-featured-image is a browser write like update-post-document (no HITL; editor undo / not-saving).
 	 */
 	public function test_browser_set_featured_image_policy() {
 		$name = 'ahentic-browser/set-featured-image';
@@ -138,6 +138,29 @@ class AbilityPolicyTest extends TestCase {
 		$this->assertSame(
 			'Updating the featured image…',
 			Ahentic_Abilities_Browser::progress_label( $name )
+		);
+	}
+
+	/**
+	 * delete-blocks / update-post-document are browser writes without HITL.
+	 */
+	public function test_browser_delete_blocks_and_update_post_document_policy() {
+		foreach ( array( 'ahentic-browser/delete-blocks', 'ahentic-browser/update-post-document' ) as $name ) {
+			$this->assertContains( $name, Ahentic_Abilities_Browser::names() );
+			$this->assertContains( $name, Ahentic_Abilities_Browser::write_names() );
+			$this->assertTrue( Ahentic_Abilities_Browser::is_browser( $name ) );
+			$this->assertFalse( Ahentic_Abilities_Browser::is_readonly( $name ) );
+			$this->assertFalse( Ahentic_Abilities_Browser::requires_hitl( $name ) );
+			$this->assertTrue( Ahentic_Abilities::requires_browser_runtime( $name ) );
+			$this->assertFalse( Ahentic_Abilities::requires_hitl( $name ) );
+		}
+		$this->assertSame(
+			'Deleting blocks…',
+			Ahentic_Abilities_Browser::progress_label( 'ahentic-browser/delete-blocks' )
+		);
+		$this->assertSame(
+			'Updating the editor document…',
+			Ahentic_Abilities_Browser::progress_label( 'ahentic-browser/update-post-document' )
 		);
 	}
 

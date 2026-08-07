@@ -123,7 +123,9 @@ If refs are missing/stale, return a structured error (`missing` refs + message t
 
 Full document rewrite: prefer `ahentic-browser/set-blocks` (no target refs). Long drafts: `ahentic/stage-artifact` then `set-blocks` + `from_memory`.
 
-Write abilities must report what they left behind so the orchestrator never spends a turn reading it back. `set-blocks`, `insert-blocks`, and `replace-blocks` return `text_chars`: the plain-text size of the **whole** document after the write, not just the blocks written, so chunked drafting accumulates instead of looking thin on every section.
+Write abilities must report what they left behind so the orchestrator never spends a turn reading it back. `set-blocks`, `insert-blocks`, `replace-blocks`, and `delete-blocks` return `text_chars`: the plain-text size of the **whole** document after the write, not just the blocks written, so chunked drafting accumulates instead of looking thin on every section.
+
+Remove blocks with `delete-blocks` (refs or selection). Reorder/reparent with `move-blocks` (`before_ref`/`after_ref` preferred). Title/excerpt/slug while the editor is open: `update-post-document` (title-only alias: `update-post-title`). Leaving the content for featured/excerpt/etc. is destination write + usually `delete-blocks` — see playbook `editor-leave-canvas`.
 
 ---
 
@@ -132,12 +134,13 @@ Write abilities must report what they left behind so the orchestrator never spen
 | Situation | Prefer |
 | --- | --- |
 | Block editor open for this document | `ahentic-browser/*` (live canvas) |
+| Title / excerpt / slug while editor open | `ahentic-browser/update-post-document` (not server `update-post`) |
 | Featured image while editor open for that post | `ahentic-browser/set-featured-image` (not server `set_post_thumbnail` — panel stays live) |
 | Editor not open | `ahentic/create-post`, `update-post`, `set-post-status` (and server `ahentic/set-featured-image` when that ships) |
 | Need logged-in HTML of wp-admin | `http-fetch` + `as_user: true` |
 | Public URL | `http-fetch` without `as_user` |
 
-Page context on each think tells the model which branch to use; server update-post should refuse body writes when the same post is open in the editor.
+Page context on each think tells the model which branch to use; server `update-post` should refuse body **and** title/excerpt/slug writes when the same post is open in the editor.
 
 ---
 

@@ -39,6 +39,18 @@
       "file": "editor-vs-server.json"
     },
     {
+      "id": "editor-leave-canvas",
+      "title": "Leave the canvas (move out of content)",
+      "when_to_use": "Promote or move something from the post body to featured image, excerpt, or another non-content destination.",
+      "file": "editor-leave-canvas.json"
+    },
+    {
+      "id": "editor-wrap-blocks",
+      "title": "Wrap / group / columns via replace",
+      "when_to_use": "Group, wrap in columns, or unwrap blocks without a dedicated wrap ability.",
+      "file": "editor-wrap-blocks.json"
+    },
+    {
       "id": "web-image-fit",
       "title": "Web image fit",
       "when_to_use": "Generating or placing images for posts/pages (featured, inline, hero) — pick aspect ratio and framing so images fit the web.",

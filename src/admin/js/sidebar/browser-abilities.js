@@ -18,12 +18,14 @@ import {
 	setBlocks,
 	insertBlocks,
 	duplicateBlocks,
+	deleteBlocks,
 	moveBlocks,
 	normalizeBlockStyles,
 	restyleBlocksToPalette,
 	convertBlocks,
 	auditAccessibility,
 	updatePostTitle,
+	updatePostDocument,
 	setFeaturedImage,
 	savePost,
 } from './editor-abilities'
@@ -70,6 +72,8 @@ export async function runBrowserAbility( pending ) {
 				return { result: insertBlocks( input ) }
 			case 'ahentic-browser/duplicate-blocks':
 				return { result: duplicateBlocks( input ) }
+			case 'ahentic-browser/delete-blocks':
+				return { result: deleteBlocks( input ) }
 			case 'ahentic-browser/move-blocks':
 				return { result: moveBlocks( input ) }
 			case 'ahentic-browser/normalize-block-styles':
@@ -82,6 +86,8 @@ export async function runBrowserAbility( pending ) {
 				return { result: auditAccessibility() }
 			case 'ahentic-browser/update-post-title':
 				return { result: updatePostTitle( input ) }
+			case 'ahentic-browser/update-post-document':
+				return { result: updatePostDocument( input ) }
 			case 'ahentic-browser/set-featured-image':
 				return { result: setFeaturedImage( input ) }
 			case 'ahentic-browser/save-post':

@@ -26,12 +26,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		const SET_BLOCKS               = 'ahentic-browser/set-blocks';
 		const INSERT_BLOCKS            = 'ahentic-browser/insert-blocks';
 		const DUPLICATE_BLOCKS         = 'ahentic-browser/duplicate-blocks';
+		const DELETE_BLOCKS            = 'ahentic-browser/delete-blocks';
 		const MOVE_BLOCKS              = 'ahentic-browser/move-blocks';
 		const NORMALIZE_BLOCK_STYLES   = 'ahentic-browser/normalize-block-styles';
 		const RESTYLE_BLOCKS_TO_PALETTE = 'ahentic-browser/restyle-blocks-to-palette';
 		const CONVERT_BLOCKS           = 'ahentic-browser/convert-blocks';
 		const AUDIT_ACCESSIBILITY      = 'ahentic-browser/audit-accessibility';
 		const UPDATE_POST_TITLE        = 'ahentic-browser/update-post-title';
+		const UPDATE_POST_DOCUMENT     = 'ahentic-browser/update-post-document';
 		const SET_FEATURED_IMAGE       = 'ahentic-browser/set-featured-image';
 		const SAVE_POST                = 'ahentic-browser/save-post';
 
@@ -53,12 +55,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				self::SET_BLOCKS,
 				self::INSERT_BLOCKS,
 				self::DUPLICATE_BLOCKS,
+				self::DELETE_BLOCKS,
 				self::MOVE_BLOCKS,
 				self::NORMALIZE_BLOCK_STYLES,
 				self::RESTYLE_BLOCKS_TO_PALETTE,
 				self::CONVERT_BLOCKS,
 				self::AUDIT_ACCESSIBILITY,
 				self::UPDATE_POST_TITLE,
+				self::UPDATE_POST_DOCUMENT,
 				self::SET_FEATURED_IMAGE,
 				self::SAVE_POST,
 			);
@@ -77,11 +81,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				self::SET_BLOCKS,
 				self::INSERT_BLOCKS,
 				self::DUPLICATE_BLOCKS,
+				self::DELETE_BLOCKS,
 				self::MOVE_BLOCKS,
 				self::NORMALIZE_BLOCK_STYLES,
 				self::RESTYLE_BLOCKS_TO_PALETTE,
 				self::CONVERT_BLOCKS,
 				self::UPDATE_POST_TITLE,
+				self::UPDATE_POST_DOCUMENT,
 				self::SET_FEATURED_IMAGE,
 				self::SAVE_POST,
 			);
@@ -407,23 +413,54 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 					),
 				),
 				array(
-					'name'        => self::MOVE_BLOCKS,
-					'label'       => __( 'Move blocks', 'ahentic' ),
-					'description' => __( 'Moves blocks to a new index (and optional parent). Runs in the browser.', 'ahentic' ),
+					'name'        => self::DELETE_BLOCKS,
+					'label'       => __( 'Delete blocks', 'ahentic' ),
+					'description' => __( 'Removes blocks by refs or current selection from the open editor. Prefer this over replace-blocks/set-blocks when deleting — empty replacements are rejected. Does not save. Runs in the browser.', 'ahentic' ),
 					'meta'        => $mutate_meta,
 					'input'       => array(
 						'type'       => 'object',
-						'required'   => array( 'refs', 'index' ),
 						'properties' => array(
-							'refs'     => array(
+							'refs' => array(
+								'type'        => 'array',
+								'items'       => array( 'type' => 'string' ),
+								'description' => __( 'Block refs from get-blocks/get-selection; defaults to current selection.', 'ahentic' ),
+							),
+							'ref'  => array(
+								'type'        => 'string',
+								'description' => __( 'Single block ref to delete (alternative to refs).', 'ahentic' ),
+							),
+						),
+					),
+				),
+				array(
+					'name'        => self::MOVE_BLOCKS,
+					'label'       => __( 'Move blocks', 'ahentic' ),
+					'description' => __( 'Reorders or reparents blocks in the open editor. Prefer before_ref/after_ref for “move below/above X”; use index with optional root_ref for absolute placement. Not for leaving the content (featured/excerpt) — write the destination then delete-blocks. Runs in the browser.', 'ahentic' ),
+					'meta'        => $mutate_meta,
+					'input'       => array(
+						'type'       => 'object',
+						'required'   => array( 'refs' ),
+						'properties' => array(
+							'refs'       => array(
 								'type'        => 'array',
 								'items'       => array( 'type' => 'string' ),
 								'description' => __( 'Block refs from get-blocks/get-selection.', 'ahentic' ),
 							),
-							'index'    => array( 'type' => 'integer' ),
-							'root_ref' => array(
+							'index'      => array(
+								'type'        => 'integer',
+								'description' => __( 'Absolute index within the target parent (use with optional root_ref). Mutually exclusive with before_ref/after_ref.', 'ahentic' ),
+							),
+							'root_ref'   => array(
 								'type'        => 'string',
-								'description' => __( 'Parent block ref (omit for document root).', 'ahentic' ),
+								'description' => __( 'Parent block ref for index placement (omit or empty for document root). Do not combine with before_ref/after_ref.', 'ahentic' ),
+							),
+							'before_ref' => array(
+								'type'        => 'string',
+								'description' => __( 'Move so the blocks sit immediately before this ref (same parent as the anchor).', 'ahentic' ),
+							),
+							'after_ref'  => array(
+								'type'        => 'string',
+								'description' => __( 'Move so the blocks sit immediately after this ref (same parent as the anchor).', 'ahentic' ),
 							),
 						),
 					),
@@ -517,15 +554,46 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				array(
 					'name'        => self::UPDATE_POST_TITLE,
 					'label'       => __( 'Update post title', 'ahentic' ),
-					'description' => __( 'Updates the title of the post open in the block editor via the editor store (not DOM). Runs in the browser.', 'ahentic' ),
+					'description' => __( 'Legacy alias of update-post-document for title-only edits. Prefer ahentic-browser/update-post-document. Updates via the editor store (not DOM); does not save. Runs in the browser.', 'ahentic' ),
 					'meta'        => $mutate_meta,
 					'input'       => array(
 						'type'       => 'object',
 						'required'   => array( 'title' ),
 						'properties' => array(
-							'title' => array(
+							'title'   => array(
 								'type'        => 'string',
 								'description' => __( 'New post title.', 'ahentic' ),
+							),
+							'post_id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Optional. When set, must match the post open in the editor or the ability fails.', 'ahentic' ),
+							),
+						),
+					),
+				),
+				array(
+					'name'        => self::UPDATE_POST_DOCUMENT,
+					'label'       => __( 'Update post document', 'ahentic' ),
+					'description' => __( 'Updates title, excerpt, and/or slug of the post open in the block editor via the editor store (editPost). Does not save — leave the document dirty like other canvas edits. Prefer this over ahentic/update-post while the editor is open. Featured image stays ahentic-browser/set-featured-image. Runs in the browser.', 'ahentic' ),
+					'meta'        => $mutate_meta,
+					'input'       => array(
+						'type'       => 'object',
+						'properties' => array(
+							'title'   => array(
+								'type'        => 'string',
+								'description' => __( 'New post title (non-empty when provided).', 'ahentic' ),
+							),
+							'excerpt' => array(
+								'type'        => 'string',
+								'description' => __( 'New post excerpt; empty string clears.', 'ahentic' ),
+							),
+							'slug'    => array(
+								'type'        => 'string',
+								'description' => __( 'New post slug (non-empty when provided).', 'ahentic' ),
+							),
+							'post_id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Optional. When set, must match the post open in the editor or the ability fails.', 'ahentic' ),
 							),
 						),
 					),
@@ -626,12 +694,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				self::SET_BLOCKS                => __( 'Set the editor block tree', 'ahentic' ),
 				self::INSERT_BLOCKS             => __( 'Insert blocks in the editor', 'ahentic' ),
 				self::DUPLICATE_BLOCKS          => __( 'Duplicate blocks', 'ahentic' ),
+				self::DELETE_BLOCKS             => __( 'Delete blocks', 'ahentic' ),
 				self::MOVE_BLOCKS               => __( 'Move blocks', 'ahentic' ),
 				self::NORMALIZE_BLOCK_STYLES    => __( 'Strip custom block styles', 'ahentic' ),
 				self::RESTYLE_BLOCKS_TO_PALETTE => __( 'Restyle blocks to a color palette', 'ahentic' ),
 				self::CONVERT_BLOCKS            => __( 'Convert blocks to core', 'ahentic' ),
 				self::AUDIT_ACCESSIBILITY       => __( 'Audit editor accessibility', 'ahentic' ),
 				self::UPDATE_POST_TITLE         => __( 'Update the editor post title', 'ahentic' ),
+				self::UPDATE_POST_DOCUMENT      => __( 'Update the editor post document fields', 'ahentic' ),
 				self::SET_FEATURED_IMAGE        => __( 'Set the editor featured image', 'ahentic' ),
 				self::SAVE_POST                 => __( 'Save the post in the editor', 'ahentic' ),
 			);
@@ -689,12 +759,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				self::SET_BLOCKS                => __( 'Setting editor blocks…', 'ahentic' ),
 				self::INSERT_BLOCKS             => __( 'Inserting blocks…', 'ahentic' ),
 				self::DUPLICATE_BLOCKS          => __( 'Duplicating blocks…', 'ahentic' ),
+				self::DELETE_BLOCKS             => __( 'Deleting blocks…', 'ahentic' ),
 				self::MOVE_BLOCKS               => __( 'Moving blocks…', 'ahentic' ),
 				self::NORMALIZE_BLOCK_STYLES    => __( 'Stripping custom block styles…', 'ahentic' ),
 				self::RESTYLE_BLOCKS_TO_PALETTE => __( 'Restyling blocks to palette…', 'ahentic' ),
 				self::CONVERT_BLOCKS            => __( 'Converting blocks to core…', 'ahentic' ),
 				self::AUDIT_ACCESSIBILITY       => __( 'Auditing editor accessibility…', 'ahentic' ),
 				self::UPDATE_POST_TITLE         => __( 'Updating the editor title…', 'ahentic' ),
+				self::UPDATE_POST_DOCUMENT      => __( 'Updating the editor document…', 'ahentic' ),
 				self::SET_FEATURED_IMAGE        => __( 'Updating the featured image…', 'ahentic' ),
 				self::SAVE_POST                 => __( 'Saving the post…', 'ahentic' ),
 			);

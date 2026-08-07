@@ -493,6 +493,7 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 					'ahentic-browser/set-blocks',
 					'ahentic-browser/insert-blocks',
 					'ahentic-browser/replace-blocks',
+					'ahentic-browser/delete-blocks',
 				),
 				true
 			);

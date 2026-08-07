@@ -245,3 +245,22 @@ test.describe( 'ahentic-browser/set-featured-image', () => {
 		expect( result.error ).toBe( 'ahentic_browser_runtime' )
 	} )
 } )
+
+test.describe( 'ahentic-browser surgery + document fields (PHP stubs)', () => {
+	test( 'delete-blocks refuses server execute', async ( { requestUtils } ) => {
+		const result = await runAbility( requestUtils, 'ahentic-browser/delete-blocks', {
+			refs: [ 'b1' ],
+		} )
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'ahentic_browser_runtime' )
+	} )
+
+	test( 'update-post-document refuses server execute', async ( { requestUtils } ) => {
+		const result = await runAbility( requestUtils, 'ahentic-browser/update-post-document', {
+			title: 'Hello',
+			excerpt: 'Summary',
+		} )
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'ahentic_browser_runtime' )
+	} )
+} )

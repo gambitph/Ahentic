@@ -1,0 +1,35 @@
+{
+  "id": "editor-wrap-blocks",
+  "title": "Wrap / group / columns via replace",
+  "when_to_use": "User wants to group blocks, wrap in columns/group/row, or unwrap — without a dedicated wrap ability.",
+  "triggers": [
+    "wrap in columns",
+    "put in a group",
+    "group these",
+    "ungroup",
+    "add columns around",
+    "wrap these blocks"
+  ],
+  "related_abilities": [
+    "ahentic-browser/get-blocks",
+    "ahentic-browser/get-selection",
+    "ahentic-browser/replace-blocks",
+    "ahentic-browser/set-blocks"
+  ],
+  "principles": [
+    "There is no wrap-blocks / ungroup-blocks ability — compose with replace-blocks (or set-blocks for large rebuilds).",
+    "Wrap: replace the selected refs with a parent block (core/group, core/columns + core/column, etc.) whose innerBlocks are the previous blocks (preserve names/attrs/inners).",
+    "Ungroup: replace the parent ref with its former innerBlocks at the same position.",
+    "Prefer replace-blocks on the affected refs over rewriting the entire document."
+  ],
+  "steps": [
+    "get-selection or get-blocks to capture the refs and full block trees to wrap/unwrap.",
+    "Build the new tree (parent with innerBlocks, or flattened inners) as real {name, attributes, innerBlocks} objects.",
+    "replace-blocks with those refs and the new tree.",
+    "Do not save-post unless asked."
+  ],
+  "anti_patterns": [
+    "Inventing a wrap-blocks tool name.",
+    "set-blocks for the whole page when only a small selection needs wrapping."
+  ]
+}
