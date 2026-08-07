@@ -2,18 +2,18 @@
 
 **Temporary working folder.** Not a PRD, not a contract, not canonical. Delete this whole `tasks/` folder once every task below is implemented and the real docs (PRDs, CONTRACT.md, catalog) are already updated to match — they already describe the target state, these files just track the build.
 
-Each task file is self-contained: current state, what's missing, scope, out of scope, acceptance criteria, files likely touched. Work them in order — later tracks depend on earlier ones.
+Each task file is self-contained: current state, what's missing, scope, out of scope, acceptance criteria, files likely touched. Work them in the **suggested order** — later tracks depend on earlier ones where noted.
 
 ## Done (removed from this folder)
 
 - Track B: `list-post-types`, `analyze-plugins`, `list-themes`, `replace-in-content`, `list-revisions` / `restore-revision`, `describe-image`, `generate-image` + `image` artifacts, and `upload-media` (incl. `from_memory`).
 - Task 16: `ahentic-browser/set-featured-image` (editor-open featured media).
 - **Track A / Task 01:** non-preallowable HITL + settings snapshot store + `ahentic/undo-last-actions` (see `src/session/class-settings-snapshots.php`, `Ahentic_Abilities::is_non_preallowable`, session meta `_ahentic_settings_snapshots`).
-- **Track F / Task 14:** `delete-blocks`, relative `move-blocks` (`before_ref`/`after_ref`), `update-post-document`, leave-canvas/wrap playbooks.
+- **Track F / Task 14:** `delete-blocks`, relative `move-blocks` (`before_ref`/`after_ref`), `update-post-document`, leave-canvas/wrap playbooks. *(Historical task number — not related to current Task 14 media-read.)*
 - **Track C / Task 07:** `get-settings-context`, `list-settings`, `get-setting` + Customizer registry bootstrap/cache (`class-abilities-settings.php`).
 - **Track C / Task 08:** `ahentic/update-theme-setting` (classic Customizer write + snapshot/undo).
-- **Track C / Task 09:** `ahentic/update-global-styles` (block-theme theme.json user layer + css strip + snapshot/undo).
-- **Track E / Task 13:** `update-media`, `set-featured-image` (server), `delete-media`, `replace-media-file` + audit↔alt e2e loop.
+- **Track C / Task 09:** `ahentic/update-global-styles` (block-theme theme.json user layer + css strip + snapshot/undo). *(Historical — current Task 09 is taxonomy.)*
+- **Track E / Task 13:** `update-media`, `set-featured-image` (server), `delete-media`, `replace-media-file` + audit↔alt e2e loop. *(Historical — current Task 13 is menus.)*
 
 Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sidebar/sidebar.md`](../../src/admin/js/sidebar/sidebar.md). Take-over remains deferred: [`../future/multi-window-take-over.md`](../future/multi-window-take-over.md).
 
@@ -22,6 +22,13 @@ Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sid
 - [`pro__premium_only/docs/abilities-catalog.md`](../../pro__premium_only/docs/abilities-catalog.md)
 - [`pro__premium_only/docs/prd/site-settings.md`](../../pro__premium_only/docs/prd/site-settings.md)
 - [`docs/adr/0007-settings-writes-require-snapshot-undo.md`](../../docs/adr/0007-settings-writes-require-snapshot-undo.md)
+- Grilling 2026-08-07: classic admin **parity bar**; ship taxonomy/menus/media-read now; defer the rest in Task 15.
+
+## Track G — Taxonomy — **next**
+
+| # | Task |
+| --- | --- |
+| [09](./09-taxonomy-crud.md) | Term CRUD (`list`/`get`/`create`/`update`/`delete`) + post tax fields + `get-content` terms |
 
 ## Track C — Theme / settings surface — needs Track A (done)
 
@@ -36,7 +43,29 @@ Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sid
 | --- | --- |
 | [12](./12-users-abilities.md) | `list-users` (upgrade), `create-user`, `update-user`, `delete-user` |
 
+## Track H — Menus
+
+| # | Task |
+| --- | --- |
+| [13](./13-menus-abilities.md) | Classic menus: `list-menus` / `list-menu-items` / `get-menu` / `update-menu` |
+
+## Track E follow-on — Media read
+
+| # | Task |
+| --- | --- |
+| [14](./14-media-list-get.md) | `list-media` / `get-media` |
+
+## Parity backlog (deferred)
+
+| # | Task |
+| --- | --- |
+| [15](./15-parity-backlog.md) | Block nav, widgets, comments, theme install/activate, hard-delete posts, patterns, full `wp_template` |
+
 ## Suggested order
 
-1. Track C (10 → 11) — **next**
-2. Track D (12)
+1. **Track G (09)** — taxonomy + post assignment (**next**; unblocks create-vs-update term failures)
+2. Track C (10 → 11)
+3. Track D (12)
+4. Track H (13) — classic menus
+5. Track E follow-on (14) — media list/get
+6. Promote rows from (15) only when product pulls them forward

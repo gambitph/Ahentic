@@ -1,6 +1,6 @@
 # Task 10 — `ahentic/update-template-part`
 
-**Track:** C — needs Task 01 (snapshot store, specifically the "did not exist" distinction) and Task 07 (`get-settings-context` block-theme detection). Largest build in Track C — do it last.
+**Track:** C — needs Task 01 (snapshot store, specifically the "did not exist" distinction) and Task 07 (`get-settings-context` block-theme detection). Largest build in Track C — do it last within C. **Suggested global order:** after Task 09 (taxonomy), before Task 11.
 **Source:** [site-settings.md § `ahentic/update-template-part`](../../pro__premium_only/docs/prd/site-settings.md#ahentic-update-template-part-block-themes-header-footer-etc) · [ADR-0004](../../docs/adr/0004-editor-first-content-writes.md)
 
 ## Current state
