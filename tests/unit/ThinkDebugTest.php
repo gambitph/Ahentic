@@ -10,7 +10,7 @@
 use PHPUnit\Framework\TestCase;
 
 /**
- * Covers Ahentic_Think_Debug pure helpers (M5 move-only extract).
+ * Covers Ahentic_Think_Debug pure helpers (M6 deepen).
  */
 class ThinkDebugTest extends TestCase {
 
@@ -98,6 +98,43 @@ class ThinkDebugTest extends TestCase {
 				array( 'text' => 'Reply only' ),
 				array( 'intention' => 'Intent' )
 			)
+		);
+	}
+
+	/**
+	 * Post-think disposition: unusable / missing / continue (no session side effects).
+	 */
+	public function test_disposition_for_debug() {
+		$this->assertSame( 'finish_unusable', Ahentic_Think_Debug::disposition_for_debug( array() ) );
+		$this->assertSame(
+			'finish_unusable',
+			Ahentic_Think_Debug::disposition_for_debug( array( 'next' => 'continue' ) )
+		);
+		$this->assertSame(
+			'finish_missing',
+			Ahentic_Think_Debug::disposition_for_debug(
+				array(
+					'next'           => 'missing_ability',
+					'ability_needed' => 'ahentic/foo',
+				)
+			)
+		);
+		$this->assertSame(
+			'finish_missing',
+			Ahentic_Think_Debug::disposition_for_debug(
+				array(
+					'next'           => 'reply',
+					'ability_needed' => 'ahentic/foo',
+				)
+			)
+		);
+		$this->assertSame(
+			'continue',
+			Ahentic_Think_Debug::disposition_for_debug( array( 'next' => 'use_tools' ) )
+		);
+		$this->assertSame(
+			'continue',
+			Ahentic_Think_Debug::disposition_for_debug( array( 'next' => 'reply' ) )
 		);
 	}
 }

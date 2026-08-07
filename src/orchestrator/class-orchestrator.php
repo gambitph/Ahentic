@@ -282,30 +282,23 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				);
 				$planned = self::normalize_tool_calls( $forced_tools );
 			} else {
-				// Keep the last meaningful step label (tool / intention) while the model thinks.
-				$think_label = Ahentic_Think_Debug::progress_label_for_think( $session_id );
-
-				$result = Ahentic_Think_Debug::run_with_debug(
-					$session_id,
-					$think_label
-				);
+				// Composition: Think/Debug → Plan → tools (or finish).
+				$think = Ahentic_Think_Debug::run_think( $session_id );
 
 				// User may have hit Stop during the LLM call — do not continue the run.
 				if ( Ahentic_Session_Repository::STATUS_RUNNING !== Ahentic_Session_Repository::get_status( $session_id ) ) {
 					return false;
 				}
 
-				if ( is_wp_error( $result ) ) {
-					self::fail_run( $session_id, $result );
+				if ( is_wp_error( $think ) ) {
+					self::fail_run( $session_id, $think );
 					return false;
 				}
 
-				$debug = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
-				// Surface the same intention the debugger shows under llm_thinking.
-				Ahentic_Session_Repository::set_progress(
-					$session_id,
-					Ahentic_Think_Debug::progress_label_from_debug( $debug, $think_label )
-				);
+				$result      = $think['result'];
+				$think_label = $think['label'];
+				$debug       = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
+				Ahentic_Think_Debug::apply_live_progress( $session_id, $debug, $think_label );
 
 				// Persist multi-step plan; retry / synthesize when Agent work requires one.
 				$planned_for_plan = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
@@ -328,22 +321,14 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					Ahentic_Plan::ensure_after_think( $session_id, $debug, $planned_for_plan );
 				}
 
-				// Fill empty final-reply text from thinking/intention when needed.
-				$result = Ahentic_Think_Debug::ensure_thought_process_text( $result, $debug );
+				$result = Ahentic_Think_Debug::finalize_result_text( $result, $debug );
 
-				// Missing / unusable control block after retries → stop with last prose (do not ask the user).
-				if ( ! Ahentic_Think_Debug::is_usable( $debug ) ) {
+				if ( Ahentic_Think_Debug::should_finish_without_tools( $session_id, $debug ) ) {
 					return self::try_finish_with_reply( $session_id, $result, $debug );
 				}
 
 				$next    = (string) $debug['next'];
 				$planned = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
-
-				// Explicit missing-ability signal (or reply that still names ability_needed).
-				if ( Ahentic_Think_Debug::signals_missing_ability( $debug ) ) {
-					Ahentic_Think_Debug::queue_missing_abilities( $session_id, $debug );
-					return self::try_finish_with_reply( $session_id, $result, $debug );
-				}
 
 				$wants_tools = ( 'use_tools' === $next );
 

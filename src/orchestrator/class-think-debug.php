@@ -2,9 +2,10 @@
 /**
  * Think / AHENTIC_DEBUG recovery for one agent step.
  *
- * Owns debug usability checks, LLM debug retries, missing-ability queueing,
- * thought-process publish, and related progress/trace helpers.
- * The Orchestrator must call this module — do not reimplement debug retry at call sites.
+ * Deep module: run a think until a usable control block appears.
+ * Primary interface: run_think(), apply_live_progress(), finalize_result_text(),
+ * should_finish_without_tools(), publish_thought_process(), queue_missing_ability().
+ * The Orchestrator must call these — do not reimplement debug retry at call sites.
  */
 
 // Exit if accessed directly.
@@ -16,12 +17,91 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 	/**
 	 * Think/debug module: run a think until a usable control block appears.
 	 *
-	 * Primary interface (move-only): run_with_debug() plus the helpers the step
-	 * loop already called. Deepen in M6.
+	 * Primary interface: run_think(), apply_live_progress(), finalize_result_text(),
+	 * should_finish_without_tools(), publish_thought_process(), queue_missing_ability().
+	 * Pure helpers (is_usable, signals_missing_ability, normalize_ability_name,
+	 * progress_label_from_debug, disposition_for_debug, resolve_thought_process_for_chat)
+	 * are part of the test surface; trace_debug / progress_label_from_debug are also
+	 * used from Orchestrator::run_llm_phase.
 	 */
 	class Ahentic_Think_Debug {
 		/** Max LLM attempts to obtain a valid AHENTIC_DEBUG block per think phase. */
 		const MAX_DEBUG_ATTEMPTS = 3;
+
+		/**
+		 * Deep entry: progress label + LLM think with AHENTIC_DEBUG recovery.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array{result: array, label: string}|\WP_Error
+		 */
+		public static function run_think( $session_id ) {
+			$label  = self::progress_label_for_think( $session_id );
+			$result = self::run_with_debug( $session_id, $label );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+			return array(
+				'result' => $result,
+				'label'  => $label,
+			);
+		}
+
+		/**
+		 * Surface the control-block intention as the live progress label.
+		 *
+		 * @param int    $session_id     Session ID.
+		 * @param array  $debug          Parsed debug block.
+		 * @param string $fallback_label Label when intention/thinking are empty.
+		 */
+		public static function apply_live_progress( $session_id, $debug, $fallback_label = '' ) {
+			Ahentic_Session_Repository::set_progress(
+				$session_id,
+				self::progress_label_from_debug( $debug, $fallback_label )
+			);
+		}
+
+		/**
+		 * Fill empty user-facing text from debug thinking / intention.
+		 *
+		 * @param array $result LLM result.
+		 * @param array $debug  Parsed debug block.
+		 * @return array
+		 */
+		public static function finalize_result_text( array $result, $debug ) {
+			return self::ensure_thought_process_text( $result, $debug );
+		}
+
+		/**
+		 * Pure post-think branch (no session writes).
+		 *
+		 * @param mixed $debug Debug payload.
+		 * @return string finish_unusable|finish_missing|continue
+		 */
+		public static function disposition_for_debug( $debug ) {
+			if ( ! self::is_usable( $debug ) ) {
+				return 'finish_unusable';
+			}
+			$debug = is_array( $debug ) ? $debug : array();
+			if ( self::signals_missing_ability( $debug ) ) {
+				return 'finish_missing';
+			}
+			return 'continue';
+		}
+
+		/**
+		 * Whether the step should finish without running tools (queues missing-ability requests).
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $debug      Parsed debug block.
+		 * @return bool
+		 */
+		public static function should_finish_without_tools( $session_id, $debug ) {
+			$disposition = self::disposition_for_debug( $debug );
+			if ( 'finish_missing' === $disposition ) {
+				self::queue_missing_abilities( $session_id, is_array( $debug ) ? $debug : array() );
+			}
+			return 'continue' !== $disposition;
+		}
 
 		/**
 		 * Run the LLM until a usable AHENTIC_DEBUG block appears, or attempts are exhausted.
@@ -32,7 +112,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 * @param string $progress   Progress label.
 		 * @return array|\WP_Error
 		 */
-		public static function run_with_debug( $session_id, $progress ) {
+		private static function run_with_debug( $session_id, $progress ) {
 			$result              = null;
 			$prior_text          = '';
 			$last_error          = null;
@@ -229,7 +309,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 * @param int   $session_id Session ID.
 		 * @param array $debug      Debug block.
 		 */
-		public static function queue_missing_abilities( $session_id, array $debug ) {
+		private static function queue_missing_abilities( $session_id, array $debug ) {
 			$step  = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 			$names = self::resolve_needed_ability_names( $debug );
 
@@ -248,7 +328,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 * @param array $debug Debug block.
 		 * @return string[]
 		 */
-		public static function resolve_needed_ability_names( array $debug ) {
+		private static function resolve_needed_ability_names( array $debug ) {
 			$names = array();
 
 			if ( ! empty( $debug['ability_needed'] ) ) {
@@ -440,7 +520,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 * @param array $debug      Debug block.
 		 * @return string
 		 */
-		public static function raw_context_for_capability_request( $session_id, $debug = array() ) {
+		private static function raw_context_for_capability_request( $session_id, $debug = array() ) {
 			$parts = array();
 
 			$entries = Ahentic_Session_Repository::get_entries( $session_id );
@@ -467,7 +547,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 * @param string $label Progress label.
 		 * @return bool
 		 */
-		public static function is_generic_progress_label( $label ) {
+		private static function is_generic_progress_label( $label ) {
 			$label = trim( (string) $label );
 			if ( '' === $label ) {
 				return true;
@@ -491,7 +571,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 * @param int $session_id Session ID.
 		 * @return string
 		 */
-		public static function progress_label_for_think( $session_id ) {
+		private static function progress_label_for_think( $session_id ) {
 			$fallback = __( 'Planning next steps…', 'ahentic' );
 			// First step of a new run — never reuse a prior-run intention/tool label.
 			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
@@ -518,7 +598,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 * @param array $debug  Parsed debug block.
 		 * @return array
 		 */
-		public static function ensure_thought_process_text( array $result, array $debug ) {
+		private static function ensure_thought_process_text( array $result, array $debug ) {
 			$text = isset( $result['text'] ) ? trim( (string) $result['text'] ) : '';
 			if ( '' !== $text ) {
 				return $result;
@@ -619,7 +699,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 * @param int    $max  Max length before ellipsis.
 		 * @return string
 		 */
-		public static function format_progress_label( $text, $max = 72 ) {
+		private static function format_progress_label( $text, $max = 72 ) {
 			$text = trim( preg_replace( '/\s+/', ' ', (string) $text ) );
 			$text = rtrim( $text, " \t." );
 			$text = preg_replace( '/…+$/u', '', $text );
