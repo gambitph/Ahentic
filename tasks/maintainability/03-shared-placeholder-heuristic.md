@@ -17,12 +17,16 @@ Full ability catalog redesign (→ M4).
 
 ## Acceptance criteria
 
-- [ ] No duplicated independent regex stacks that can silently diverge.
-- [ ] Changing the rule is one place (or generated from one place).
-- [ ] Tests fail if PHP and JS disagree on representative samples.
+- [x] No duplicated independent regex stacks that can silently diverge.
+- [x] Changing the rule is one place (or generated from one place).
+- [x] Tests fail if PHP and JS disagree on representative samples.
 
 ## Files likely touched
 
-- `src/abilities/class-abilities-content.php`
+- `src/data/content-placeholder-rules.json` (source of truth)
+- `src/abilities/class-ahentic-content-placeholder.php`
+- `src/abilities/class-abilities-content.php` (thin delegate)
+- `src/admin/js/sidebar/content-placeholder.js`
 - `src/admin/js/sidebar/editor-abilities.js`
-- Shared fixture and/or unit tests
+- `tests/unit/ContentPlaceholderTest.php`
+- `src/admin/js/sidebar/content-placeholder.test.js`

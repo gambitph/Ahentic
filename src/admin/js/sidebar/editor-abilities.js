@@ -20,6 +20,7 @@ import {
 import { pickMediaEssentialAttrs } from './media-essentials'
 import { resolveMovePlacement } from './move-placement'
 import { planPostDocumentEdits } from './post-document-edits'
+import { looksLikeContentPlaceholder } from './content-placeholder'
 
 const MAX_BLOCKS_DEFAULT = 80
 const MAX_BLOCKS_FULL_UNSCOPED_CAP = 8
@@ -372,40 +373,6 @@ function serializeBlockTree( block, budget, opts = {} ) {
 		}
 	}
 	return node
-}
-
-/**
- * @param {Object|string|Array} raw
- * @param {Object} wp
- * @return {Array}
- */
-/**
- * Whether text looks like an LLM content stub rather than real prose.
- *
- * @param {string} text
- * @return {boolean}
- */
-function looksLikeContentPlaceholder( text ) {
-	const plain = String( text || '' )
-		.replace( /<[^>]+>/g, ' ' )
-		.replace( /\s+/g, ' ' )
-		.trim()
-	if ( ! plain ) {
-		return false
-	}
-	if ( /^\[[^[\]]{3,160}\]$/u.test( plain ) ) {
-		return true
-	}
-	if ( /^(full|complete|expanded|entire|actual|the)\b.{0,100}\b(content|article|guide|blocks?|structure|markup|html|outline)\b\.?$/iu.test( plain ) ) {
-		return true
-	}
-	if ( /^(placeholder|TODO|TBD|lorem ipsum)\b/iu.test( plain ) ) {
-		return true
-	}
-	if ( plain.length <= 120 && /\b(block structure|gutenberg (article )?blocks|expanded guide)\b/iu.test( plain ) ) {
-		return true
-	}
-	return false
 }
 
 /**

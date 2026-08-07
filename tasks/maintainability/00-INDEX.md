@@ -20,12 +20,12 @@ Temporary working folder — delete when the track is done. Not PRD/contract.
 
 | # | File | Status | Notes |
 | --- | --- | --- | --- |
-| M1 | [01-sidebar-session-state.md](./01-sidebar-session-state.md) | done | Area 2 first slice |
-| M2 | [02-sidebar-shell-split.md](./02-sidebar-shell-split.md) | blocked on M1 | |
-| M3 | [03-shared-placeholder-heuristic.md](./03-shared-placeholder-heuristic.md) | todo | Area 4; parallel with M1 |
+| M1 | [01-sidebar-session-state.md](./01-sidebar-session-state.md) | done | Area 2 first slice; manual smoke OK |
+| M2 | [02-sidebar-shell-split.md](./02-sidebar-shell-split.md) | ready | Unblocked by M1 |
+| M3 | [03-shared-placeholder-heuristic.md](./03-shared-placeholder-heuristic.md) | done | Shared JSON rules + PHP/JS consumers |
 | M4 | [04-derived-ability-catalog-one-module.md](./04-derived-ability-catalog-one-module.md) | todo | Pilot one module |
 | M5 | [05-progress-labels-single-source.md](./05-progress-labels-single-source.md) | todo | |
-| M6 | [06-orchestrator-prompt-assembler.md](./06-orchestrator-prompt-assembler.md) | blocked on M1 | Area 3a only |
+| M6 | [06-orchestrator-prompt-assembler.md](./06-orchestrator-prompt-assembler.md) | ready | Unblocked by M1 |
 
 ## Implement order
 

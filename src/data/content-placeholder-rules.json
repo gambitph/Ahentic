@@ -1,0 +1,45 @@
+{
+	"phraseScanMaxLength": 120,
+	"patterns": [
+		{
+			"id": "bracket_stub",
+			"pattern": "^\\[[^\\[\\]]{3,160}\\]$",
+			"flags": "u"
+		},
+		{
+			"id": "meta_description",
+			"pattern": "^(full|complete|expanded|entire|actual|the)\\b.{0,100}\\b(content|article|guide|blocks?|structure|markup|html|outline)\\b\\.?$",
+			"flags": "iu"
+		},
+		{
+			"id": "explicit_placeholder",
+			"pattern": "^(placeholder|TODO|TBD|lorem ipsum)\\b",
+			"flags": "iu"
+		},
+		{
+			"id": "short_structure_phrase",
+			"pattern": "\\b(block structure|gutenberg (article )?blocks|expanded guide)\\b",
+			"flags": "iu",
+			"maxLength": 120
+		}
+	],
+	"samples": {
+		"placeholder": [
+			"[full article]",
+			"[expanded guide content]",
+			"Full article content.",
+			"expanded guide content",
+			"placeholder text here",
+			"TODO write this",
+			"lorem ipsum dolor sit amet",
+			"Use gutenberg blocks for this",
+			"This is the block structure."
+		],
+		"real": [
+			"WordPress makes it easy to publish beautiful posts.",
+			"Here is a longer paragraph that describes a real product feature in enough detail that it is clearly not a stub.",
+			"<p>Hello <strong>world</strong> — welcome to the site.</p>",
+			"Install the plugin, then open Settings → General to configure your site title."
+		]
+	}
+}

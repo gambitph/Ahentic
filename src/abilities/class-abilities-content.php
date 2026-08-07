@@ -8,6 +8,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+if ( ! class_exists( 'Ahentic_Content_Placeholder' ) ) {
+	require_once __DIR__ . '/class-ahentic-content-placeholder.php';
+}
+
 if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 	/**
 	 * Content inspection and updates for the agent loop.
@@ -2077,33 +2081,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return bool
 		 */
 		public static function looks_like_content_placeholder( $text ) {
-			$plain = trim( preg_replace( '/\s+/u', ' ', wp_strip_all_tags( (string) $text ) ) );
-			if ( '' === $plain ) {
-				return false;
-			}
-
-			// Bracket stubs: [expanded guide content], [full article], …
-			if ( preg_match( '/^\[[^\[\]]{3,160}\]$/u', $plain ) ) {
-				return true;
-			}
-
-			// Whole-string meta descriptions of content that should have been written.
-			if ( preg_match(
-				'/^(full|complete|expanded|entire|actual|the)\b.{0,100}\b(content|article|guide|blocks?|structure|markup|html|outline)\b\.?$/iu',
-				$plain
-			) ) {
-				return true;
-			}
-
-			if ( preg_match( '/^(placeholder|TODO|TBD|lorem ipsum)\b/iu', $plain ) ) {
-				return true;
-			}
-
-			if ( self::strlen( $plain ) <= 120 && preg_match( '/\b(block structure|gutenberg (article )?blocks|expanded guide)\b/iu', $plain ) ) {
-				return true;
-			}
-
-			return false;
+			return Ahentic_Content_Placeholder::looks_like( $text );
 		}
 
 		/**

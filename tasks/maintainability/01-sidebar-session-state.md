@@ -28,7 +28,7 @@ One per-session record and pure sync helpers so updates go through a single path
 
 - [x] One update path for send / stop / approve / remap / apply payload (no new parallel session dictionaries for the same fields).
 - [x] Pure helpers covered by unit tests.
-- [ ] Existing sidebar / HITL / orchestrator-pipeline e2e still green (or equivalent manual smoke if e2e env unavailable).
+- [x] Existing sidebar / HITL / orchestrator-pipeline e2e still green (or equivalent manual smoke if e2e env unavailable).
 - [x] No permanent pass-through layer that keeps both old maps and the new record in sync.
 
 ## Files likely touched
