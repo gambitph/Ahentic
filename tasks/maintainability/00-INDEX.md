@@ -4,7 +4,7 @@ Temporary working folder — delete when the track is done. Not PRD/contract.
 
 **Source:** Post–M1–M6 grill · AI-slop detector triage · [`.cursor/rules/ahentic-anti-slop.mdc`](../../.cursor/rules/ahentic-anti-slop.mdc)
 
-**Track status:** ready to implement.
+**Track status:** M1–M2 done; next M3.
 
 ## Locked decisions
 
@@ -21,8 +21,8 @@ Temporary working folder — delete when the track is done. Not PRD/contract.
 
 | # | File | Status | Notes |
 | --- | --- | --- | --- |
-| M1 | [01-editor-ability-dry.md](./01-editor-ability-dry.md) | done | Prelude helpers + unit tests |
-| M2 | [02-content-ability-catalog.md](./02-content-ability-catalog.md) | ready | Content `catalog()` like browser |
+| M1 | ~~editor-ability-dry~~ | done (removed) | Prelude helpers + unit tests |
+| M2 | ~~content-ability-catalog~~ | done (removed) | Content `catalog()` like browser |
 | M3 | [03-orchestrator-plan-move.md](./03-orchestrator-plan-move.md) | ready | Move-only plan FSM |
 | M4 | [04-orchestrator-plan-deepen.md](./04-orchestrator-plan-deepen.md) | ready | Deepen plan API after M3 |
 | M5 | [05-orchestrator-think-debug-move.md](./05-orchestrator-think-debug-move.md) | ready | Move-only think/debug |
@@ -30,7 +30,7 @@ Temporary working folder — delete when the track is done. Not PRD/contract.
 
 ## Implement order
 
-1. **M1 ∥ M2**
+1. ~~M1 ∥ M2~~
 2. **M3** → **M4**
 3. **M5** → **M6**
 

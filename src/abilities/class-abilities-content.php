@@ -39,23 +39,72 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		const MAX_REPLACE       = 50;
 
 		/**
+		 * Single policy catalog: drives names / write / HITL / progress / summary.
+		 *
+		 * @return array<string, array{write?:bool, hitl?:bool, progress:string, summary:string}>
+		 */
+		private static function catalog() {
+			return array(
+				self::LIST               => array(
+					'progress' => __( 'Listing posts and pages…', 'ahentic' ),
+					'summary'  => __( 'List posts and pages', 'ahentic' ),
+				),
+				self::GET                => array(
+					'progress' => __( 'Reading post content…', 'ahentic' ),
+					'summary'  => __( 'Read post or page content', 'ahentic' ),
+				),
+				self::SEARCH             => array(
+					'progress' => __( 'Searching site content…', 'ahentic' ),
+					'summary'  => __( 'Search site content', 'ahentic' ),
+				),
+				self::LIST_POST_TYPES    => array(
+					'progress' => __( 'Listing post types…', 'ahentic' ),
+					'summary'  => __( 'List post types', 'ahentic' ),
+				),
+				self::REPLACE_IN_CONTENT => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Replacing in content…', 'ahentic' ),
+					'summary'  => __( 'Replace text in content', 'ahentic' ),
+				),
+				self::LIST_REVISIONS     => array(
+					'progress' => __( 'Listing revisions…', 'ahentic' ),
+					'summary'  => __( 'List post revisions', 'ahentic' ),
+				),
+				self::RESTORE_REVISION   => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Restoring a revision…', 'ahentic' ),
+					'summary'  => __( 'Restore a post revision', 'ahentic' ),
+				),
+				self::CREATE             => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Creating a draft post…', 'ahentic' ),
+					'summary'  => __( 'Create a draft post', 'ahentic' ),
+				),
+				self::UPDATE             => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Updating post content…', 'ahentic' ),
+					'summary'  => __( 'Update a post', 'ahentic' ),
+				),
+				self::SET_STATUS         => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Updating post status…', 'ahentic' ),
+					'summary'  => __( 'Set post status', 'ahentic' ),
+				),
+			);
+		}
+
+		/**
 		 * Ability names provided by this module.
 		 *
 		 * @return string[]
 		 */
 		public static function names() {
-			return array(
-				self::LIST,
-				self::GET,
-				self::SEARCH,
-				self::LIST_POST_TYPES,
-				self::REPLACE_IN_CONTENT,
-				self::LIST_REVISIONS,
-				self::RESTORE_REVISION,
-				self::CREATE,
-				self::UPDATE,
-				self::SET_STATUS,
-			);
+			return array_keys( self::catalog() );
 		}
 
 		/**
@@ -64,7 +113,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string[]
 		 */
 		public static function write_names() {
-			return array( self::CREATE, self::UPDATE, self::SET_STATUS, self::REPLACE_IN_CONTENT, self::RESTORE_REVISION );
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['write'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
 		}
 
 		/**
@@ -83,7 +138,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string[]
 		 */
 		public static function hitl_names() {
-			return array( self::CREATE, self::UPDATE, self::SET_STATUS, self::REPLACE_IN_CONTENT, self::RESTORE_REVISION );
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['hitl'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
 		}
 
 		/**
@@ -92,6 +153,21 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 */
 		public static function requires_hitl( $name ) {
 			return in_array( (string) $name, self::hitl_names(), true );
+		}
+
+		/**
+		 * Short summary for pending-tool UI / progress.
+		 *
+		 * @param string $name Ability.
+		 * @return string
+		 */
+		public static function summary( $name ) {
+			$catalog = self::catalog();
+			$key     = (string) $name;
+			if ( isset( $catalog[ $key ]['summary'] ) ) {
+				return $catalog[ $key ]['summary'];
+			}
+			return $key;
 		}
 
 		/**
@@ -199,7 +275,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			}
 
 			if ( self::UPDATE !== $name ) {
-				return (string) $name;
+				return self::summary( $name );
 			}
 
 			$id     = isset( $input['id'] ) ? (int) $input['id'] : 0;
@@ -2293,24 +2369,15 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		}
 
 		/**
+		 * Live-status progress label for a content ability.
+		 *
 		 * @param string $name Ability name.
-		 * @return string
+		 * @return string Progress label or empty string when unknown.
 		 */
 		public static function progress_label( $name ) {
-			$map = array(
-				self::LIST               => __( 'Listing posts and pages…', 'ahentic' ),
-				self::GET                => __( 'Reading post content…', 'ahentic' ),
-				self::SEARCH             => __( 'Searching site content…', 'ahentic' ),
-				self::LIST_POST_TYPES    => __( 'Listing post types…', 'ahentic' ),
-				self::REPLACE_IN_CONTENT => __( 'Replacing in content…', 'ahentic' ),
-				self::LIST_REVISIONS     => __( 'Listing revisions…', 'ahentic' ),
-				self::RESTORE_REVISION   => __( 'Restoring a revision…', 'ahentic' ),
-				self::CREATE             => __( 'Creating a draft post…', 'ahentic' ),
-				self::UPDATE             => __( 'Updating post content…', 'ahentic' ),
-				self::SET_STATUS         => __( 'Updating post status…', 'ahentic' ),
-			);
-			$name = (string) $name;
-			return isset( $map[ $name ] ) ? $map[ $name ] : '';
+			$catalog = self::catalog();
+			$key     = (string) $name;
+			return isset( $catalog[ $key ]['progress'] ) ? $catalog[ $key ]['progress'] : '';
 		}
 	}
 }
