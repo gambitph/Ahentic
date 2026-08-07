@@ -450,3 +450,190 @@ function ahentic_e2e_seed( WP_REST_Request $request ) {
 		200
 	);
 }
+
+/**
+ * E2E-only stub settings write: non-preallowable + snapshotted option mutate.
+ *
+ * Proves Track A plumbing (HITL non-preallowable + snapshot/undo) without
+ * shipping Track C/D/E product abilities. Never packaged with the plugin.
+ */
+if ( ! class_exists( 'Ahentic_E2E_Stub_Settings_Write' ) ) {
+	/**
+	 * Stub ability module for Playwright Task 01 coverage.
+	 */
+	class Ahentic_E2E_Stub_Settings_Write {
+		const WRITE  = 'ahentic-e2e/stub-settings-write';
+		const OPTION = 'ahentic_e2e_stub_setting';
+
+		/**
+		 * @return string[]
+		 */
+		public static function names() {
+			return array( self::WRITE );
+		}
+
+		/**
+		 * @return string[]
+		 */
+		public static function write_names() {
+			return array( self::WRITE );
+		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function is_readonly( $name ) {
+			return ! in_array( (string) $name, self::write_names(), true );
+		}
+
+		/**
+		 * @return string[]
+		 */
+		public static function hitl_names() {
+			return array( self::WRITE );
+		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function requires_hitl( $name ) {
+			return in_array( (string) $name, self::hitl_names(), true );
+		}
+
+		/**
+		 * @return string[]
+		 */
+		public static function non_preallowable_names() {
+			return array( self::WRITE );
+		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function is_non_preallowable( $name ) {
+			return in_array( (string) $name, self::non_preallowable_names(), true );
+		}
+
+		/**
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return string
+		 */
+		public static function hitl_summary( $name, $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$value = isset( $input['value'] ) ? (string) $input['value'] : '';
+			return sprintf(
+				/* translators: %s: new stub value */
+				__( 'E2E stub: set test setting to “%s”', 'ahentic' ),
+				$value
+			);
+		}
+
+		/**
+		 * @param string $name Ability name.
+		 * @return string
+		 */
+		public static function progress_label( $name ) {
+			if ( self::WRITE === (string) $name ) {
+				return __( 'Updating e2e stub setting…', 'ahentic' );
+			}
+			return '';
+		}
+
+		/**
+		 * Wire restore for undo-last-actions.
+		 */
+		public static function boot_restore() {
+			if ( ! class_exists( 'Ahentic_Settings_Snapshots' ) ) {
+				return;
+			}
+			Ahentic_Settings_Snapshots::register_restore(
+				self::WRITE,
+				static function ( array $entry ) {
+					$target = isset( $entry['target'] ) ? (string) $entry['target'] : self::OPTION;
+					if ( empty( $entry['prior_existed'] ) ) {
+						delete_option( $target );
+						return true;
+					}
+					$prior = array_key_exists( 'prior_value', $entry ) ? $entry['prior_value'] : null;
+					update_option( $target, $prior );
+					return true;
+				}
+			);
+		}
+
+		/**
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute( $name, $input = array() ) {
+			$name  = (string) $name;
+			$input = is_array( $input ) ? $input : array();
+			if ( self::WRITE !== $name ) {
+				return new WP_Error( 'ahentic_ability_unknown', 'Unknown e2e stub ability.' );
+			}
+
+			$value = array_key_exists( 'value', $input ) ? $input['value'] : null;
+			if ( null === $value ) {
+				return new WP_Error( 'ahentic_e2e_stub_missing_value', 'value is required.' );
+			}
+
+			$session_id = 0;
+			if ( class_exists( 'Ahentic_Orchestrator' ) && method_exists( 'Ahentic_Orchestrator', 'current_session_id' ) ) {
+				$session_id = (int) Ahentic_Orchestrator::current_session_id();
+			}
+
+			$option = self::OPTION;
+			if ( $session_id ) {
+				$option = self::OPTION . '_' . $session_id;
+			}
+
+			$prior_existed = false;
+			$prior_value   = null;
+			// get_option default sentinel — distinguish missing vs empty string.
+			$sentinel = new stdClass();
+			$current  = get_option( $option, $sentinel );
+			if ( $sentinel !== $current ) {
+				$prior_existed = true;
+				$prior_value   = $current;
+			}
+
+			if ( $session_id && class_exists( 'Ahentic_Settings_Snapshots' ) ) {
+				Ahentic_Settings_Snapshots::record(
+					$session_id,
+					array(
+						'ability'       => self::WRITE,
+						'target'        => $option,
+						'prior_existed' => $prior_existed,
+						'prior_value'   => $prior_value,
+					)
+				);
+			}
+
+			update_option( $option, $value );
+
+			return array(
+				'ok'            => true,
+				'option'        => $option,
+				'value'         => $value,
+				'prior_existed' => $prior_existed,
+			);
+		}
+	}
+
+	add_action(
+		'plugins_loaded',
+		static function () {
+			if ( ! class_exists( 'Ahentic_Abilities' ) ) {
+				return;
+			}
+			Ahentic_E2E_Stub_Settings_Write::boot_restore();
+			Ahentic_Abilities::register_module( 'Ahentic_E2E_Stub_Settings_Write' );
+		},
+		20
+	);
+}

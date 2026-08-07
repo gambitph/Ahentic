@@ -33,9 +33,10 @@ Official refs: [Abilities API in WP 6.9](https://make.wordpress.org/core/2025/11
 | `class-abilities-taxonomy.php` | terms | Server |
 | `class-abilities-browser.php` | `ahentic-browser/*` | **Client** (PHP stubs) |
 | `class-artifacts.php` (session) | `ahentic/stage-artifact`, list, delete | Server (session meta only) |
+| `class-settings-snapshots.php` (session) | `ahentic/undo-last-actions` + snapshot store helpers | Server (session meta) |
 | `class-playbooks.php` | `ahentic/get-wordpress-guidance` | Server |
 
-Facade: `Ahentic_Abilities` keeps the public orchestrator seam (`available_for_agent()`, `available_for_mode()`, `execute()`, `requires_hitl()`, `requires_browser_runtime()`, `progress_label()`). Ability groups **self-register** via `Ahentic_Abilities::register_module( __CLASS__ )` and self-hook WP `wp_abilities_api_*` actions at file load. Agent runs go through `Ahentic_Tool_Runner`; `execute()` is dispatch only — see [orchestrator CONTRACT](../orchestrator/CONTRACT.md).
+Facade: `Ahentic_Abilities` keeps the public orchestrator seam (`available_for_agent()`, `available_for_mode()`, `execute()`, `requires_hitl()`, `is_non_preallowable()`, `hitl_choice_allowed()`, `requires_browser_runtime()`, `progress_label()`). Ability groups **self-register** via `Ahentic_Abilities::register_module( __CLASS__ )` and self-hook WP `wp_abilities_api_*` actions at file load. Agent runs go through `Ahentic_Tool_Runner`; `execute()` is dispatch only — see [orchestrator CONTRACT](../orchestrator/CONTRACT.md).
 
 **v1 catalog:** only Ahentic-wired names. Foreign (other-plugin) WP Abilities are not in the agent catalog yet — planned for v2/v3; see [Abilities PRD](../../pro__premium_only/docs/prd/abilities.md) and [future-foreign-abilities.md](../../pro__premium_only/docs/future-foreign-abilities.md).
 
@@ -94,6 +95,7 @@ In your module:
 - `names()` — all ability name constants
 - `write_names()` / `is_readonly()` — Ask mode
 - `hitl_names()` / `requires_hitl()` / `hitl_summary()` — mutating tools that need Allow/Deny
+- `non_preallowable_names()` / `is_non_preallowable()` — optional; abilities that must never honor session/always allowlists
 - `progress_label( $name )` — sidebar / heartbeat copy while the tool runs
 - `execute( $name, $input )` — dispatch
 - Self-hook WP + `Ahentic_Abilities::register_module( __CLASS__ )` at file bottom

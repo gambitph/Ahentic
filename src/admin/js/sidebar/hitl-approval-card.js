@@ -65,16 +65,18 @@ export default function HitlApprovalCard( {
 						? __( 'Allowing…', 'ahentic' )
 						: __( 'Allow once', 'ahentic' ) }
 				</button>
-				<button
-					type="button"
-					className="ahentic-hitl__session"
-					disabled={ busy }
-					onClick={ () => decide( 'allow_session' ) }
-				>
-					{ submitting === 'allow_session'
-						? __( 'Allowing…', 'ahentic' )
-						: __( 'Allow for this chat', 'ahentic' ) }
-				</button>
+				{ ! pendingTool?.non_preallowable ? (
+					<button
+						type="button"
+						className="ahentic-hitl__session"
+						disabled={ busy }
+						onClick={ () => decide( 'allow_session' ) }
+					>
+						{ submitting === 'allow_session'
+							? __( 'Allowing…', 'ahentic' )
+							: __( 'Allow for this chat', 'ahentic' ) }
+					</button>
+				) : null }
 				<button
 					type="button"
 					className="ahentic-hitl__deny"

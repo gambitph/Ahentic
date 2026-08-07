@@ -33,6 +33,7 @@ class AbilityPolicyTest extends TestCase {
 		require_once $root . '/src/abilities/class-abilities-taxonomy.php';
 		require_once $root . '/src/abilities/class-abilities-site.php';
 		require_once $root . '/src/abilities/class-abilities-media.php';
+		require_once $root . '/src/session/class-settings-snapshots.php';
 
 		// Explicit re-register: another unit test may have loaded a module before the facade.
 		foreach (
@@ -44,6 +45,8 @@ class AbilityPolicyTest extends TestCase {
 				'Ahentic_Abilities_Taxonomy',
 				'Ahentic_Abilities_Site',
 				'Ahentic_Abilities_Media',
+				'Ahentic_Settings_Snapshots',
+				'Ahentic_AbilityPolicy_Test_Module',
 			) as $module
 		) {
 			Ahentic_Abilities::register_module( $module );
@@ -171,5 +174,79 @@ class AbilityPolicyTest extends TestCase {
 			'Reading site snapshot…',
 			Ahentic_Abilities::progress_label( 'ahentic/get-site-snapshot' )
 		);
+	}
+
+	/**
+	 * Non-preallowable abilities ignore session/always allowlists at the catalog seam.
+	 */
+	public function test_facade_is_non_preallowable_from_modules() {
+		$this->assertTrue( Ahentic_Abilities::is_non_preallowable( 'ahentic-test/non-preallowable-write' ) );
+		$this->assertFalse( Ahentic_Abilities::is_non_preallowable( 'ahentic/create-post' ) );
+		$this->assertFalse( Ahentic_Abilities::is_non_preallowable( 'ahentic/does-not-exist' ) );
+	}
+
+	/**
+	 * Session / always_allow choices are forbidden for non-preallowable abilities.
+	 */
+	public function test_hitl_choice_rejected_for_non_preallowable() {
+		$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/create-post', 'allow_once' ) );
+		$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/create-post', 'allow_session' ) );
+		$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/create-post', 'always_allow' ) );
+
+		$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( 'ahentic-test/non-preallowable-write', 'allow_once' ) );
+		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( 'ahentic-test/non-preallowable-write', 'allow_session' ) );
+		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( 'ahentic-test/non-preallowable-write', 'always_allow' ) );
+	}
+
+	/**
+	 * undo-last-actions is registered on the settings-snapshots module (write, no HITL).
+	 */
+	public function test_undo_last_actions_policy() {
+		$name = 'ahentic/undo-last-actions';
+		$this->assertContains( $name, Ahentic_Settings_Snapshots::names() );
+		$this->assertFalse( Ahentic_Settings_Snapshots::is_readonly( $name ) );
+		$this->assertFalse( Ahentic_Settings_Snapshots::requires_hitl( $name ) );
+		$this->assertContains( $name, Ahentic_Abilities::available_for_agent() );
+		$this->assertSame(
+			'Undoing last settings changes…',
+			Ahentic_Abilities::progress_label( $name )
+		);
+	}
+}
+
+/**
+ * Temporary catalog module so non-preallowable can be proven without Track D abilities.
+ */
+class Ahentic_AbilityPolicy_Test_Module {
+	const WRITE = 'ahentic-test/non-preallowable-write';
+
+	/**
+	 * @return string[]
+	 */
+	public static function names() {
+		return array( self::WRITE );
+	}
+
+	/**
+	 * @return string[]
+	 */
+	public static function non_preallowable_names() {
+		return array( self::WRITE );
+	}
+
+	/**
+	 * @param string $name Ability name.
+	 * @return bool
+	 */
+	public static function is_non_preallowable( $name ) {
+		return in_array( (string) $name, self::non_preallowable_names(), true );
+	}
+
+	/**
+	 * @param string $name Ability name.
+	 * @return bool
+	 */
+	public static function requires_hitl( $name ) {
+		return self::WRITE === (string) $name;
 	}
 }

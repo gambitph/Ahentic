@@ -71,6 +71,7 @@ require_once __DIR__ . '/src/abilities/class-abilities-taxonomy.php';
 require_once __DIR__ . '/src/abilities/class-abilities-browser.php';
 require_once __DIR__ . '/src/abilities/class-capability-request.php';
 require_once __DIR__ . '/src/session/class-artifacts.php';
+require_once __DIR__ . '/src/session/class-settings-snapshots.php';
 require_once __DIR__ . '/src/playbooks/class-playbooks.php';
 require_once __DIR__ . '/src/orchestrator/class-usage.php';
 require_once __DIR__ . '/src/orchestrator/class-queue.php';

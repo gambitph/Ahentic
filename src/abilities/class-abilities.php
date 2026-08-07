@@ -238,6 +238,45 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		}
 
 		/**
+		 * Whether an ability must always get a fresh Allow/Deny (never honor
+		 * session / always-allow lists).
+		 *
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function is_non_preallowable( $name ) {
+			$name = (string) $name;
+			foreach ( self::$modules as $class ) {
+				if ( method_exists( $class, 'is_non_preallowable' ) && $class::is_non_preallowable( $name ) ) {
+					return true;
+				}
+				if ( method_exists( $class, 'non_preallowable_names' )
+					&& in_array( $name, $class::non_preallowable_names(), true ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Whether an HITL decision choice is allowed for this ability.
+		 *
+		 * Non-preallowable abilities may only use allow_once (or deny — handled elsewhere).
+		 *
+		 * @param string $name   Ability name.
+		 * @param string $choice allow_once|allow_session|always_allow.
+		 * @return bool
+		 */
+		public static function hitl_choice_allowed( $name, $choice ) {
+			$choice = (string) $choice;
+			if ( in_array( $choice, array( 'allow_session', 'always_allow' ), true )
+				&& self::is_non_preallowable( $name ) ) {
+				return false;
+			}
+			return true;
+		}
+
+		/**
 		 * Human-readable summary for HITL approval UI.
 		 *
 		 * @param string $name  Ability name.

@@ -1,17 +1,186 @@
 /**
- * Browser-driven characterization: HITL card is clickable and Allow once
- * resumes the real orchestrator. Pipeline order itself is locked in
- * orchestrator-pipeline.spec.js (REST-direct); this only proves the React
- * HITL surface wires to those routes.
+ * Task 01 — non-preallowable HITL + settings snapshot / undo-last-actions.
  *
- * Full Task 01 (non-preallowable + undo) coverage lands in this file later.
+ * REST-direct coverage for Track A plumbing. Browser HITL card clickability
+ * stays in the describe below (Allow once on create-post).
  */
 /* eslint-disable camelcase -- Ability / REST I/O matches PHP schema snake_case. */
 const { test, expect } = require( '../fixtures/test' )
 const { mockReply } = require( '../fixtures/ahentic-sidebar' )
-const { waitForSession, mockUseTools } = require( '../utils/session-client' )
+const {
+	waitForSession,
+	mockUseTools,
+	startRun,
+	postApproval,
+} = require( '../utils/session-client' )
+const { runAbility, resetAiResponses } = require( '../utils/ability-client' )
+const { createSession } = require( '../utils/session-client' )
+
+const STUB = 'ahentic-e2e/stub-settings-write'
 
 test.describe.configure( { mode: 'serial', timeout: 90_000 } )
+
+test.describe( 'Task 01: settings snapshot + undo (REST)', () => {
+	test.beforeEach( async ( { requestUtils } ) => {
+		await resetAiResponses( requestUtils )
+	} )
+
+	test( 'stub write snapshots prior absence; undo deletes the option', async ( {
+		requestUtils,
+	} ) => {
+		const session = await createSession( requestUtils )
+		const sessionId = session.id
+
+		const first = await runAbility(
+			requestUtils,
+			STUB,
+			{ value: 'alpha' },
+			{ sessionId }
+		)
+		expect( first.ok ).toBe( true )
+		expect( first.data.prior_existed ).toBe( false )
+
+		const undo = await runAbility(
+			requestUtils,
+			'ahentic/undo-last-actions',
+			{ count: 1 },
+			{ sessionId }
+		)
+		expect( undo.ok ).toBe( true )
+		expect( undo.data.undone ).toBe( 1 )
+
+		const again = await runAbility(
+			requestUtils,
+			STUB,
+			{ value: 'beta' },
+			{ sessionId }
+		)
+		expect( again.ok ).toBe( true )
+		// Undo deleted the option, so the next write again sees "did not exist".
+		expect( again.data.prior_existed ).toBe( false )
+	} )
+
+	test( 'undo restores a prior value; empty undo is a no-op', async ( {
+		requestUtils,
+	} ) => {
+		const session = await createSession( requestUtils )
+		const sessionId = session.id
+
+		await runAbility( requestUtils, STUB, { value: 'one' }, { sessionId } )
+		await runAbility( requestUtils, STUB, { value: 'two' }, { sessionId } )
+
+		const undo1 = await runAbility(
+			requestUtils,
+			'ahentic/undo-last-actions',
+			{},
+			{ sessionId }
+		)
+		expect( undo1.ok ).toBe( true )
+		expect( undo1.data.undone ).toBe( 1 )
+
+		const third = await runAbility(
+			requestUtils,
+			STUB,
+			{ value: 'three' },
+			{ sessionId }
+		)
+		expect( third.ok ).toBe( true )
+		expect( third.data.prior_existed ).toBe( true )
+
+		// Drain remaining snapshots.
+		await runAbility(
+			requestUtils,
+			'ahentic/undo-last-actions',
+			{ count: 10 },
+			{ sessionId }
+		)
+
+		const noop = await runAbility(
+			requestUtils,
+			'ahentic/undo-last-actions',
+			{ count: 1 },
+			{ sessionId }
+		)
+		expect( noop.ok ).toBe( true )
+		expect( noop.data.undone ).toBe( 0 )
+		expect( String( noop.data.message || '' ) ).toMatch( /nothing to undo/i )
+	} )
+
+	test( 'allow_session / always_allow rejected for non-preallowable stub', async ( {
+		requestUtils,
+	} ) => {
+		const { sessionId } = await startRun( requestUtils, {
+			aiReplies: [
+				mockUseTools(
+					'Updating stub…',
+					[ { name: STUB, input: { value: `hitl-${ Date.now() }` } } ],
+					{
+						plan: {
+							title: 'Stub settings write',
+							steps: [
+								{
+									id: '1', content: 'Write the stub option', status: 'in_progress',
+								},
+								{
+									id: '2', content: 'Confirm', status: 'pending',
+								},
+							],
+						},
+					}
+				),
+				mockReply( 'Stub updated.' ),
+			],
+			content: 'Set the e2e stub setting',
+		} )
+
+		const paused = await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'awaiting_human' && s.pendingTool?.name === STUB
+		)
+
+		expect( paused.pendingTool.non_preallowable ).toBe( true )
+
+		let sessionStatus = 0
+		let sessionCode = ''
+		try {
+			await postApproval( requestUtils, sessionId, 'allow_session' )
+		} catch ( err ) {
+			sessionStatus = err.status || err.data?.status || 0
+			sessionCode = err.code || err.data?.code || ''
+			if ( ! sessionStatus && typeof err.message === 'string' && /\b4\d\d\b/.test( err.message ) ) {
+				sessionStatus = Number( ( err.message.match( /\b(4\d\d)\b/ ) || [] )[ 1 ] || 0 )
+			}
+		}
+		expect( sessionStatus ).toBe( 400 )
+		expect( String( sessionCode ) ).toMatch( /ahentic_hitl_not_preallowable/ )
+
+		let alwaysStatus = 0
+		let alwaysCode = ''
+		try {
+			await postApproval( requestUtils, sessionId, 'always_allow' )
+		} catch ( err ) {
+			alwaysStatus = err.status || err.data?.status || 0
+			alwaysCode = err.code || err.data?.code || ''
+			if ( ! alwaysStatus && typeof err.message === 'string' && /\b4\d\d\b/.test( err.message ) ) {
+				alwaysStatus = Number( ( err.message.match( /\b(4\d\d)\b/ ) || [] )[ 1 ] || 0 )
+			}
+		}
+		expect( alwaysStatus ).toBe( 400 )
+		expect( String( alwaysCode ) ).toMatch( /ahentic_hitl_not_preallowable/ )
+
+		// Still awaiting — allow once completes the run.
+		const still = await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'awaiting_human' && s.pendingTool?.name === STUB
+		)
+		expect( still.pendingTool.non_preallowable ).toBe( true )
+
+		await postApproval( requestUtils, sessionId, 'allow_once' )
+		await waitForSession( requestUtils, sessionId, s => s.status === 'idle' )
+	} )
+} )
 
 test.describe( 'Sidebar HITL approval card', () => {
 	test.beforeEach( async ( { ahenticSidebar } ) => {
@@ -48,8 +217,6 @@ test.describe( 'Sidebar HITL approval card', () => {
 		const session = await ahenticSidebar.openWithSession()
 		await ahenticSidebar.sendMessage( `Create a draft titled ${ title }` )
 
-		// Wait on the same session status the REST pipeline asserts — the card
-		// only mounts after the sidebar applies that poll payload.
 		await waitForSession(
 			requestUtils,
 			session.id,

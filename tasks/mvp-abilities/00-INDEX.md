@@ -8,6 +8,7 @@ Each task file is self-contained: current state, what's missing, scope, out of s
 
 - Track B: `list-post-types`, `analyze-plugins`, `list-themes`, `replace-in-content`, `list-revisions` / `restore-revision`, `describe-image`, `generate-image` + `image` artifacts, and `upload-media` (incl. `from_memory`).
 - Task 16: `ahentic-browser/set-featured-image` (editor-open featured media).
+- **Track A / Task 01:** non-preallowable HITL + settings snapshot store + `ahentic/undo-last-actions` (see `src/session/class-settings-snapshots.php`, `Ahentic_Abilities::is_non_preallowable`, session meta `_ahentic_settings_snapshots`).
 
 Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sidebar/sidebar.md`](../../src/admin/js/sidebar/sidebar.md). Take-over remains deferred: [`../future/multi-window-take-over.md`](../future/multi-window-take-over.md).
 
@@ -17,13 +18,7 @@ Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sid
 - [`pro__premium_only/docs/prd/site-settings.md`](../../pro__premium_only/docs/prd/site-settings.md)
 - [`docs/adr/0007-settings-writes-require-snapshot-undo.md`](../../docs/adr/0007-settings-writes-require-snapshot-undo.md)
 
-## Track A — Prerequisite infra (blocks Tracks C–E writes that need snapshot/undo)
-
-| # | Task | Blocks |
-| --- | --- | --- |
-| [01](./01-hitl-non-preallowable-and-undo.md) | Non-preallowable HITL + settings snapshot store + `undo-last-actions` | C, D, E (remaining) |
-
-## Track C — Theme / settings surface — needs Track A
+## Track C — Theme / settings surface — needs Track A (done)
 
 | # | Task |
 | --- | --- |
@@ -33,7 +28,7 @@ Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sid
 | [10](./10-ability-update-template-part.md) | `update-template-part` (block theme, client/server routing) |
 | [11](./11-ability-update-option.md) | `update-option` (interactive, registered + vetted keys, denylist) |
 
-## Track D — Users — needs Track A
+## Track D — Users — needs Track A (done)
 
 | # | Task |
 | --- | --- |
@@ -47,7 +42,6 @@ Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sid
 
 ## Suggested order
 
-1. **Track A (01)** — next; unlocks C / D / remaining E snapshot writes
-2. Track C (07 → 08 → 09 → 10 → 11)
-3. Track D (12)
-4. Track E remainder (13)
+1. Track C (07 → 08 → 09 → 10 → 11) — **next**
+2. Track D (12)
+3. Track E remainder (13)

@@ -2299,6 +2299,14 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return new WP_Error( 'ahentic_bad_decision', __( 'Invalid approval decision.', 'ahentic' ), array( 'status' => 400 ) );
 			}
 
+			if ( ! Ahentic_Abilities::hitl_choice_allowed( $name, $choice ) ) {
+				return new WP_Error(
+					'ahentic_hitl_not_preallowable',
+					__( 'This action always needs a fresh Allow once — it cannot be allowed for the chat or forever.', 'ahentic' ),
+					array( 'status' => 400 )
+				);
+			}
+
 			if ( 'allow_session' === $choice ) {
 				Ahentic_Session_Repository::add_hitl_session_allow( $session_id, $name );
 			}

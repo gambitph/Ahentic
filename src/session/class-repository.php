@@ -29,6 +29,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_KNOWLEDGE_FACTS  = '_ahentic_knowledge_facts';
 		const META_KNOWLEDGE_OVERRIDE = '_ahentic_knowledge_override';
 		const META_HITL_SESSION     = '_ahentic_hitl_session_allows';
+		const META_SETTINGS_SNAPSHOTS = '_ahentic_settings_snapshots';
 		const META_ERROR            = '_ahentic_last_error';
 		const META_AUTO_TITLE       = '_ahentic_auto_title';
 		const META_TRACE            = '_ahentic_trace';
@@ -1174,6 +1175,10 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			if ( '' === $ability ) {
 				return;
 			}
+			if ( class_exists( 'Ahentic_Abilities' ) && method_exists( 'Ahentic_Abilities', 'is_non_preallowable' )
+				&& Ahentic_Abilities::is_non_preallowable( $ability ) ) {
+				return;
+			}
 			$allows = self::get_hitl_session_allows( $session_id );
 			if ( ! in_array( $ability, $allows, true ) ) {
 				$allows[] = $ability;
@@ -1215,6 +1220,10 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			if ( '' === $ability || ! $user_id ) {
 				return;
 			}
+			if ( class_exists( 'Ahentic_Abilities' ) && method_exists( 'Ahentic_Abilities', 'is_non_preallowable' )
+				&& Ahentic_Abilities::is_non_preallowable( $ability ) ) {
+				return;
+			}
 			$allows = self::get_hitl_always_allows( $user_id );
 			if ( ! in_array( $ability, $allows, true ) ) {
 				$allows[] = $ability;
@@ -1225,6 +1234,8 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		/**
 		 * Whether HITL can be skipped for this ability (session or always policy).
 		 *
+		 * Non-preallowable abilities never skip — session/always lists are ignored.
+		 *
 		 * @param int    $session_id Session ID.
 		 * @param string $ability    Ability name.
 		 * @return bool
@@ -1234,11 +1245,85 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			if ( '' === $ability ) {
 				return false;
 			}
+			if ( class_exists( 'Ahentic_Abilities' ) && method_exists( 'Ahentic_Abilities', 'is_non_preallowable' )
+				&& Ahentic_Abilities::is_non_preallowable( $ability ) ) {
+				return false;
+			}
 			if ( in_array( $ability, self::get_hitl_session_allows( $session_id ), true ) ) {
 				return true;
 			}
 			$owner = (int) get_post_field( 'post_author', $session_id );
 			return in_array( $ability, self::get_hitl_always_allows( $owner ), true );
+		}
+
+		/**
+		 * Settings-surface snapshot list for a session (oldest → newest).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array[]
+		 */
+		public static function get_settings_snapshots( $session_id ) {
+			$session_id = (int) $session_id;
+			if ( ! $session_id ) {
+				return array();
+			}
+			$raw = get_post_meta( $session_id, self::META_SETTINGS_SNAPSHOTS, true );
+			if ( empty( $raw ) ) {
+				return array();
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			if ( ! is_array( $decoded ) ) {
+				return array();
+			}
+			$out = array();
+			foreach ( $decoded as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				if ( class_exists( 'Ahentic_Settings_Snapshots' ) ) {
+					$norm = Ahentic_Settings_Snapshots::normalize_entry( $row );
+					if ( $norm ) {
+						$out[] = $norm;
+					}
+				} else {
+					$out[] = $row;
+				}
+			}
+			return $out;
+		}
+
+		/**
+		 * Replace the settings snapshot list for a session.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $list       Normalized entries.
+		 */
+		public static function set_settings_snapshots( $session_id, array $list ) {
+			$session_id = (int) $session_id;
+			if ( ! $session_id ) {
+				return;
+			}
+			update_post_meta( $session_id, self::META_SETTINGS_SNAPSHOTS, wp_slash( wp_json_encode( array_values( $list ) ) ) );
+		}
+
+		/**
+		 * Append one settings snapshot (capped).
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $entry      Normalized entry.
+		 */
+		public static function push_settings_snapshot( $session_id, array $entry ) {
+			$session_id = (int) $session_id;
+			if ( ! $session_id ) {
+				return;
+			}
+			$list = self::get_settings_snapshots( $session_id );
+			if ( class_exists( 'Ahentic_Settings_Snapshots' ) ) {
+				$list = Ahentic_Settings_Snapshots::append_capped( $list, $entry );
+			} else {
+				$list[] = $entry;
+			}
+			self::set_settings_snapshots( $session_id, $list );
 		}
 
 		/**

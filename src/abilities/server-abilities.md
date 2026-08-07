@@ -2,7 +2,7 @@
 
 Abilities that run entirely in PHP when the Tool runner reaches server execute (`Ahentic_Abilities::execute`). No browser pause unless the ability opts into browser runtime for a specific input (today: `ahentic/http-fetch` with `as_user`).
 
-**Code:** `class-abilities-*.php` (content, plugins, site, media, taxonomy), snapshot in `class-abilities.php`, artifacts in `src/session/class-artifacts.php`
+**Code:** `class-abilities-*.php` (content, plugins, site, media, taxonomy), snapshot in `class-abilities-snapshot.php`, artifacts + settings snapshots / undo in `src/session/`
 
 **Related:** [Abilities overview](./abilities.md) · [Client abilities](./client-abilities.md) · [Orchestrator](../orchestrator/orchestrator.md) · [Orchestrator CONTRACT](../orchestrator/CONTRACT.md)
 
@@ -110,8 +110,13 @@ Mutating site changes should pause for Allow / Deny:
 3. The Tool runner sets `pending_tool` + `awaiting_human` (do not reimplement this in a new Orchestrator branch).
 4. On allow: Tool runner continues (`skip_hitl`) — PHP execute or browser pause if `requires_browser_runtime`.
 5. Session / always-allow lists can skip repeat prompts (`hitl_is_preallowed`).
+6. **Non-preallowable** abilities (e.g. future user writes): implement `non_preallowable_names()` / `is_non_preallowable()` so session/always allowlists are ignored and `allow_session` / `always_allow` decisions are rejected (`Ahentic_Abilities::hitl_choice_allowed`).
 
 Do **not** put full post bodies or block trees in the HITL summary. Prefer title, id, artifact key (`from_memory`).
+
+### Settings snapshot + undo (ADR-0007)
+
+Before writing theme settings / options / global styles / template parts / media (no WP revisions), call `Ahentic_Settings_Snapshots::record( $session_id, … )` with `prior_existed` distinct from empty values. Register a restore callback via `Ahentic_Settings_Snapshots::register_restore( $ability, $callback )`. Agents undo via `ahentic/undo-last-actions`.
 
 ---
 

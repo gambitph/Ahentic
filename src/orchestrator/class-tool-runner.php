@@ -627,10 +627,11 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 		private static function pause_hitl( $session_id, $name, array $input, $artifact_key, $step, $source = '', $fallback = false ) {
 			$summary = self::hitl_summary_for_pending( $session_id, $name, $input );
 			$pending = array(
-				'name'    => $name,
-				'input'   => $input,
-				'summary' => $summary,
-				'call_id' => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
+				'name'             => $name,
+				'input'            => $input,
+				'summary'          => $summary,
+				'call_id'          => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'ahentic_', true ),
+				'non_preallowable' => Ahentic_Abilities::is_non_preallowable( $name ),
 			);
 			if ( $source ) {
 				$pending['source'] = $source;
