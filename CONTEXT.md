@@ -22,6 +22,10 @@ _Avoid_: read-only chat, browse mode
 Session mode that may plan, call write abilities, and complete multi-step work on the site (subject to HITL and verification).
 _Avoid_: edit mode, full access mode
 
+**Plan mode**:
+*(Future / free v2)* Session mode whose primary output is a refinable plan; does not execute site work — the user switches to Agent or Ask (or stays) for the next move.
+_Avoid_: planning chat, outline mode, confusing with **Plan** (the checklist)
+
 ### Runtime
 
 **Orchestrator**:
@@ -46,7 +50,7 @@ _Avoid_: native tool call, function call payload
 
 **Plan**:
 An explicit multi-step checklist the orchestrator persists and holds the model to for Agent multi-step or write work.
-_Avoid_: todo list (UI-only), outline
+_Avoid_: todo list (UI-only), outline, **Plan mode** (the session mode that produces/refines a plan)
 
 **Ability**:
 A named WordPress Abilities API unit (schema + permission + execute) that the agent may call as a tool.
