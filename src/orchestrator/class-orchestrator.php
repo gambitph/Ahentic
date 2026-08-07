@@ -309,12 +309,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					self::progress_label_from_debug( $debug, $think_label )
 				);
 
-				// Persist multi-step plan from the control block (orchestrator state, not a tool).
-				Ahentic_Plan::apply_from_debug( $session_id, $debug );
-
-				// Agent write / multi-tool work must have a plan (PRD).
+				// Persist multi-step plan; retry / synthesize when Agent work requires one.
 				$planned_for_plan = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
-				if ( Ahentic_Plan::requires_for_think( $mode, $planned_for_plan ) && ! Ahentic_Session_Repository::get_plan( $session_id ) ) {
+				if ( Ahentic_Plan::sync_after_think( $session_id, $debug, $mode, $planned_for_plan ) ) {
 					$plan_retry = self::run_llm_phase(
 						$session_id,
 						__( 'Planning the work…', 'ahentic' ),
@@ -326,14 +323,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 						false
 					);
 					if ( ! is_wp_error( $plan_retry ) && is_array( $plan_retry ) ) {
-						$result = $plan_retry;
-						$debug  = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
-						Ahentic_Plan::apply_from_debug( $session_id, $debug );
+						$result           = $plan_retry;
+						$debug            = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
 						$planned_for_plan = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
 					}
-					if ( ! Ahentic_Session_Repository::get_plan( $session_id ) ) {
-						Ahentic_Plan::ensure_synthetic( $session_id, $debug, $planned_for_plan );
-					}
+					Ahentic_Plan::ensure_after_think( $session_id, $debug, $planned_for_plan );
 				}
 
 				// Fill empty final-reply text from thinking/intention when needed.

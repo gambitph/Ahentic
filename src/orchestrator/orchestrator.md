@@ -16,7 +16,7 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 | Piece | Responsibility |
 | --- | --- |
 | `Ahentic_Orchestrator` | Agent loop: think → tools → continue / finish |
-| `Ahentic_Plan` | Plan card lifecycle (normalize / apply / advance / complete / cancel / synthetic) |
+| `Ahentic_Plan` | Plan card lifecycle (`sync_after_think` / `ensure_after_think` / advance / complete / cancel) |
 | `Ahentic_Tool_Runner` | One Ability through HITL / browser / execute (owns pipeline helpers; shared by step loop + approval resume) |
 | `Ahentic_Finish_Gate` | Thin-body assess + decide-before-idle (forced apply / verify repair / partial finish) |
 | `Ahentic_AI` | Thin wrapper around Core AI Client / `wordpress/php-ai-client` |

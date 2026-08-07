@@ -10,7 +10,7 @@
 use PHPUnit\Framework\TestCase;
 
 /**
- * Covers Ahentic_Plan normalize + merge (M3 move-only extract).
+ * Covers Ahentic_Plan normalize + merge + requires_for_think (M4 deepen).
  */
 class PlanTest extends TestCase {
 
@@ -127,5 +127,43 @@ class PlanTest extends TestCase {
 		);
 		$this->assertSame( 'completed', $merged['steps'][0]['status'] );
 		$this->assertSame( 'Next updated', $merged['steps'][1]['content'] );
+	}
+
+	/**
+	 * Ask mode never requires a persisted plan.
+	 */
+	public function test_requires_for_think_ask_mode() {
+		$this->assertFalse(
+			Ahentic_Plan::requires_for_think(
+				'ask',
+				array(
+					array( 'name' => 'ahentic/create-post', 'input' => array() ),
+					array( 'name' => 'ahentic/set-post-status', 'input' => array() ),
+				)
+			)
+		);
+	}
+
+	/**
+	 * Agent mode with ≥2 tools requires a plan (CONTRACT).
+	 */
+	public function test_requires_for_think_two_tools() {
+		$this->assertTrue(
+			Ahentic_Plan::requires_for_think(
+				'agent',
+				array(
+					array( 'name' => 'ahentic/list-content', 'input' => array() ),
+					array( 'name' => 'ahentic/get-content', 'input' => array() ),
+				)
+			)
+		);
+		$this->assertFalse(
+			Ahentic_Plan::requires_for_think(
+				'agent',
+				array(
+					array( 'name' => 'ahentic/list-content', 'input' => array() ),
+				)
+			)
+		);
 	}
 }

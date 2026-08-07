@@ -53,7 +53,7 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 **Prompt assembly module:** `Ahentic_Prompt_Assembler` owns system prompt text, history/tool compaction, and user-turn shaping. The Orchestrator must call `for_llm()` (or the assembler’s tested helpers) — do not reimplement prompt/payload assembly at call sites.
 
-**Plan module:** `Ahentic_Plan` owns plan normalize/merge/apply, advance-after-tool, complete-on-finish, cancel-on-stop, requires-for-think / ensure-synthetic. The Orchestrator (and Finish Gate for advance) must call this module — do not reimplement plan FSM at call sites.
+**Plan module:** `Ahentic_Plan` owns the plan checklist. Primary interface: `sync_after_think()`, `ensure_after_think()`, `advance_after_tool()`, `complete_on_finish()`, `cancel_on_stop()`. The Orchestrator (and Finish Gate for advance) must call these — do not reimplement plan merge/normalize/FSM at call sites.
 
 ## Browser preflight & recovery
 

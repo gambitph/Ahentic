@@ -2,8 +2,10 @@
 /**
  * Session plan checklist lifecycle (control-block plan → sidebar card).
  *
- * Owns normalize / merge / apply / advance / complete / cancel / synthetic plan.
- * The Orchestrator must call this module — do not reimplement plan FSM at call sites.
+ * Deep module: may this Session show / advance a plan card?
+ * Primary interface: sync_after_think(), ensure_after_think(), advance_after_tool(),
+ * complete_on_finish(), cancel_on_stop().
+ * The Orchestrator must call these — do not reimplement plan FSM at call sites.
  */
 
 // Exit if accessed directly.
@@ -13,11 +15,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'Ahentic_Plan' ) ) {
 	/**
-	 * Plan module: persist and advance the agent plan card.
+	 * Deep module: session plan checklist lifecycle.
 	 *
-	 * Primary interface: apply_from_debug, advance_after_tool, complete_on_finish,
-	 * cancel_on_stop, requires_for_think, ensure_synthetic.
-	 * Pure helpers (normalize_from_debug, merge_with_existing) are part of the test surface.
+	 * Primary interface: sync_after_think(), ensure_after_think(), advance_after_tool(),
+	 * complete_on_finish(), cancel_on_stop().
+	 * Pure helpers (normalize_from_debug, merge_with_existing, requires_for_think) are
+	 * part of the test surface; normalize_from_debug is also used for llm_thinking traces.
 	 */
 	class Ahentic_Plan {
 		/**
@@ -29,6 +32,35 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		const MAX_PLAN_STEPS = 12;
 
 		/**
+		 * After an LLM think: persist plan from the control block; report if a plan retry is required.
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param array  $debug      Parsed debug block.
+		 * @param string $mode       agent|ask.
+		 * @param array  $planned    Normalized tools_planned.
+		 * @return bool True when Agent work needs a plan and none is persisted yet.
+		 */
+		public static function sync_after_think( $session_id, $debug, $mode, array $planned ) {
+			self::apply_from_debug( $session_id, $debug );
+			return self::requires_for_think( $mode, $planned )
+				&& ! Ahentic_Session_Repository::get_plan( $session_id );
+		}
+
+		/**
+		 * After a plan-retry think (or when synthesizing): apply debug plan, else invent a minimal one.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $debug      Parsed debug block.
+		 * @param array $planned    Normalized tools_planned.
+		 */
+		public static function ensure_after_think( $session_id, $debug, array $planned ) {
+			self::apply_from_debug( $session_id, $debug );
+			if ( ! Ahentic_Session_Repository::get_plan( $session_id ) ) {
+				self::ensure_synthetic( $session_id, $debug, $planned );
+			}
+		}
+
+		/**
 		 * Persist multi-step plan from the control block (orchestrator state, not a tool).
 		 *
 		 * Plans are orchestrator state (not abilities). A new plan is shown when
@@ -38,7 +70,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 * @param int   $session_id Session ID.
 		 * @param array $debug      Parsed debug block.
 		 */
-		public static function apply_from_debug( $session_id, $debug ) {
+		private static function apply_from_debug( $session_id, $debug ) {
 			if ( ! is_array( $debug ) || ! array_key_exists( 'plan', $debug ) ) {
 				return;
 			}
@@ -259,7 +291,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 * @param array $plan Normalized plan.
 		 * @return string
 		 */
-		public static function trace_summary( array $plan ) {
+		private static function trace_summary( array $plan ) {
 			$steps = isset( $plan['steps'] ) && is_array( $plan['steps'] ) ? $plan['steps'] : array();
 			$total = count( $steps );
 			$done  = 0;
@@ -281,28 +313,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 * @param int $session_id Session ID.
 		 */
 		public static function complete_on_finish( $session_id ) {
-			$plan = Ahentic_Session_Repository::get_plan( $session_id );
-			if ( ! is_array( $plan ) || empty( $plan['steps'] ) || ! is_array( $plan['steps'] ) ) {
-				return;
-			}
-			$changed = false;
-			$steps   = array();
-			foreach ( $plan['steps'] as $step ) {
-				if ( ! is_array( $step ) ) {
-					continue;
-				}
-				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
-				if ( 'cancelled' !== $status && 'completed' !== $status ) {
-					$step['status'] = 'completed';
-					$changed        = true;
-				}
-				$steps[] = $step;
-			}
-			if ( ! $changed ) {
-				return;
-			}
-			$plan['steps'] = $steps;
-			Ahentic_Session_Repository::set_plan( $session_id, $plan );
+			self::set_open_steps_status( $session_id, 'completed' );
 		}
 
 		/**
@@ -314,6 +325,16 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 * @param int $session_id Session ID.
 		 */
 		public static function cancel_on_stop( $session_id ) {
+			self::set_open_steps_status( $session_id, 'cancelled' );
+		}
+
+		/**
+		 * Set every non-terminal plan step to a terminal status.
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $status     completed|cancelled.
+		 */
+		private static function set_open_steps_status( $session_id, $status ) {
 			$plan = Ahentic_Session_Repository::get_plan( $session_id );
 			if ( ! is_array( $plan ) || empty( $plan['steps'] ) || ! is_array( $plan['steps'] ) ) {
 				return;
@@ -324,9 +345,9 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 				if ( ! is_array( $step ) ) {
 					continue;
 				}
-				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
-				if ( 'completed' !== $status && 'cancelled' !== $status ) {
-					$step['status'] = 'cancelled';
+				$current = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+				if ( 'completed' !== $current && 'cancelled' !== $current ) {
+					$step['status'] = $status;
 					$changed        = true;
 				}
 				$steps[] = $step;
@@ -350,8 +371,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 				return;
 			}
 
-			$short   = strtolower( (string) preg_replace( '/^.*\//', '', (string) $name ) );
-			$short   = str_replace( '-', ' ', $short );
+			$short   = self::ability_short_label( $name );
 			$steps   = $plan['steps'];
 			$changed = false;
 			$marked  = false;
@@ -452,7 +472,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 * @param array $debug      Parsed debug block.
 		 * @param array $planned    Normalized tools_planned (from Orchestrator::normalize_tool_calls).
 		 */
-		public static function ensure_synthetic( $session_id, $debug, array $planned = array() ) {
+		private static function ensure_synthetic( $session_id, $debug, array $planned = array() ) {
 			if ( Ahentic_Session_Repository::get_plan( $session_id ) ) {
 				return;
 			}
@@ -462,13 +482,13 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 				$i = 1;
 				foreach ( $planned as $call ) {
 					$name  = isset( $call['name'] ) ? (string) $call['name'] : '';
-					$short = $name ? preg_replace( '/^.*\//', '', $name ) : '';
+					$short = self::ability_short_label( $name );
 					$steps[] = array(
 						'id'      => (string) $i,
 						'content' => $short ? sprintf(
 							/* translators: %s: ability short name */
 							__( 'Run %s', 'ahentic' ),
-							str_replace( '-', ' ', $short )
+							$short
 						) : __( 'Complete the next action', 'ahentic' ),
 						'status'  => 1 === $i ? 'in_progress' : 'pending',
 					);
@@ -501,6 +521,17 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 				),
 				$step
 			);
+		}
+
+		/**
+		 * Human-readable ability short name for plan step matching / labels.
+		 *
+		 * @param string $name Ability name.
+		 * @return string Lowercase words without namespace (e.g. "create post").
+		 */
+		private static function ability_short_label( $name ) {
+			$short = strtolower( (string) preg_replace( '/^.*\//', '', (string) $name ) );
+			return str_replace( '-', ' ', $short );
 		}
 
 		/**
