@@ -138,26 +138,29 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 					'isReady'      => false,
 					'hasConnector' => false,
 					'canGenerate'  => false,
-					'connectorsUrl'=> admin_url( 'options-connectors.php' ),
+					'connectorsUrl' => admin_url( 'options-connectors.php' ),
 				);
 
 			wp_localize_script(
 				'ahentic-script',
 				'ahentic',
 				array(
-					'version'     => AHENTIC_VERSION,
-					'build'       => AHENTIC_BUILD,
-					'settingsUrl' => $settings_url,
-					'docsUrl'     => $docs_url,
-					'isAdmin'     => is_admin(),
-					'homeUrl'     => esc_url_raw( home_url( '/' ) ),
-					'siteUrl'     => esc_url_raw( site_url( '/' ) ),
-					'iconUrl'     => self::icon_url(),
-					'adminBarId'  => self::ADMIN_BAR_ID,
-					'restUrl'     => esc_url_raw( rest_url( 'ahentic/v1' ) ),
-					'restNonce'   => wp_create_nonce( 'wp_rest' ),
-					'aiPlugin'    => $ai_status,
-					'context'     => array(
+					'version'               => AHENTIC_VERSION,
+					'build'                 => AHENTIC_BUILD,
+					'settingsUrl'           => $settings_url,
+					'docsUrl'               => $docs_url,
+					'isAdmin'               => is_admin(),
+					'homeUrl'               => esc_url_raw( home_url( '/' ) ),
+					'siteUrl'               => esc_url_raw( site_url( '/' ) ),
+					'iconUrl'               => self::icon_url(),
+					'adminBarId'            => self::ADMIN_BAR_ID,
+					'restUrl'               => esc_url_raw( rest_url( 'ahentic/v1' ) ),
+					'restNonce'             => wp_create_nonce( 'wp_rest' ),
+					'aiPlugin'              => $ai_status,
+					'abilityProgressLabels' => class_exists( 'Ahentic_Abilities' )
+						? Ahentic_Abilities::progress_labels_map()
+						: array(),
+					'context'               => array(
 						'wpVersion'  => get_bloginfo( 'version' ),
 						'phpVersion' => PHP_VERSION,
 					),

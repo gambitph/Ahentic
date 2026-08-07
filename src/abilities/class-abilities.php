@@ -319,6 +319,22 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		}
 
 		/**
+		 * Ability name → progress label map for sidebar bootstrap (optimistic UI).
+		 *
+		 * @return array<string, string>
+		 */
+		public static function progress_labels_map() {
+			$map = array();
+			foreach ( self::available_for_agent() as $name ) {
+				$label = self::progress_label( $name );
+				if ( '' !== $label ) {
+					$map[ $name ] = $label;
+				}
+			}
+			return $map;
+		}
+
+		/**
 		 * Execute an ability by name (Abilities API or direct fallback).
 		 *
 		 * @param string $name  Ability name.

@@ -245,6 +245,27 @@ class AbilityPolicyTest extends TestCase {
 	}
 
 	/**
+	 * Sidebar bootstrap map is derived from PHP progress_label (M5 — no JS hard-coded table).
+	 */
+	public function test_progress_labels_map_matches_catalog() {
+		$map = Ahentic_Abilities::progress_labels_map();
+		$this->assertArrayHasKey( 'ahentic/create-post', $map );
+		$this->assertArrayHasKey( 'ahentic-browser/save-post', $map );
+		$this->assertSame(
+			Ahentic_Abilities::progress_label( 'ahentic/create-post' ),
+			$map['ahentic/create-post']
+		);
+		$this->assertSame(
+			Ahentic_Abilities::progress_label( 'ahentic-browser/save-post' ),
+			$map['ahentic-browser/save-post']
+		);
+		$this->assertSame(
+			Ahentic_Abilities_Browser::progress_label( 'ahentic-browser/convert-blocks' ),
+			$map['ahentic-browser/convert-blocks']
+		);
+	}
+
+	/**
 	 * Non-preallowable abilities ignore session/always allowlists at the catalog seam.
 	 */
 	public function test_facade_is_non_preallowable_from_modules() {

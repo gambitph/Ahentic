@@ -17,10 +17,19 @@ Changing HITL UX copy unrelated to ability→label mapping.
 
 ## Acceptance criteria
 
-- [ ] No partial hard-coded ability→label table in the sidebar that can drift from PHP.
-- [ ] Optimistic Allow still shows a sensible label.
+- [x] No partial hard-coded ability→label table in the sidebar that can drift from PHP.
+- [x] Optimistic Allow still shows a sensible label.
+
+## Approach
+
+- PHP: `Ahentic_Abilities::progress_labels_map()` built from module `progress_label()`.
+- Bootstrap: `window.ahentic.abilityProgressLabels` via script loader.
+- JS: `progress-label.js` reads that map; slug/`Working…` fallback only.
 
 ## Files likely touched
 
+- `src/abilities/class-abilities.php`
+- `src/admin/class-script-loader.php`
+- `src/admin/js/sidebar/progress-label.js`
 - `src/admin/js/sidebar/sidebar.js`
-- Possibly REST/bootstrap data if labels are exposed to the client
+- `tests/unit/AbilityPolicyTest.php`

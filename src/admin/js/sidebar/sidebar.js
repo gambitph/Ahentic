@@ -73,6 +73,7 @@ import {
 	cancelIncompletePlanSteps,
 } from './session-state'
 import ViewerOverlay from './viewer-overlay'
+import { progressLabelForAbility } from './progress-label'
 
 const POLL_MS = 650
 /** Quiet queue nudge when the worker heartbeat goes quiet (not progress-label based). */
@@ -102,38 +103,6 @@ const HIDDEN_LIVE_STATUS_LABELS = new Set( [
 	'Model thinking',
 	'Thinking block not provided by model',
 ] )
-
-/**
- * Optimistic progress label after HITL approval (mirrors server tool labels).
- *
- * @param {string} ability Ability name.
- * @return {string} Progress label for the live-status row.
- */
-function progressLabelForAbility( ability ) {
-	const map = {
-		'ahentic/create-post': __( 'Creating a draft post…', 'ahentic' ),
-		'ahentic/update-post': __( 'Updating post content…', 'ahentic' ),
-		'ahentic/set-post-status': __( 'Updating post status…', 'ahentic' ),
-		'ahentic/install-plugin': __( 'Installing plugin…', 'ahentic' ),
-		'ahentic/activate-plugin': __( 'Activating plugin…', 'ahentic' ),
-		'ahentic/deactivate-plugin': __( 'Deactivating plugin…', 'ahentic' ),
-		'ahentic/uninstall-plugin': __( 'Uninstalling plugin…', 'ahentic' ),
-		'ahentic/update-term': __( 'Updating taxonomy term…', 'ahentic' ),
-		'ahentic-browser/save-post': __( 'Saving the post…', 'ahentic' ),
-		'ahentic-browser/convert-blocks': __( 'Converting blocks to core…', 'ahentic' ),
-	}
-	if ( map[ ability ] ) {
-		return map[ ability ]
-	}
-	const short = String( ability || '' ).replace( /^.*\//, '' ).replace( /-/g, ' ' )
-	return short
-		? sprintf(
-			/* translators: %s: tool slug */
-			__( 'Running %s…', 'ahentic' ),
-			short
-		)
-		: __( 'Working…', 'ahentic' )
-}
 
 /**
  * Age of a heartbeat ISO timestamp in ms, or null when unknown.
