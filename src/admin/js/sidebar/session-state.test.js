@@ -65,19 +65,25 @@ describe( 'session-state record map', () => {
 
 	it( 'remapSessionRecord moves a record to a new id', () => {
 		const start = patchSessionRecord( {}, 'tab_1', {
-			messages: [ { id: 'm1', role: 'user', content: 'hi' } ],
+			messages: [ {
+				id: 'm1', role: 'user', content: 'hi',
+			} ],
 			status: 'idle',
 		} )
 		const next = remapSessionRecord( start, 'tab_1', '42' )
 		expect( next.tab_1 ).toBeUndefined()
 		expect( next[ '42' ].messages ).toEqual( [
-			{ id: 'm1', role: 'user', content: 'hi' },
+			{
+				id: 'm1', role: 'user', content: 'hi',
+			},
 		] )
 	} )
 
 	it( 'remapSessionRecord can seed when from id is missing', () => {
 		const next = remapSessionRecord( {}, 'tab_1', '42', {
-			messages: [ { id: 's', role: 'assistant', content: 'ok' } ],
+			messages: [ {
+				id: 's', role: 'assistant', content: 'ok',
+			} ],
 			status: 'idle',
 		} )
 		expect( next[ '42' ].messages[ 0 ].content ).toBe( 'ok' )
@@ -94,12 +100,16 @@ describe( 'session-state freshness', () => {
 
 	it( 'isSessionPayloadStale rejects older lastSeq', () => {
 		const known = extractSessionMeta( {
-			messages: [ { seq: 5, role: 'user', content: 'a' } ],
+			messages: [ {
+				seq: 5, role: 'user', content: 'a',
+			} ],
 			status: 'running',
 			stepCount: 1,
 		} )
 		const incoming = {
-			messages: [ { seq: 4, role: 'user', content: 'a' } ],
+			messages: [ {
+				seq: 4, role: 'user', content: 'a',
+			} ],
 			status: 'idle',
 			stepCount: 0,
 		}
@@ -109,14 +119,18 @@ describe( 'session-state freshness', () => {
 	it( 'isSessionPayloadStale rejects idle poll while known status is active', () => {
 		const known = {
 			...extractSessionMeta( {
-				messages: [ { seq: 2, role: 'user', content: 'hi' } ],
+				messages: [ {
+					seq: 2, role: 'user', content: 'hi',
+				} ],
 				status: 'running',
 				stepCount: 0,
 			} ),
 			status: 'running',
 		}
 		const incoming = {
-			messages: [ { seq: 2, role: 'user', content: 'hi' } ],
+			messages: [ {
+				seq: 2, role: 'user', content: 'hi',
+			} ],
 			status: 'idle',
 			stepCount: 0,
 			trace: [],
@@ -128,34 +142,56 @@ describe( 'session-state freshness', () => {
 describe( 'session-state optimistic merge', () => {
 	it( 'keeps trailing local pending user bubbles until the server mirrors them', () => {
 		const merged = mergeServerMessagesWithPendingLocal(
-			[ { id: '1', role: 'assistant', content: 'hello' } ],
+			[ {
+				id: '1', role: 'assistant', content: 'hello',
+			} ],
 			[
-				{ id: '1', role: 'assistant', content: 'hello' },
-				{ id: 'local_u_1', role: 'user', content: 'go' },
+				{
+					id: '1', role: 'assistant', content: 'hello',
+				},
+				{
+					id: 'local_u_1', role: 'user', content: 'go',
+				},
 			],
 			{ local_u_1: 'go' }
 		)
 		expect( merged ).toEqual( [
-			{ id: '1', role: 'assistant', content: 'hello' },
-			{ id: 'local_u_1', role: 'user', content: 'go' },
+			{
+				id: '1', role: 'assistant', content: 'hello',
+			},
+			{
+				id: 'local_u_1', role: 'user', content: 'go',
+			},
 		] )
 	} )
 
 	it( 'drops locals already present as newest server user turns', () => {
 		const merged = mergeServerMessagesWithPendingLocal(
 			[
-				{ id: '1', role: 'assistant', content: 'hello' },
-				{ id: '2', role: 'user', content: 'go' },
+				{
+					id: '1', role: 'assistant', content: 'hello',
+				},
+				{
+					id: '2', role: 'user', content: 'go',
+				},
 			],
 			[
-				{ id: '1', role: 'assistant', content: 'hello' },
-				{ id: 'local_u_1', role: 'user', content: 'go' },
+				{
+					id: '1', role: 'assistant', content: 'hello',
+				},
+				{
+					id: 'local_u_1', role: 'user', content: 'go',
+				},
 			],
 			{ local_u_1: 'go' }
 		)
 		expect( merged ).toEqual( [
-			{ id: '1', role: 'assistant', content: 'hello' },
-			{ id: '2', role: 'user', content: 'go' },
+			{
+				id: '1', role: 'assistant', content: 'hello',
+			},
+			{
+				id: '2', role: 'user', content: 'go',
+			},
 		] )
 	} )
 
@@ -189,13 +225,17 @@ describe( 'mergeServerSessionIntoRecord', () => {
 			...createEmptySessionRecord(),
 			status: 'running',
 			pollWatch: true,
-			progress: { label: 'Working…', updatedAt: '', heartbeatAt: '', seenAt: 1 },
+			progress: {
+				label: 'Working…', updatedAt: '', heartbeatAt: '', seenAt: 1,
+			},
 		}
 		const next = mergeServerSessionIntoRecord(
 			{
 				id: 9,
 				status: 'idle',
-				messages: [ { id: '1', role: 'user', content: 'hi' } ],
+				messages: [ {
+					id: '1', role: 'user', content: 'hi',
+				} ],
 				trace: [ { type: 'run_start' } ],
 				plan: { steps: [ { id: 's1', status: 'completed' } ] },
 				progress: { label: '', updatedAt: '' },
@@ -219,7 +259,9 @@ describe( 'mergeServerSessionIntoRecord', () => {
 		const current = {
 			...createEmptySessionRecord(),
 			messages: [
-				{ id: 'local_u_1', role: 'user', content: 'go' },
+				{
+					id: 'local_u_1', role: 'user', content: 'go',
+				},
 			],
 			status: 'running',
 			pollWatch: true,
@@ -236,7 +278,9 @@ describe( 'mergeServerSessionIntoRecord', () => {
 			mapEntries
 		)
 		expect( next.messages ).toEqual( [
-			{ id: 'local_u_1', role: 'user', content: 'go' },
+			{
+				id: 'local_u_1', role: 'user', content: 'go',
+			},
 		] )
 		expect( next.pollWatch ).toBe( true )
 	} )

@@ -8,7 +8,7 @@
  */
 
 import {
-	useCallback, useEffect, useRef, useState,
+	useCallback, useEffect, useMemo, useRef, useState,
 } from '@wordpress/element'
 import { __, sprintf } from '@wordpress/i18n'
 import classnames from 'classnames'
@@ -77,7 +77,7 @@ function describeEnvironment( bundle ) {
 export default function DebuggerPanel( {
 	trace, sessionId, isBusy, onClose, sessionTitle,
 } ) {
-	const slim = Array.isArray( trace ) ? trace : []
+	const slim = useMemo( () => ( Array.isArray( trace ) ? trace : [] ), [ trace ] )
 	const [ bundle, setBundle ] = useState( null )
 	const [ loadError, setLoadError ] = useState( '' )
 	const [ openIds, setOpenIds ] = useState( {} )
