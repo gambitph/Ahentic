@@ -1,0 +1,45 @@
+{
+  "id": "post-title-headings",
+  "title": "Post title vs body headings",
+  "when_to_use": "Drafting or rewriting posts/pages/articles; choosing where the H1 goes; avoiding a duplicate title heading in the block tree.",
+  "triggers": [
+    "write an article",
+    "draft a post",
+    "new blog post",
+    "rewrite this page",
+    "add headings",
+    "H1",
+    "heading structure",
+    "post title",
+    "page title"
+  ],
+  "related_abilities": [
+    "ahentic-browser/update-post-document",
+    "ahentic-browser/update-post-title",
+    "ahentic-browser/set-blocks",
+    "ahentic-browser/insert-blocks",
+    "ahentic/create-post",
+    "ahentic/update-post",
+    "ahentic/stage-artifact"
+  ],
+  "principles": [
+    "In WordPress, the post/page title field is the document H1 — themes and SEO plugins usually render it as the page heading. Put the article title there, not as a core/heading level 1 in the body.",
+    "Body outline starts at heading level 2: section titles use core/heading with level 2, subsections 3–6 as needed.",
+    "While the block editor is open: set the title with ahentic-browser/update-post-document (or update-post-title), then write the body with set-blocks / insert-blocks / replace-blocks without a level-1 heading that repeats that title.",
+    "When the editor is not open: pass title on ahentic/create-post or ahentic/update-post; keep body markup free of a leading H1 that duplicates the title.",
+    "If an H1 (or title-like heading) is already in the body and should be the document title, promote it via update-post-document then delete-blocks — see playbook editor-leave-canvas.",
+    "Only keep a level-1 heading in the content when the user explicitly asks for an in-body H1, or when editing a template/pattern that is not a normal post/page title field."
+  ],
+  "steps": [
+    "Decide the article/page title string.",
+    "Write it to the post title field (update-post-document while editor open; create-post / update-post title when not).",
+    "Draft body blocks starting with paragraphs and/or core/heading level 2+ — no duplicate level-1 title block.",
+    "For long drafts: stage-artifact then set-blocks / create-post with from_memory; still keep title on the document field, not inside the staged blocks as H1."
+  ],
+  "anti_patterns": [
+    "Inserting core/heading level 1 as the first block with the same text as the post title.",
+    "Leaving the post title empty/generic (\"Untitled\") while putting the real headline only in the body as H1.",
+    "Using ahentic/update-post for title while the same post is open in the block editor — use update-post-document instead.",
+    "Assuming every document needs an in-canvas H1 because HTML pages usually have one — in WordPress posts/pages the title field already supplies it."
+  ]
+}

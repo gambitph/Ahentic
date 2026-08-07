@@ -452,7 +452,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				array(
 					'name'        => self::SET_BLOCKS,
 					'label'       => __( 'Set blocks', 'ahentic' ),
-					'description' => __( 'Replaces the entire open document block tree (no target refs needed). Best for drafting a full article. Pass real block objects {name, attributes, innerBlocks}, or from_memory with a staged blocks artifact key — not plain text stubs. Runs in the browser.', 'ahentic' ),
+					'description' => __( 'Replaces the entire open document block tree (no target refs needed). Best for drafting a full article. Pass real block objects {name, attributes, innerBlocks}, or from_memory with a staged blocks artifact key — not plain text stubs. Put the article H1 in the post title via update-post-document; body headings start at level 2 (playbook post-title-headings). Runs in the browser.', 'ahentic' ),
 					'meta'        => $mutate_meta,
 					'input'       => array(
 						'type'       => 'object',
@@ -672,7 +672,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				array(
 					'name'        => self::UPDATE_POST_DOCUMENT,
 					'label'       => __( 'Update post document', 'ahentic' ),
-					'description' => __( 'Updates title, excerpt, and/or slug of the post open in the block editor via the editor store (editPost). Does not save — leave the document dirty like other canvas edits. Prefer this over ahentic/update-post while the editor is open. Featured image stays ahentic-browser/set-featured-image. Runs in the browser.', 'ahentic' ),
+					'description' => __( 'Updates title, excerpt, and/or slug of the post open in the block editor via the editor store (editPost). Does not save — leave the document dirty like other canvas edits. Prefer this over ahentic/update-post while the editor is open. When drafting, the post title is the document H1 — put the article headline here, not as a core/heading level 1 in the body (playbook post-title-headings). Featured image stays ahentic-browser/set-featured-image. Runs in the browser.', 'ahentic' ),
 					'meta'        => $mutate_meta,
 					'input'       => array(
 						'type'       => 'object',

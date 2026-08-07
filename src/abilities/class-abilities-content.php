@@ -392,7 +392,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::CREATE,
 				array(
 					'label'               => __( 'Create post', 'ahentic' ),
-					'description'         => __( 'Creates a new post/page/CPT as a draft (default). Only use when the block editor is NOT open — if the user is already editing a post/page in Gutenberg, edit that document with ahentic-browser/update-post-document + set-blocks/insert-blocks/replace-blocks/delete-blocks instead. Pass real post content (not bracket stubs like [full article]), or from_memory with a staged artifact key. For publish/schedule use ahentic/set-post-status after creation. Requires human approval in Ahentic.', 'ahentic' ),
+					'description'         => __( 'Creates a new post/page/CPT as a draft (default). Only use when the block editor is NOT open — if the user is already editing a post/page in Gutenberg, edit that document with ahentic-browser/update-post-document + set-blocks/insert-blocks/replace-blocks/delete-blocks instead. Pass a real title (the document H1) and real post content without a duplicate level-1 heading (playbook post-title-headings). Pass real post content (not bracket stubs like [full article]), or from_memory with a staged artifact key. For publish/schedule use ahentic/set-post-status after creation. Requires human approval in Ahentic.', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',

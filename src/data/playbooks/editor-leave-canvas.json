@@ -30,7 +30,8 @@
     "Featured / thumbnail / cover while editor open → ahentic-browser/set-featured-image with attachment_id, then delete-blocks on the image block.",
     "Excerpt / title / slug while editor open → ahentic-browser/update-post-document, then delete-blocks if the source was body content the user wants removed.",
     "When the block editor is NOT open for that post, use server twins (ahentic/set-featured-image, ahentic/update-post) instead of browser doc tools.",
-    "Do not rewrite the whole document with set-blocks just to remove one block after promoting it."
+    "Do not rewrite the whole document with set-blocks just to remove one block after promoting it.",
+    "Drafting from scratch: put the H1 in the post title field and start body headings at level 2 — see playbook post-title-headings (this playbook is for promoting something already in the body)."
   ],
   "steps": [
     "Read selection or get-blocks to identify the source ref(s) and attributes (image id, text, etc.).",

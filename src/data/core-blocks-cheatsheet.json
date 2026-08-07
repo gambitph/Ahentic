@@ -18,7 +18,7 @@
         "content": "HTML",
         "level": "1-6 (default 2)"
       },
-      "tip": "Change wording/colors via attributes.content HTML; level for h1\u2013h6."
+      "tip": "Post/page title field is the document H1 — prefer level 2+ in the body (playbook post-title-headings). Change wording via attributes.content HTML; level for h1\u2013h6."
     },
     "core/paragraph": {
       "title": "Paragraph",

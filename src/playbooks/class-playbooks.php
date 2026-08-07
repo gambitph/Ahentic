@@ -56,7 +56,7 @@ if ( ! class_exists( 'Ahentic_Playbooks' ) ) {
 				self::GUIDANCE,
 				array(
 					'label'               => __( 'Get WordPress guidance', 'ahentic' ),
-					'description'         => __( 'Returns a curated Ahentic playbook for WordPress site-operator best practices (plugins, SEO, cleanup, pre-launch, editor vs server, custom code). Pass topic (playbook id) or query (short phrase). Omit both to list available playbooks.', 'ahentic' ),
+					'description'         => __( 'Returns a curated Ahentic playbook for WordPress site-operator best practices (plugins, SEO, cleanup, pre-launch, editor vs server, post title vs H1, custom code). Pass topic (playbook id) or query (short phrase). Omit both to list available playbooks.', 'ahentic' ),
 					'category'            => 'ahentic-guidance',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -124,7 +124,7 @@ if ( ! class_exists( 'Ahentic_Playbooks' ) ) {
 					'ok'       => true,
 					'mode'     => 'catalog',
 					'catalog'  => $catalog,
-					'hint'     => 'Pass topic (playbook id) or query to load full guidance. Wave-1 ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, web-image-fit.',
+					'hint'     => 'Pass topic (playbook id) or query to load full guidance. Wave-1 ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, editor-leave-canvas, editor-wrap-blocks, web-image-fit, post-title-headings.',
 					'playbooks'=> array(),
 				);
 			}

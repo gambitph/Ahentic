@@ -125,7 +125,7 @@ Full document rewrite: prefer `ahentic-browser/set-blocks` (no target refs). Lon
 
 Write abilities must report what they left behind so the orchestrator never spends a turn reading it back. `set-blocks`, `insert-blocks`, `replace-blocks`, and `delete-blocks` return `text_chars`: the plain-text size of the **whole** document after the write, not just the blocks written, so chunked drafting accumulates instead of looking thin on every section.
 
-Remove blocks with `delete-blocks` (refs or selection). Reorder/reparent with `move-blocks` (`before_ref`/`after_ref` preferred). Title/excerpt/slug while the editor is open: `update-post-document` (title-only alias: `update-post-title`). Leaving the content for featured/excerpt/etc. is destination write + usually `delete-blocks` — see playbook `editor-leave-canvas`.
+Remove blocks with `delete-blocks` (refs or selection). Reorder/reparent with `move-blocks` (`before_ref`/`after_ref` preferred). Title/excerpt/slug while the editor is open: `update-post-document` (title-only alias: `update-post-title`). When drafting, the post title is the H1 — body headings start at level 2 (playbook `post-title-headings`). Leaving the content for featured/excerpt/etc. is destination write + usually `delete-blocks` — see playbook `editor-leave-canvas`.
 
 ---
 

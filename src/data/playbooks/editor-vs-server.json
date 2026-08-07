@@ -38,6 +38,7 @@
     "When the editor is NOT open: use ahentic/create-post / update-post / set-post-status (HITL for status).",
     "While the editor is open: title/excerpt/slug via update-post-document (not server update-post); remove via delete-blocks; reorder via move-blocks (before_ref/after_ref preferred).",
     "Leaving the content (featured/excerpt/etc.) is a composition — see playbook editor-leave-canvas — not move-blocks.",
+    "Drafting posts/pages: article H1 goes in the post title field; body headings from level 2 — see playbook post-title-headings.",
     "Copy refs character-for-character from get-blocks / get-selection — never invent or recombine UUIDs.",
     "For core/* text blocks, edit attributes directly; use get-block-type for third-party or after an attribute update fails.",
     "If update/replace/insert/delete/move returns ok:true, reply — do not re-fetch blocks only to verify unless the tool failed or the user asked to confirm."

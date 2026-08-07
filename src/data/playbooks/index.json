@@ -55,6 +55,12 @@
       "title": "Web image fit",
       "when_to_use": "Generating or placing images for posts/pages (featured, inline, hero) — pick aspect ratio and framing so images fit the web.",
       "file": "web-image-fit.json"
+    },
+    {
+      "id": "post-title-headings",
+      "title": "Post title vs body headings",
+      "when_to_use": "Drafting or rewriting posts/pages/articles; choosing where the H1 goes; avoiding a duplicate title heading in the block tree.",
+      "file": "post-title-headings.json"
     }
   ]
 }
