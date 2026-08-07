@@ -1,0 +1,13 @@
+---
+description: Ability modules — catalog is the single source of policy truth
+globs: src/abilities/**/*.php,src/admin/js/sidebar/*abilities*.js,src/admin/js/sidebar/editor-abilities.js,src/orchestrator/class-prompt-assembler.php,src/orchestrator/control-block.md,src/data/playbooks/**/*,src/playbooks/**/*
+alwaysApply: false
+---
+
+# Ability catalog discipline
+
+Deepen the module `catalog()` (or equivalent). Derive `names` / `write` / `hitl` / progress / summary from it — do not hand-sync sibling arrays.
+
+Ship or silence: name an ability in prompts, playbooks, or error copy only when it is registered and executable on that path.
+
+When adding or changing an ability, complete [`docs/agents/ability-checklist.md`](../../docs/agents/ability-checklist.md) and keep `*AbilityCatalogTest` + `PhantomAbilityNameTest` green.

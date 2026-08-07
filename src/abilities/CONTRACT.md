@@ -59,5 +59,7 @@ Browser abilities must not perform real work in PHP stubs beyond registration/me
 
 ## Testing
 
+- Before shipping a new or changed ability, complete [`docs/agents/ability-checklist.md`](../../docs/agents/ability-checklist.md) (catalog derivation, ship-or-silence prompts, catalog + phantom PHPUnit, Playwright).
 - Every new or changed ability lands with coverage in its `tasks/mvp-abilities`-track Playwright module spec (`tests/e2e/specs/`) — see [`docs/agents/testing.md`](../../docs/agents/testing.md) and [server-abilities.md § Testing](./server-abilities.md#testing-a-new-server-ability). Module specs may call `run-ability` → `Ahentic_Abilities::execute` (ability seam); full pipeline (HITL / browser / assess) is covered by `orchestrator-pipeline.spec.js`, not reimplemented per ability.
 - Pure decision logic inside an ability (heuristics, diff previews, snapshot shaping) should be split out and covered in PHPUnit; PHPUnit never gets WordPress integration tests.
+- Policy lists for a module must stay catalog-derived; lock with `*AbilityCatalogTest` (see browser/content/media). Prompt/playbook ability tokens must resolve to registered names (`PhantomAbilityNameTest`).

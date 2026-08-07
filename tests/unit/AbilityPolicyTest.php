@@ -23,32 +23,12 @@ class AbilityPolicyTest extends TestCase {
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
 
-		$root = dirname( __DIR__, 2 );
-		require_once $root . '/src/abilities/class-abilities.php';
+		require_once __DIR__ . '/ability-modules-bootstrap.php';
 		Ahentic_Abilities::reset_modules_for_tests();
-		require_once $root . '/src/abilities/class-abilities-snapshot.php';
-		require_once $root . '/src/abilities/class-abilities-content.php';
-		require_once $root . '/src/abilities/class-abilities-plugins.php';
-		require_once $root . '/src/abilities/class-abilities-browser.php';
-		require_once $root . '/src/abilities/class-abilities-taxonomy.php';
-		require_once $root . '/src/abilities/class-abilities-site.php';
-		require_once $root . '/src/abilities/class-abilities-media.php';
-		require_once $root . '/src/session/class-settings-snapshots.php';
+		ahentic_phpunit_require_ability_modules();
 
 		// Explicit re-register: another unit test may have loaded a module before the facade.
-		foreach (
-			array(
-				'Ahentic_Abilities_Snapshot',
-				'Ahentic_Abilities_Content',
-				'Ahentic_Abilities_Plugins',
-				'Ahentic_Abilities_Browser',
-				'Ahentic_Abilities_Taxonomy',
-				'Ahentic_Abilities_Site',
-				'Ahentic_Abilities_Media',
-				'Ahentic_Settings_Snapshots',
-				'Ahentic_AbilityPolicy_Test_Module',
-			) as $module
-		) {
+		foreach ( array_merge( ahentic_phpunit_core_ability_module_classes(), array( 'Ahentic_AbilityPolicy_Test_Module' ) ) as $module ) {
 			Ahentic_Abilities::register_module( $module );
 		}
 	}

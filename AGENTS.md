@@ -16,6 +16,8 @@ When code and docs disagree: **PRD/contract win**. How-it-works files under `src
 
 Maintainability / anti-slop (deepen seams, derived catalogues, no phantom tools): [`.cursor/rules/ahentic-anti-slop.mdc`](./.cursor/rules/ahentic-anti-slop.mdc) — always-on Cursor rule.
 
+Ability add/change preflight (catalog, prompts, tests): [`docs/agents/ability-checklist.md`](./docs/agents/ability-checklist.md) — when registering, renaming, removing, or naming an ability in prompts/playbooks.
+
 ## Agent skills
 
 ### Issue tracker

@@ -34,21 +34,65 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		const META_GENERATE_COUNT  = '_ahentic_generate_image_count';
 
 		/**
+		 * Single policy catalog: drives names / write / HITL / non_preallowable / progress / summary.
+		 *
+		 * @return array<string, array{write?:bool, hitl?:bool, non_preallowable?:bool, progress:string, summary:string}>
+		 */
+		private static function catalog() {
+			return array(
+				self::FIND_UNUSED        => array(
+					'progress' => __( 'Scanning media for unused images…', 'ahentic' ),
+					'summary'  => __( 'Find unused media', 'ahentic' ),
+				),
+				self::DESCRIBE_IMAGE     => array(
+					'progress' => __( 'Describing image…', 'ahentic' ),
+					'summary'  => __( 'Describe image', 'ahentic' ),
+				),
+				self::GENERATE_IMAGE     => array(
+					'progress' => __( 'Generating an image…', 'ahentic' ),
+					'summary'  => __( 'Generate image', 'ahentic' ),
+				),
+				self::UPLOAD_MEDIA       => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Uploading media…', 'ahentic' ),
+					'summary'  => __( 'Upload media', 'ahentic' ),
+				),
+				self::UPDATE_MEDIA       => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Updating media…', 'ahentic' ),
+					'summary'  => __( 'Update media', 'ahentic' ),
+				),
+				self::SET_FEATURED_IMAGE => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Setting featured image…', 'ahentic' ),
+					'summary'  => __( 'Set featured image', 'ahentic' ),
+				),
+				self::DELETE_MEDIA       => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Moving media to trash…', 'ahentic' ),
+					'summary'  => __( 'Delete media', 'ahentic' ),
+				),
+				self::REPLACE_MEDIA_FILE => array(
+					'write'             => true,
+					'hitl'              => true,
+					'non_preallowable'  => true,
+					'progress'          => __( 'Replacing media file…', 'ahentic' ),
+					'summary'           => __( 'Replace media file', 'ahentic' ),
+				),
+			);
+		}
+
+		/**
 		 * Ability names provided by this module.
 		 *
 		 * @return string[]
 		 */
 		public static function names() {
-			return array(
-				self::FIND_UNUSED,
-				self::DESCRIBE_IMAGE,
-				self::GENERATE_IMAGE,
-				self::UPLOAD_MEDIA,
-				self::UPDATE_MEDIA,
-				self::SET_FEATURED_IMAGE,
-				self::DELETE_MEDIA,
-				self::REPLACE_MEDIA_FILE,
-			);
+			return array_keys( self::catalog() );
 		}
 
 		/**
@@ -57,13 +101,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		 * @return string[]
 		 */
 		public static function write_names() {
-			return array(
-				self::UPLOAD_MEDIA,
-				self::UPDATE_MEDIA,
-				self::SET_FEATURED_IMAGE,
-				self::DELETE_MEDIA,
-				self::REPLACE_MEDIA_FILE,
-			);
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['write'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
 		}
 
 		/**
@@ -80,13 +124,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		 * @return string[]
 		 */
 		public static function hitl_names() {
-			return array(
-				self::UPLOAD_MEDIA,
-				self::UPDATE_MEDIA,
-				self::SET_FEATURED_IMAGE,
-				self::DELETE_MEDIA,
-				self::REPLACE_MEDIA_FILE,
-			);
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['hitl'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
 		}
 
 		/**
@@ -103,7 +147,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		 * @return string[]
 		 */
 		public static function non_preallowable_names() {
-			return array( self::REPLACE_MEDIA_FILE );
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['non_preallowable'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
 		}
 
 		/**
@@ -112,6 +162,21 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		 */
 		public static function is_non_preallowable( $name ) {
 			return in_array( (string) $name, self::non_preallowable_names(), true );
+		}
+
+		/**
+		 * Short summary for pending-tool UI / progress.
+		 *
+		 * @param string $name Ability.
+		 * @return string
+		 */
+		public static function summary( $name ) {
+			$catalog = self::catalog();
+			$key     = (string) $name;
+			if ( isset( $catalog[ $key ]['summary'] ) ) {
+				return $catalog[ $key ]['summary'];
+			}
+			return $key;
 		}
 
 		/**
@@ -182,7 +247,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				);
 			}
 
-			return $name;
+			return self::summary( $name );
 		}
 
 		/**
@@ -1874,22 +1939,15 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		}
 
 		/**
+		 * Live-status progress label for a media ability.
+		 *
 		 * @param string $name Ability name.
-		 * @return string
+		 * @return string Progress label or empty string when unknown.
 		 */
 		public static function progress_label( $name ) {
-			$map = array(
-				self::FIND_UNUSED        => __( 'Scanning media for unused images…', 'ahentic' ),
-				self::DESCRIBE_IMAGE     => __( 'Describing image…', 'ahentic' ),
-				self::GENERATE_IMAGE     => __( 'Generating an image…', 'ahentic' ),
-				self::UPLOAD_MEDIA       => __( 'Uploading media…', 'ahentic' ),
-				self::UPDATE_MEDIA       => __( 'Updating media…', 'ahentic' ),
-				self::SET_FEATURED_IMAGE => __( 'Setting featured image…', 'ahentic' ),
-				self::DELETE_MEDIA       => __( 'Moving media to trash…', 'ahentic' ),
-				self::REPLACE_MEDIA_FILE => __( 'Replacing media file…', 'ahentic' ),
-			);
-			$name = (string) $name;
-			return isset( $map[ $name ] ) ? $map[ $name ] : '';
+			$catalog = self::catalog();
+			$key     = (string) $name;
+			return isset( $catalog[ $key ]['progress'] ) ? $catalog[ $key ]['progress'] : '';
 		}
 	}
 }

@@ -31,4 +31,4 @@ Heuristics that exist on both PHP and JS (e.g. content placeholders) share one d
 
 ## Completion check
 
-Before finishing a change that adds an ability, tool name, prompt route, or session UI field: every list/map/prompt/playbook that must know about it is updated, no phantom names remain, and no new duplicate helper was introduced beside an existing one.
+Before finishing a change that adds an ability, tool name, prompt route, or session UI field: every list/map/prompt/playbook that must know about it is updated, no phantom names remain, and no new duplicate helper was introduced beside an existing one. For abilities, complete [`docs/agents/ability-checklist.md`](../../docs/agents/ability-checklist.md); prove with `*AbilityCatalogTest` and `PhantomAbilityNameTest` when those surfaces change.
