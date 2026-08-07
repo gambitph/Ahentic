@@ -20,17 +20,35 @@
  * @param {Object}                                                      [input]      Ability input.
  * @param {Object}                                                      [options]
  * @param {number}                                                      [options.sessionId] Optional session id for Tool-runner-like current_session wrapping.
+ * @param {boolean}                                                     [options.defineMediaTrash] E2E-only: define MEDIA_TRASH before execute.
  * @return {Promise<{ok: boolean, data?: *, error?: string, message?: string}>} Parsed run-ability response.
  */
-async function runAbility( requestUtils, name, input = {}, { sessionId } = {} ) {
+async function runAbility( requestUtils, name, input = {}, { sessionId, defineMediaTrash } = {} ) {
 	const data = { name, input }
 	if ( sessionId ) {
 		data.session_id = sessionId
+	}
+	if ( undefined !== defineMediaTrash ) {
+		data.define_media_trash = defineMediaTrash
 	}
 	return requestUtils.rest( {
 		path: '/ahentic-e2e/v1/run-ability',
 		method: 'POST',
 		data,
+	} )
+}
+
+/**
+ * Inspect attachment status / metadata / on-disk file (e2e-only).
+ *
+ * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils Fixture.
+ * @param {number}                                                      id           Attachment ID.
+ * @return {Promise<Object>} Inspect payload.
+ */
+async function inspectAttachment( requestUtils, id ) {
+	return requestUtils.rest( {
+		path: '/ahentic-e2e/v1/inspect-attachment',
+		params: { id },
 	} )
 }
 
@@ -83,5 +101,5 @@ async function resetAiResponses( requestUtils ) {
 }
 
 module.exports = {
-	runAbility, seedAiResponses, seed, resetAiResponses,
+	runAbility, seedAiResponses, seed, resetAiResponses, inspectAttachment,
 }

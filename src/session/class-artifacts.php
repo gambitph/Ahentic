@@ -869,7 +869,11 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				);
 			}
 
-			if ( class_exists( 'Ahentic_Abilities_Media' ) && Ahentic_Abilities_Media::UPLOAD_MEDIA === $ability ) {
+			if ( class_exists( 'Ahentic_Abilities_Media' ) && in_array(
+				$ability,
+				array( Ahentic_Abilities_Media::UPLOAD_MEDIA, Ahentic_Abilities_Media::REPLACE_MEDIA_FILE ),
+				true
+			) ) {
 				if ( self::KIND_IMAGE !== $kind ) {
 					return self::kind_mismatch( $key, $kind, $ability, array( self::KIND_IMAGE ) );
 				}
@@ -963,7 +967,12 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			if ( class_exists( 'Ahentic_Abilities_Browser' ) && Ahentic_Abilities_Browser::SET_BLOCKS === $ability ) {
 				return true;
 			}
-			if ( class_exists( 'Ahentic_Abilities_Media' ) && Ahentic_Abilities_Media::UPLOAD_MEDIA === $ability ) {
+			if ( class_exists( 'Ahentic_Abilities_Media' )
+				&& in_array(
+					$ability,
+					array( Ahentic_Abilities_Media::UPLOAD_MEDIA, Ahentic_Abilities_Media::REPLACE_MEDIA_FILE ),
+					true
+				) ) {
 				return true;
 			}
 			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {

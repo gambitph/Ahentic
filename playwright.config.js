@@ -67,7 +67,7 @@ module.exports = defineConfig( {
 		{
 			// Abilities / harness that do not share the mocked-AI option queue.
 			name: 'rest-direct',
-			testMatch: /content-and-plugins\.spec\.js/,
+			testMatch: /(?:content-and-plugins|media-abilities)\.spec\.js/,
 		},
 		{
 			// Specs that seed `ahentic_e2e_ai_queue` must not run in parallel —

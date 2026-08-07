@@ -109,6 +109,51 @@ class AbilityPolicyTest extends TestCase {
 	}
 
 	/**
+	 * Track E media writes: standard HITL; replace-media-file is non-preallowable.
+	 */
+	public function test_media_track_e_write_policy() {
+		$writes = array(
+			'ahentic/update-media',
+			'ahentic/set-featured-image',
+			'ahentic/delete-media',
+			'ahentic/replace-media-file',
+		);
+
+		foreach ( $writes as $name ) {
+			$this->assertContains( $name, Ahentic_Abilities_Media::names() );
+			$this->assertContains( $name, Ahentic_Abilities_Media::write_names() );
+			$this->assertFalse( Ahentic_Abilities_Media::is_readonly( $name ) );
+			$this->assertTrue( Ahentic_Abilities_Media::requires_hitl( $name ) );
+			$this->assertTrue( Ahentic_Abilities::requires_hitl( $name ) );
+			$this->assertContains( $name, Ahentic_Abilities::available_for_agent() );
+			$this->assertNotContains( $name, Ahentic_Abilities::available_for_mode( 'ask' ) );
+		}
+
+		$this->assertFalse( Ahentic_Abilities_Media::is_non_preallowable( 'ahentic/update-media' ) );
+		$this->assertFalse( Ahentic_Abilities_Media::is_non_preallowable( 'ahentic/set-featured-image' ) );
+		$this->assertFalse( Ahentic_Abilities_Media::is_non_preallowable( 'ahentic/delete-media' ) );
+		$this->assertTrue( Ahentic_Abilities_Media::is_non_preallowable( 'ahentic/replace-media-file' ) );
+		$this->assertTrue( Ahentic_Abilities::is_non_preallowable( 'ahentic/replace-media-file' ) );
+		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/replace-media-file', 'allow_session' ) );
+		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/replace-media-file', 'always_allow' ) );
+		$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/replace-media-file', 'allow_once' ) );
+		$this->assertTrue( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/update-media', 'allow_session' ) );
+	}
+
+	/**
+	 * replace-media-file HITL card must name irreversibility and site-wide blast radius.
+	 */
+	public function test_replace_media_file_hitl_summary_warns_no_undo_site_wide() {
+		$summary = Ahentic_Abilities_Media::hitl_summary(
+			'ahentic/replace-media-file',
+			array( 'attachment_id' => 42 )
+		);
+		$this->assertMatchesRegularExpression( '/no undo|cannot be undone|irreversible/i', $summary );
+		$this->assertMatchesRegularExpression( '/everywhere|site[- ]wide|all references/i', $summary );
+		$this->assertStringContainsString( '42', $summary );
+	}
+
+	/**
 	 * Browser catalog: save/convert need HITL; page reads are browser runtime.
 	 */
 	public function test_browser_runtime_and_hitl_flags() {

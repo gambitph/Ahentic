@@ -60,10 +60,10 @@ Extend `class-abilities-media.php` (or split if it grows past a few hundred line
 
 ## Acceptance criteria
 
-- [ ] `delete-media` always results in trash status on disk, verified with `MEDIA_TRASH` both unset and explicitly `false`
-- [ ] `replace-media-file` routes through `host_is_publicly_fetchable()` and `wp_handle_sideload()` — no direct file write from fetched bytes
-- [ ] `update-media` / `set-featured-image` / `delete-media` snapshot prior state and are restorable via `undo-last-actions`
-- [ ] `replace-media-file`’s HITL card explicitly states there is no undo and that the change is site-wide
+- [x] `delete-media` always results in trash status on disk, verified with `MEDIA_TRASH` both unset and explicitly `false`
+- [x] `replace-media-file` routes through `host_is_publicly_fetchable()` and `wp_handle_sideload()` — no direct file write from fetched bytes
+- [x] `update-media` / `set-featured-image` / `delete-media` snapshot prior state and are restorable via `undo-last-actions`
+- [x] `replace-media-file`’s HITL card explicitly states there is no undo and that the change is site-wide
 - [ ] `update-media`’s alt-text write is verified to actually fix what `ahentic-browser/audit-accessibility` flags (manual end-to-end check)
 
 ## Files likely touched

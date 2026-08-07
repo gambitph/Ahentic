@@ -105,8 +105,66 @@ add_action(
 				'permission_callback' => 'ahentic_e2e_permission_check',
 			)
 		);
+
+		register_rest_route(
+			'ahentic-e2e/v1',
+			'/inspect-attachment',
+			array(
+				'methods'             => 'GET',
+				'callback'            => 'ahentic_e2e_inspect_attachment',
+				'permission_callback' => 'ahentic_e2e_permission_check',
+				'args'                => array(
+					'id' => array(
+						'type'     => 'integer',
+						'required' => true,
+					),
+				),
+			)
+		);
 	}
 );
+
+/**
+ * Inspect an attachment's status / metadata / on-disk file for media e2e asserts.
+ *
+ * @param WP_REST_Request $request Incoming request with `id`.
+ * @return WP_REST_Response
+ */
+function ahentic_e2e_inspect_attachment( WP_REST_Request $request ) {
+	$id   = (int) $request->get_param( 'id' );
+	$post = get_post( $id );
+	if ( ! ( $post instanceof WP_Post ) || 'attachment' !== $post->post_type ) {
+		return new WP_REST_Response(
+			array(
+				'ok'      => false,
+				'error'   => 'ahentic_e2e_attachment_missing',
+				'message' => 'Attachment not found.',
+			),
+			200
+		);
+	}
+
+	$file = get_attached_file( $id );
+	$md5  = ( is_string( $file ) && $file && file_exists( $file ) ) ? md5_file( $file ) : '';
+
+	return new WP_REST_Response(
+		array(
+			'ok'            => true,
+			'id'            => $id,
+			'status'        => (string) $post->post_status,
+			'title'         => get_the_title( $post ),
+			'caption'       => (string) $post->post_excerpt,
+			'description'   => (string) $post->post_content,
+			'alt_text'      => (string) get_post_meta( $id, '_wp_attachment_image_alt', true ),
+			'file'          => is_string( $file ) ? $file : '',
+			'file_exists'   => is_string( $file ) && $file && file_exists( $file ),
+			'file_md5'      => $md5 ? $md5 : '',
+			'media_trash'   => defined( 'MEDIA_TRASH' ) ? (bool) MEDIA_TRASH : null,
+			'thumbnail_for' => array(),
+		),
+		200
+	);
+}
 
 /**
  * Shared permission check for every e2e-only route: an authenticated admin.
@@ -133,6 +191,12 @@ function ahentic_e2e_run_ability( WP_REST_Request $request ) {
 	$input      = $request->get_param( 'input' );
 	$input      = is_array( $input ) ? $input : array();
 	$session_id = (int) $request->get_param( 'session_id' );
+
+	// Optional e2e-only constant for delete-media MEDIA_TRASH acceptance.
+	$media_trash = $request->get_param( 'define_media_trash' );
+	if ( null !== $media_trash && ! defined( 'MEDIA_TRASH' ) ) {
+		define( 'MEDIA_TRASH', (bool) $media_trash );
+	}
 
 	if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		return new WP_REST_Response(
@@ -336,12 +400,16 @@ add_filter( 'pre_ahentic_ai_describe_image', 'ahentic_e2e_describe_image_overrid
  * @return array
  */
 function ahentic_e2e_generate_image_override( $override, $prompt = '', $aspect_ratio = '' ) {
-	unset( $prompt, $aspect_ratio );
+	unset( $aspect_ratio );
 	if ( null !== $override ) {
 		return $override;
 	}
+	// Distinct 1×1 blue PNG when prompt requests e2e blue (for replace-media-file).
+	$b64 = ( false !== strpos( (string) $prompt, '__e2e_blue__' ) )
+		? 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+		: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 	return array(
-		'data_uri'  => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+		'data_uri'  => 'data:image/png;base64,' . $b64,
 		'mime_type' => 'image/png',
 		'width'     => 1,
 		'height'    => 1,
@@ -381,24 +449,29 @@ function ahentic_e2e_ai_status_override( $override ) {
 add_filter( 'pre_ahentic_ai_status', 'ahentic_e2e_ai_status_override' );
 
 /**
- * Seed WordPress fixture data (posts/users/options) so a spec doesn't need a
+ * Seed WordPress fixture data (posts/users/options/attachments) so a spec doesn't need a
  * slow UI walk-through to reach a given state.
  *
  * @param WP_REST_Request $request Incoming request; any of `posts`, `users`
  *                                 (arrays of `wp_insert_post()` /
- *                                 `wp_insert_user()`-shaped arrays), and
- *                                 `options` (a `{ option_name: value }` map).
+ *                                 `wp_insert_user()`-shaped arrays),
+ *                                 `options` (a `{ option_name: value }` map),
+ *                                 and `attachments` (sideload fixtures).
  * @return WP_REST_Response
  */
 function ahentic_e2e_seed( WP_REST_Request $request ) {
-	$posts   = $request->get_param( 'posts' );
-	$users   = $request->get_param( 'users' );
-	$options = $request->get_param( 'options' );
+	$posts        = $request->get_param( 'posts' );
+	$users        = $request->get_param( 'users' );
+	$options      = $request->get_param( 'options' );
+	$attachments  = $request->get_param( 'attachments' );
+	$page_context = $request->get_param( 'page_context' );
+	$session_id   = (int) $request->get_param( 'session_id' );
 
 	$created = array(
-		'posts'   => array(),
-		'users'   => array(),
-		'options' => array(),
+		'posts'       => array(),
+		'users'       => array(),
+		'options'     => array(),
+		'attachments' => array(),
 	);
 
 	if ( is_array( $posts ) ) {
@@ -442,6 +515,28 @@ function ahentic_e2e_seed( WP_REST_Request $request ) {
 		}
 	}
 
+	if ( is_array( $attachments ) ) {
+		foreach ( $attachments as $attachment_fixture ) {
+			$attachment_id = ahentic_e2e_seed_attachment( is_array( $attachment_fixture ) ? $attachment_fixture : array() );
+			if ( is_wp_error( $attachment_id ) ) {
+				return new WP_REST_Response(
+					array(
+						'ok'      => false,
+						'error'   => 'ahentic_e2e_seed_attachment_failed',
+						'message' => $attachment_id->get_error_message(),
+					),
+					200
+				);
+			}
+			$created['attachments'][] = (int) $attachment_id;
+		}
+	}
+
+	if ( is_array( $page_context ) && $session_id > 0 && class_exists( 'Ahentic_Session_Repository' ) ) {
+		Ahentic_Session_Repository::set_page_context( $session_id, $page_context );
+		$created['page_context_session'] = $session_id;
+	}
+
 	return new WP_REST_Response(
 		array(
 			'ok'      => true,
@@ -449,6 +544,79 @@ function ahentic_e2e_seed( WP_REST_Request $request ) {
 		),
 		200
 	);
+}
+
+/**
+ * Sideload a tiny PNG attachment for media e2e fixtures.
+ *
+ * @param array $fixture Optional title, alt_text, caption, description, filename, bytes_base64.
+ * @return int|\WP_Error Attachment ID.
+ */
+function ahentic_e2e_seed_attachment( array $fixture ) {
+	require_once ABSPATH . 'wp-admin/includes/file.php';
+	require_once ABSPATH . 'wp-admin/includes/media.php';
+	require_once ABSPATH . 'wp-admin/includes/image.php';
+
+	// Default: 1×1 red PNG.
+	$default_b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+	$b64         = isset( $fixture['bytes_base64'] ) && is_string( $fixture['bytes_base64'] ) && '' !== $fixture['bytes_base64']
+		? $fixture['bytes_base64']
+		: $default_b64;
+	$bytes       = base64_decode( $b64, true );
+	if ( false === $bytes || '' === $bytes ) {
+		return new WP_Error( 'ahentic_e2e_bad_png', 'Invalid bytes_base64 for attachment seed.' );
+	}
+
+	$filename = isset( $fixture['filename'] ) ? sanitize_file_name( (string) $fixture['filename'] ) : '';
+	if ( '' === $filename ) {
+		$filename = 'ahentic-e2e-' . wp_generate_password( 8, false, false ) . '.png';
+	}
+	if ( ! preg_match( '/\.(png|jpe?g|gif|webp)$/i', $filename ) ) {
+		$filename .= '.png';
+	}
+
+	$tmp = wp_tempnam( $filename );
+	if ( ! $tmp ) {
+		return new WP_Error( 'ahentic_e2e_temp_failed', 'Could not create temp file for attachment seed.' );
+	}
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+	if ( false === file_put_contents( $tmp, $bytes ) ) {
+		// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		@unlink( $tmp );
+		return new WP_Error( 'ahentic_e2e_write_failed', 'Could not write attachment seed bytes.' );
+	}
+
+	$title = isset( $fixture['title'] ) ? sanitize_text_field( (string) $fixture['title'] ) : 'E2E media';
+	$file_array = array(
+		'name'     => $filename,
+		'tmp_name' => $tmp,
+	);
+
+	$attachment_id = media_handle_sideload( $file_array, 0, $title );
+	if ( is_wp_error( $attachment_id ) ) {
+		if ( file_exists( $tmp ) ) {
+			// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $tmp );
+		}
+		return $attachment_id;
+	}
+
+	$attachment_id = (int) $attachment_id;
+	$update        = array( 'ID' => $attachment_id );
+	if ( isset( $fixture['caption'] ) ) {
+		$update['post_excerpt'] = sanitize_textarea_field( (string) $fixture['caption'] );
+	}
+	if ( isset( $fixture['description'] ) ) {
+		$update['post_content'] = wp_kses_post( (string) $fixture['description'] );
+	}
+	if ( count( $update ) > 1 ) {
+		wp_update_post( $update );
+	}
+	if ( isset( $fixture['alt_text'] ) ) {
+		update_post_meta( $attachment_id, '_wp_attachment_image_alt', sanitize_text_field( (string) $fixture['alt_text'] ) );
+	}
+
+	return $attachment_id;
 }
 
 /**
