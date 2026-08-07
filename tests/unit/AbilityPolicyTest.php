@@ -24,8 +24,8 @@ class AbilityPolicyTest extends TestCase {
 		parent::setUpBeforeClass();
 
 		require_once __DIR__ . '/ability-modules-bootstrap.php';
-		Ahentic_Abilities::reset_modules_for_tests();
 		ahentic_phpunit_require_ability_modules();
+		Ahentic_Abilities::reset_modules_for_tests();
 
 		// Explicit re-register: another unit test may have loaded a module before the facade.
 		foreach ( array_merge( ahentic_phpunit_core_ability_module_classes(), array( 'Ahentic_AbilityPolicy_Test_Module' ) ) as $module ) {
@@ -86,6 +86,24 @@ class AbilityPolicyTest extends TestCase {
 		$this->assertFalse( Ahentic_Abilities_Media::requires_hitl( 'ahentic/describe-image' ) );
 		$this->assertFalse( Ahentic_Abilities_Media::requires_hitl( 'ahentic/generate-image' ) );
 		$this->assertTrue( Ahentic_Abilities_Media::requires_hitl( 'ahentic/upload-media' ) );
+	}
+
+	/**
+	 * Track C settings discovery is readonly (no HITL).
+	 */
+	public function test_settings_discovery_readonly_flags() {
+		foreach (
+			array(
+				'ahentic/get-settings-context',
+				'ahentic/list-settings',
+				'ahentic/get-setting',
+			) as $name
+		) {
+			$this->assertContains( $name, Ahentic_Abilities_Settings::names() );
+			$this->assertTrue( Ahentic_Abilities_Settings::is_readonly( $name ), $name );
+			$this->assertFalse( Ahentic_Abilities_Settings::requires_hitl( $name ), $name );
+			$this->assertTrue( Ahentic_Abilities::is_readonly( $name ), 'facade: ' . $name );
+		}
 	}
 
 	/**

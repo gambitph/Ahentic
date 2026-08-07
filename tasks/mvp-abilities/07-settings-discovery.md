@@ -45,9 +45,9 @@ This task is the foundation every write in Tasks 08–11 depends on for validati
 
 ## Acceptance criteria
 
-- [ ] The Customizer bootstrap runs at most once per cache-miss, not per call; a warm cache serves `list-settings` without loading theme option files
-- [ ] `list-settings` refuses an unfiltered/unbounded query rather than returning the whole registry
-- [ ] No code-bearing setting (per the exclusion list) appears in `list-settings` output
-- [ ] `get-setting` returns a shape summary (not a raw dump) for values above the size threshold, with an explicit opt-in for the raw blob
-- [ ] Cache invalidates on theme switch/update and plugin activation/deactivation
-- [ ] `get-settings-context` correctly identifies block vs. classic without bootstrapping the Customizer
+- [x] The Customizer bootstrap runs at most once per cache-miss, not per call; a warm cache serves `list-settings` without loading theme option files
+- [x] `list-settings` refuses an unfiltered/unbounded query rather than returning the whole registry
+- [x] No code-bearing setting (per the exclusion list) appears in `list-settings` output
+- [x] `get-setting` returns a shape summary (not a raw dump) for values above the size threshold, with an explicit opt-in for the raw blob
+- [x] Cache invalidates on theme switch/update and plugin activation/deactivation
+- [x] `get-settings-context` correctly identifies block vs. classic without bootstrapping the Customizer

@@ -129,6 +129,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 
 			$readonly_tool_guidance = 'Prefer ahentic/get-site-snapshot when you need the site name, theme, environment, active plugins, or admin_links. '
 				. 'Prefer ahentic/get-site-health for Site Health counts/issues; ahentic/get-option for allowlisted options (blog_public, blogdescription/tagline, permalink_structure, show_on_front, etc.). '
+				. 'For theme Customizer / appearance settings: call ahentic/get-settings-context first (block vs classic + surfaces). '
+				. 'On classic themes use ahentic/list-settings with a required query, section, or prefix filter (never unfiltered), then ahentic/get-setting for values (large values summarize unless raw:true). '
 				. 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). '
 				. 'When unsure about WordPress best practice — plugins vs custom code/theme edits, SEO plugin choice, cleanup, pre-launch gaps, or editor vs server content edits — '
 				. 'call ahentic/get-wordpress-guidance before inventing a risky approach. '

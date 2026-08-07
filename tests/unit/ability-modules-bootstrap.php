@@ -26,6 +26,7 @@ function ahentic_phpunit_require_ability_modules( $include_artifacts_and_playboo
 				'/src/abilities/class-abilities-browser.php',
 				'/src/abilities/class-abilities-taxonomy.php',
 				'/src/abilities/class-abilities-site.php',
+				'/src/abilities/class-abilities-settings.php',
 				'/src/abilities/class-abilities-media.php',
 				'/src/session/class-settings-snapshots.php',
 			) as $rel
@@ -55,6 +56,7 @@ function ahentic_phpunit_core_ability_module_classes() {
 		'Ahentic_Abilities_Browser',
 		'Ahentic_Abilities_Taxonomy',
 		'Ahentic_Abilities_Site',
+		'Ahentic_Abilities_Settings',
 		'Ahentic_Abilities_Media',
 		'Ahentic_Settings_Snapshots',
 	);

@@ -49,8 +49,8 @@ class PhantomAbilityNameTest extends TestCase {
 		parent::setUpBeforeClass();
 
 		require_once __DIR__ . '/ability-modules-bootstrap.php';
-		Ahentic_Abilities::reset_modules_for_tests();
 		ahentic_phpunit_require_ability_modules( true );
+		Ahentic_Abilities::reset_modules_for_tests();
 
 		foreach (
 			array_merge(

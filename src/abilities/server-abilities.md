@@ -2,7 +2,7 @@
 
 Abilities that run entirely in PHP when the Tool runner reaches server execute (`Ahentic_Abilities::execute`). No browser pause unless the ability opts into browser runtime for a specific input (today: `ahentic/http-fetch` with `as_user`).
 
-**Code:** `class-abilities-*.php` (content, plugins, site, media, taxonomy), snapshot in `class-abilities-snapshot.php`, artifacts + settings snapshots / undo in `src/session/`
+**Code:** `class-abilities-*.php` (content, plugins, site, settings, media, taxonomy), snapshot in `class-abilities-snapshot.php`, artifacts + settings snapshots / undo in `src/session/`
 
 **Related:** [Abilities overview](./abilities.md) · [Client abilities](./client-abilities.md) · [Orchestrator](../orchestrator/orchestrator.md) · [Orchestrator CONTRACT](../orchestrator/CONTRACT.md)
 
@@ -150,6 +150,7 @@ Stage with `ahentic/stage-artifact`, then `create-post` / `update-post` with `fr
 | Category | Examples |
 | --- | --- |
 | `ahentic-site` | Snapshot, health, options, http-fetch, admin context, debug log |
+| `ahentic-settings` | get-settings-context, list-settings, get-setting |
 | `ahentic-content` | list/get/search/create/update/set-status |
 | `ahentic-plugins` | list/search/install/activate/deactivate/uninstall |
 | `ahentic-media` | unused media scan, … |

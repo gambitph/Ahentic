@@ -67,6 +67,7 @@ require_once __DIR__ . '/src/abilities/class-ahentic-content-placeholder.php';
 require_once __DIR__ . '/src/abilities/class-abilities-content.php';
 require_once __DIR__ . '/src/abilities/class-abilities-media.php';
 require_once __DIR__ . '/src/abilities/class-abilities-site.php';
+require_once __DIR__ . '/src/abilities/class-abilities-settings.php';
 require_once __DIR__ . '/src/abilities/class-abilities-plugins.php';
 require_once __DIR__ . '/src/abilities/class-abilities-taxonomy.php';
 require_once __DIR__ . '/src/abilities/class-abilities-browser.php';
