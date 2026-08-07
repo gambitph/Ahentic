@@ -3,6 +3,9 @@
  *
  * Persists: open, width, theme, tabs (session ids), activeTabId, mode, placement, floatRect.
  * Does NOT persist conversation message contents (those live on ahentic-session posts).
+ *
+ * Active-runner claims for multi-window safety use a separate key (`RUNNER_LOCK_KEY` in
+ * `constants.js`) via `session-runner-lock.js` — do not merge them into the chrome blob.
  */
 
 import {

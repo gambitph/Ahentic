@@ -52,6 +52,12 @@ import {
 	exportEditorRefs,
 	hydrateEditorRefs,
 } from './block-ref-registry'
+import {
+	HEARTBEAT_MS as RUNNER_HEARTBEAT_MS,
+	RUNNER_LOCK_KEY,
+	createSessionRunnerLock,
+} from './session-runner-lock'
+import ViewerOverlay from './viewer-overlay'
 
 const POLL_MS = 650
 /** Quiet queue nudge when the worker heartbeat goes quiet (not progress-label based). */
@@ -60,6 +66,9 @@ const HEARTBEAT_STALL_MS = 8000
 const HEARTBEAT_DEAD_MS = 45000
 /** Recover stale awaiting_browser via continue (server timed fallback). */
 const BROWSER_STALL_MS = 45000
+
+/** Shared copy when another window holds the active-runner claim. */
+const VIEWER_ACTIVE_ELSEWHERE = __( 'This agent is active in another window', 'ahentic' )
 
 /** Generic phase placeholders — prefer real debugger step summaries instead. */
 const GENERIC_PROGRESS_LABELS = new Set( [
@@ -677,6 +686,12 @@ export default function Sidebar() {
 	const [ pollWatchByTab, setPollWatchByTab ] = useState( {} )
 	/** Session ids the user asked to stop while a send/run was still landing. */
 	const stopRequestedRef = useRef( {} )
+	/** Per-window active-runner lock (multi-window viewer safety). */
+	const runnerLock = useMemo( () => createSessionRunnerLock(), [] )
+	const [ lockRevision, setLockRevision ] = useState( 0 )
+	const bumpLockRevision = useCallback( () => {
+		setLockRevision( value => value + 1 )
+	}, [] )
 	/** Transient send failure (not part of session messages — polls must not own this). */
 	const [ sendError, setSendError ] = useState( '' )
 	const [ focusSignal, setFocusSignal ] = useState( 0 )
@@ -715,6 +730,140 @@ export default function Sidebar() {
 	pendingToolByTabRef.current = pendingToolByTab
 	const statusByTabRef = useRef( statusByTab )
 	statusByTabRef.current = statusByTab
+
+	/**
+	 * Become the active runner for a live session drive action.
+	 *
+	 * @param {string} sessionId
+	 * @return {boolean} True when this window may drive the session.
+	 */
+	const claimRunner = useCallback( sessionId => {
+		if ( ! isSessionId( sessionId ) ) {
+			return false
+		}
+		if ( runnerLock.isViewer( sessionId ) ) {
+			return false
+		}
+		const ok = runnerLock.claim( sessionId )
+		bumpLockRevision()
+		return ok
+	}, [ runnerLock, bumpLockRevision ] )
+
+	/**
+	 * Drop our claim after a failed drive that never left idle, or on idle.
+	 *
+	 * @param {string} sessionId
+	 */
+	const releaseRunner = useCallback( sessionId => {
+		if ( ! isSessionId( sessionId ) ) {
+			return
+		}
+		runnerLock.release( sessionId )
+		bumpLockRevision()
+	}, [ runnerLock, bumpLockRevision ] )
+
+	// Keep claims aligned with live run status; heartbeat owned sessions.
+	useEffect( () => {
+		Object.entries( statusByTab ).forEach( ( [ id, status ] ) => {
+			if ( ! isSessionId( id ) ) {
+				return
+			}
+			if ( ! isActiveRunStatus( status ) ) {
+				if ( runnerLock.readClaim( id )?.ownerId === runnerLock.ownerId ) {
+					runnerLock.release( id )
+				}
+				return
+			}
+			if ( runnerLock.isOwner( id ) ) {
+				runnerLock.heartbeat( id )
+				return
+			}
+			if ( runnerLock.isViewer( id ) ) {
+				return
+			}
+			runnerLock.claim( id )
+		} )
+		bumpLockRevision()
+	}, [ statusByTab, runnerLock, bumpLockRevision ] )
+
+	useEffect( () => {
+		const tick = () => {
+			let changed = false
+			Object.entries( statusByTabRef.current ).forEach( ( [ id, status ] ) => {
+				if ( ! isSessionId( id ) || ! isActiveRunStatus( status ) ) {
+					return
+				}
+				if ( runnerLock.isOwner( id ) ) {
+					runnerLock.heartbeat( id )
+					return
+				}
+				if ( runnerLock.isViewer( id ) ) {
+					return
+				}
+				if ( runnerLock.claim( id ) ) {
+					changed = true
+				}
+			} )
+			if ( changed ) {
+				bumpLockRevision()
+			}
+		}
+		const timer = window.setInterval( tick, RUNNER_HEARTBEAT_MS )
+		return () => {
+			window.clearInterval( timer )
+		}
+	}, [ runnerLock, bumpLockRevision ] )
+
+	useEffect( () => {
+		const onStorage = event => {
+			if ( event.key !== RUNNER_LOCK_KEY ) {
+				return
+			}
+			Object.entries( statusByTabRef.current ).forEach( ( [ id, status ] ) => {
+				if ( ! isSessionId( id ) || ! isActiveRunStatus( status ) ) {
+					return
+				}
+				if ( runnerLock.isOwner( id ) || runnerLock.isViewer( id ) ) {
+					return
+				}
+				runnerLock.claim( id )
+			} )
+			bumpLockRevision()
+		}
+		window.addEventListener( 'storage', onStorage )
+		return () => {
+			window.removeEventListener( 'storage', onStorage )
+		}
+	}, [ bumpLockRevision, runnerLock ] )
+
+	useEffect( () => {
+		const renew = () => {
+			Object.entries( statusByTabRef.current ).forEach( ( [ id, status ] ) => {
+				if ( isSessionId( id ) && isActiveRunStatus( status ) && runnerLock.isOwner( id ) ) {
+					runnerLock.heartbeat( id )
+				}
+			} )
+			bumpLockRevision()
+		}
+		document.addEventListener( 'visibilitychange', renew )
+		window.addEventListener( 'focus', renew )
+		return () => {
+			document.removeEventListener( 'visibilitychange', renew )
+			window.removeEventListener( 'focus', renew )
+		}
+	}, [ runnerLock, bumpLockRevision ] )
+
+	useEffect( () => {
+		const onPageHide = () => {
+			Object.keys( statusByTabRef.current ).forEach( id => {
+				runnerLock.release( id )
+			} )
+		}
+		window.addEventListener( 'pagehide', onPageHide )
+		return () => {
+			window.removeEventListener( 'pagehide', onPageHide )
+		}
+	}, [ runnerLock ] )
 	const tabsRef = useRef( tabs )
 	tabsRef.current = tabs
 
@@ -1265,6 +1414,19 @@ export default function Sidebar() {
 		activeStatus === 'running' ||
 		activeStatus === 'awaiting_human' ||
 		activeStatus === 'awaiting_browser'
+	const isViewerSession = useMemo( () => {
+		// lockRevision forces re-read after storage / heartbeat updates.
+		void lockRevision
+		if ( ! isSessionId( activeTabId ) ) {
+			return false
+		}
+		const status = activeApproving ? 'running' : activeStatus
+		const liveOrStopping = isActiveRunStatus( status ) || stopping
+		if ( ! liveOrStopping ) {
+			return false
+		}
+		return runnerLock.isViewer( activeTabId )
+	}, [ activeTabId, activeStatus, activeApproving, stopping, lockRevision, runnerLock ] )
 	const progressLabel = resolveLiveStatusLabel(
 		activeProgress?.label || '',
 		activeTrace,
@@ -1331,7 +1493,11 @@ export default function Sidebar() {
 	// mid-flight and leaving a sticky "handled" flag stuck the live status on
 	// labels like "Reading editor blocks…".
 	useEffect( () => {
-		if ( ! browserResumeKey ) {
+		if ( ! browserResumeKey || isViewerSession ) {
+			return undefined
+		}
+
+		if ( ! runnerLock.isOwner( activeTabId ) && ! claimRunner( activeTabId ) ) {
 			return undefined
 		}
 
@@ -1416,7 +1582,7 @@ export default function Sidebar() {
 		} )()
 
 		return undefined
-	}, [ browserResumeKey, browserResumeNudge, activeTabId, applySession ] )
+	}, [ browserResumeKey, browserResumeNudge, activeTabId, applySession, isViewerSession, runnerLock, claimRunner ] )
 
 	// Poll running sessions for live progress + final messages.
 	useEffect( () => {
@@ -1478,7 +1644,9 @@ export default function Sidebar() {
 
 				const shouldContinue = (
 					( needsHeartbeatNudge( session ) || needsBrowserNudge( session ) ) &&
-					! continueInFlight.has( id )
+					! continueInFlight.has( id ) &&
+					! runnerLock.isViewer( id ) &&
+					( runnerLock.isOwner( id ) || runnerLock.claim( id ) )
 				)
 				if ( shouldContinue ) {
 					continueInFlight.add( id )
@@ -1512,7 +1680,7 @@ export default function Sidebar() {
 			cancelled = true
 			window.clearInterval( timer )
 		}
-	}, [ runningSessionKey, applySession ] )
+	}, [ runningSessionKey, applySession, runnerLock ] )
 
 	const openSidebar = useCallback( () => setOpen( true ), [] )
 	const closeSidebar = useCallback( () => setOpen( false ), [] )
@@ -1766,6 +1934,11 @@ export default function Sidebar() {
 			return false
 		}
 
+		if ( isSessionId( activeTabId ) && runnerLock.isViewer( activeTabId ) ) {
+			setSendError( VIEWER_ACTIVE_ELSEWHERE )
+			return false
+		}
+
 		let sessionId = activeTabId
 
 		if ( ! isSessionId( sessionId ) ) {
@@ -1798,6 +1971,11 @@ export default function Sidebar() {
 				} ) )
 				return false
 			}
+		}
+
+		if ( ! claimRunner( sessionId ) ) {
+			setSendError( VIEWER_ACTIVE_ELSEWHERE )
+			return false
 		}
 
 		const optimisticUser = {
@@ -1943,17 +2121,23 @@ export default function Sidebar() {
 			// Composer restores the draft when we return false; surface why send failed.
 			setSendError( error.message || __( 'Request failed.', 'ahentic' ) )
 			setFocusSignal( value => value + 1 )
+			if ( ! isActiveRunStatus( statusByTabRef.current[ sessionId ] || '' ) ) {
+				releaseRunner( sessionId )
+			}
 			return false
 		} finally {
 			setSending( false )
 		}
-	}, [ activeTabId, mode, sending, markHydrated, applySession, canGenerate ] )
+	}, [ activeTabId, mode, sending, markHydrated, applySession, canGenerate, runnerLock, claimRunner, releaseRunner ] )
 
 	const continueStuckSession = useCallback( async () => {
-		if ( ! isSessionId( activeTabId ) ) {
+		if ( ! isSessionId( activeTabId ) || isViewerSession ) {
 			return
 		}
 		const sessionId = activeTabId
+		if ( ! claimRunner( sessionId ) ) {
+			return
+		}
 		try {
 			const session = await continueSession( sessionId )
 			if ( session ) {
@@ -1962,7 +2146,7 @@ export default function Sidebar() {
 		} catch ( error ) {
 			setSendError( error.message || __( 'Could not continue this run.', 'ahentic' ) )
 		}
-	}, [ activeTabId, applySession ] )
+	}, [ activeTabId, applySession, isViewerSession, claimRunner ] )
 
 	const stopSession = useCallback( async () => {
 		if ( ! isSessionId( activeTabId ) || stopping ) {
@@ -2046,6 +2230,7 @@ export default function Sidebar() {
 		try {
 			const session = await cancelSession( sessionId )
 			applySession( session, { force: true } )
+			releaseRunner( sessionId )
 			setFocusSignal( value => value + 1 )
 		} catch ( error ) {
 			setSendError( error.message || __( 'Could not stop the run.', 'ahentic' ) )
@@ -2059,14 +2244,17 @@ export default function Sidebar() {
 			delete stopRequestedRef.current[ sessionId ]
 			setStopping( false )
 		}
-	}, [ activeTabId, stopping, applySession ] )
+	}, [ activeTabId, stopping, applySession, releaseRunner ] )
 
 	const onApproval = useCallback( async decision => {
-		if ( ! isSessionId( activeTabId ) ) {
+		if ( ! isSessionId( activeTabId ) || isViewerSession ) {
 			return
 		}
 		const sessionId = activeTabId
 		if ( approvingRef.current[ sessionId ] ) {
+			return
+		}
+		if ( ! claimRunner( sessionId ) ) {
 			return
 		}
 
@@ -2139,7 +2327,7 @@ export default function Sidebar() {
 				return next
 			} )
 		}
-	}, [ activeTabId, applySession ] )
+	}, [ activeTabId, applySession, isViewerSession, claimRunner ] )
 
 	const onSuggestedAction = useCallback( async action => {
 		if ( ! isSessionId( activeTabId ) || ! action ) {
@@ -2147,6 +2335,9 @@ export default function Sidebar() {
 		}
 		if ( action.type === 'link' && action.url ) {
 			openLink( action.url )
+			return
+		}
+		if ( isViewerSession || ! claimRunner( activeTabId ) ) {
 			return
 		}
 		const session = await postSuggestedAction( activeTabId, {
@@ -2157,7 +2348,7 @@ export default function Sidebar() {
 			label: action.label || '',
 		} )
 		applySession( session )
-	}, [ activeTabId, applySession ] )
+	}, [ activeTabId, applySession, isViewerSession, claimRunner ] )
 
 	const onSuggestedPrompt = useCallback( prompt => {
 		sendMessage( prompt )
@@ -2490,93 +2681,113 @@ export default function Sidebar() {
 					</div>
 				) }
 
-				{ debugOpen ? (
-					<DebuggerPanel
-						trace={ activeTrace }
-						sessionId={ isSessionId( activeTabId ) ? activeTabId : 0 }
-						isBusy={ isBusy }
-						sessionTitle={ activeTab?.title || '' }
-						onClose={ () => setDebugOpen( false ) }
-					/>
-				) : (
-					<TabContent
-						aiReady={ aiReady }
-						hasConnector={ hasConnector }
-						aiPlugin={ aiPlugin }
-						onAiReady={ setAiReady }
-						onHasConnector={ setHasConnector }
-						messages={ activeMessages }
-						sessionId={ activeTabId }
-						onSuggestedPrompt={ onSuggestedPrompt }
-						ready={ ! isSessionLoading }
-						loading={ isSessionLoading }
-						busy={ isBusy }
-						progressLabel={ progressLabel }
-						pendingTool={ activePendingTool }
-						plan={ activePlan }
-						thoughtProcess={ isBusy ? ( activeThought?.text || '' ) : '' }
-						sessionStatus={ activeApproving ? 'running' : activeStatus }
-						approvingDecision={ activeApproving }
-						onApproval={ onApproval }
-						onSuggestedAction={ onSuggestedAction }
-						liveness={ isHeartbeatDead ? 'stuck' : '' }
-						onContinue={ continueStuckSession }
-						onCancelRun={ stopSession }
-					/>
-				) }
+				<div
+					className={ classnames( 'ahentic-session-pane', {
+						'is-viewer': isViewerSession,
+					} ) }
+				>
+					{ debugOpen ? (
+						<DebuggerPanel
+							trace={ activeTrace }
+							sessionId={ isSessionId( activeTabId ) ? activeTabId : 0 }
+							isBusy={ isBusy }
+							sessionTitle={ activeTab?.title || '' }
+							onClose={ () => setDebugOpen( false ) }
+						/>
+					) : (
+						<TabContent
+							aiReady={ aiReady }
+							hasConnector={ hasConnector }
+							aiPlugin={ aiPlugin }
+							onAiReady={ setAiReady }
+							onHasConnector={ setHasConnector }
+							messages={ activeMessages }
+							sessionId={ activeTabId }
+							onSuggestedPrompt={ onSuggestedPrompt }
+							ready={ ! isSessionLoading }
+							loading={ isSessionLoading }
+							busy={ isBusy }
+							progressLabel={ progressLabel }
+							progressHint={
+								! isViewerSession &&
+								( activeApproving ? 'running' : activeStatus ) === 'awaiting_browser'
+									? __( 'Keep this tab visible while this runs', 'ahentic' )
+									: ''
+							}
+							pendingTool={ activePendingTool }
+							plan={ activePlan }
+							thoughtProcess={ isBusy ? ( activeThought?.text || '' ) : '' }
+							sessionStatus={ activeApproving ? 'running' : activeStatus }
+							approvingDecision={ activeApproving }
+							onApproval={ isViewerSession ? undefined : onApproval }
+							onSuggestedAction={ isViewerSession ? undefined : onSuggestedAction }
+							liveness={ isHeartbeatDead && ! isViewerSession ? 'stuck' : '' }
+							onContinue={ isViewerSession ? undefined : continueStuckSession }
+							onCancelRun={ stopSession }
+						/>
+					) }
 
-				<Composer
-					mode={ mode }
-					onModeChange={ setMode }
-					onSubmit={ sendMessage }
-					focusSignal={ focusSignal }
-					shortcutLabel={ shortcutLabel }
-					error={ sendError }
-					onClearError={ () => setSendError( '' ) }
-					placeholder={
-						activeStatus === 'awaiting_human' && activePendingTool
-							? __( 'Send to change direction (skips this approval)…', 'ahentic' )
-							: __( 'Plan, Build, / for skills, @ for context', 'ahentic' )
-					}
-					disabled={ ! canGenerate }
-					inputDisabled={
-						! canGenerate ||
-						sending ||
-						stopping ||
-						Boolean( activeApproving ) ||
-						activeStatus === 'running' ||
-						activeStatus === 'awaiting_browser'
-					}
-					canStop={
-						isSessionId( activeTabId ) &&
-						(
+					<Composer
+						mode={ mode }
+						onModeChange={ setMode }
+						onSubmit={ sendMessage }
+						focusSignal={ focusSignal }
+						shortcutLabel={ shortcutLabel }
+						error={ sendError }
+						onClearError={ () => setSendError( '' ) }
+						placeholder={
+							activeStatus === 'awaiting_human' && activePendingTool
+								? __( 'Send to change direction (skips this approval)…', 'ahentic' )
+								: __( 'Plan, Build, / for skills, @ for context', 'ahentic' )
+						}
+						disabled={ ! canGenerate }
+						inputDisabled={
+							! canGenerate ||
 							sending ||
 							stopping ||
 							Boolean( activeApproving ) ||
 							activeStatus === 'running' ||
-							activeStatus === 'awaiting_human' ||
-							activeStatus === 'awaiting_browser'
-						)
-					}
-					onStop={ stopSession }
-					stopping={ stopping }
-					disabledHint={
-						canGenerate || activeMessages.length === 0
-							? ''
-							: ( ! aiReady
-								? 'Install WordPress AI to start chatting.'
-								: ( ! hasConnector
-									? 'Add an AI connector in Settings → Connectors to start chatting.'
-									: ''
-								)
+							activeStatus === 'awaiting_browser' ||
+							isViewerSession
+						}
+						canStop={
+							isSessionId( activeTabId ) &&
+							(
+								sending ||
+								stopping ||
+								Boolean( activeApproving ) ||
+								activeStatus === 'running' ||
+								activeStatus === 'awaiting_human' ||
+								activeStatus === 'awaiting_browser'
 							)
-					}
-					connectorsUrl={
-						! canGenerate && activeMessages.length > 0 && ! hasConnector
-							? connectorsUrl
-							: ''
-					}
-				/>
+						}
+						onStop={ stopSession }
+						stopping={ stopping }
+						disabledHint={
+							canGenerate || activeMessages.length === 0
+								? ''
+								: ( ! aiReady
+									? 'Install WordPress AI to start chatting.'
+									: ( ! hasConnector
+										? 'Add an AI connector in Settings → Connectors to start chatting.'
+										: ''
+									)
+								)
+						}
+						connectorsUrl={
+							! canGenerate && activeMessages.length > 0 && ! hasConnector
+								? connectorsUrl
+								: ''
+						}
+					/>
+
+					{ isViewerSession ? (
+						<ViewerOverlay
+							onStop={ stopSession }
+							stopping={ stopping }
+						/>
+					) : null }
+				</div>
 			</aside>
 		</div>
 	)

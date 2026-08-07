@@ -925,6 +925,14 @@ a.ahentic-icon-btn {
 	padding: 14px 12px;
 }
 
+.ahentic-session-pane {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
 .ahentic-content--empty {
 	display: flex;
 	align-items: center;
@@ -1633,6 +1641,7 @@ a.ahentic-empty__ai-install:hover {
 }
 
 .ahentic-live-status__hint {
+	flex: 1 1 100%;
 	font-size: 12px;
 	line-height: 1.4;
 	color: var(--ah-muted);
@@ -1728,6 +1737,59 @@ a.ahentic-empty__ai-install:hover {
 	padding: 10px 12px 12px;
 	border-top: 1px solid var(--ah-border);
 	flex-shrink: 0;
+}
+
+.ahentic-session-pane.is-viewer .ahentic-content,
+.ahentic-session-pane.is-viewer .ahentic-composer,
+.ahentic-session-pane.is-viewer .ahentic-debugger {
+	opacity: 0.42;
+	pointer-events: none;
+	user-select: none;
+}
+
+.ahentic-viewer-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 6;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 14px;
+	padding: 24px 20px;
+	text-align: center;
+	background: color-mix(in srgb, var(--ah-bg) 55%, transparent);
+	backdrop-filter: blur(1px);
+}
+
+.ahentic-viewer-overlay__title {
+	margin: 0;
+	max-width: 16em;
+	font-size: 15px;
+	font-weight: 600;
+	line-height: 1.35;
+	color: var(--ah-fg);
+}
+
+.ahentic-viewer-overlay__stop {
+	appearance: none;
+	border: 1px solid var(--ah-border);
+	background: var(--ah-bg-elevated);
+	color: var(--ah-fg);
+	border-radius: 8px;
+	padding: 8px 14px;
+	font-size: 13px;
+	line-height: 1.3;
+	cursor: pointer;
+}
+
+.ahentic-viewer-overlay__stop:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.ahentic-viewer-overlay__stop:hover:not(:disabled) {
+	background: var(--ah-hover);
 }
 
 .ahentic-composer__box {

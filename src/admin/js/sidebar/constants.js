@@ -3,6 +3,8 @@
  */
 
 export const STORAGE_KEY = 'ahentic.sidebar.v1'
+/** Per-session active-runner claims (multi-window); not chrome state. */
+export const RUNNER_LOCK_KEY = 'ahentic.session-runner.v1'
 
 export const DEFAULT_WIDTH = 360
 export const MIN_WIDTH = 300

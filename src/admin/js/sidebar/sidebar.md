@@ -30,6 +30,8 @@ Do not call AI vendors from the sidebar. Talk to WordPress REST (`ahentic/v1`) a
 | `composer.js` | Input + mode |
 | `api.js` | REST helpers |
 | `storage.js` | `localStorage` chrome state |
+| `session-runner-lock.js` | Per-session active-runner claim (multi-window) |
+| `viewer-overlay.js` | Viewer-only overlay when another window drives |
 | `browser-abilities.js` | Dispatch pending browser tools |
 | `editor-abilities.js` | Gutenberg / block editor implementations |
 | `block-ref-registry.js` | Opaque `b1` ↔ `clientId` map (tab memory) |
@@ -45,9 +47,22 @@ Do not call AI vendors from the sidebar. Talk to WordPress REST (`ahentic/v1`) a
 | Data | Where |
 | --- | --- |
 | Open/closed, width, theme, mode, placement, float rect, open tab ids | Browser `localStorage` (`ahentic.sidebar.v1` via `storage.js`) |
+| Active-runner claim per session (multi-window) | Browser `localStorage` (`ahentic.session-runner.v1` via `session-runner-lock.js`) — **not** the chrome blob |
 | Messages, tool results, status, plan, pending tool, artifacts | `ahentic-session` CPT (server) |
 
 Refreshing the page reloads chrome from localStorage and re-fetches sessions from REST. Conversation bodies are never stored in localStorage.
+
+### Multi-window runner lock (v1)
+
+Same session open in two windows: only one window is the **active runner** while the session is live (`running` | `awaiting_human` | `awaiting_browser`).
+
+- First claim wins (initiator claims before send / continue / approve). Later windows are **viewers**.
+- Viewers keep polling (synced transcript) but must not run browser abilities, HITL, send, suggested actions, or auto-continue. **Stop** remains available (overlay + composer).
+- Heartbeat ~1s, stale after 15s; renew on `visibilitychange` / focus; best-effort `pagehide` release.
+- Viewer UI: faded session pane + “This agent is active in another window” (no take-over in v1).
+- While `awaiting_browser` on the active runner, live status shows hint: “Keep this tab visible while this runs”.
+
+Take-over is deferred (v3). See `tasks/mvp-sidebar/01-multi-window-viewer-overlay.md` and `tasks/future/multi-window-take-over.md`.
 
 ---
 
@@ -79,12 +94,15 @@ Other routes: create/list/patch sessions, cancel, continue (stall fallback), sug
 
 When `status === 'awaiting_browser'` and `pendingTool.runtime === 'browser'`:
 
-1. Deduplicate with `browserResumeRef` (`inflight` / `done`) so React re-renders do not double-run.
-2. `runBrowserAbility(pending)` in `browser-abilities.js`.
-3. POST result with matching `call_id`.
-4. Retry on transient network errors; treat 409 / already-resumed as success and refresh session.
+1. Skip when this window is a **viewer** for the session (another window holds the runner claim).
+2. Deduplicate with `browserResumeRef` (`inflight` / `done`) so React re-renders do not double-run.
+3. `runBrowserAbility(pending)` in `browser-abilities.js`.
+4. POST result with matching `call_id`.
+5. Retry on transient network errors; treat 409 / already-resumed as success and refresh session.
 
 The sidebar does **not** invent browser tool calls — only the orchestrator schedules them via `pending_tool`.
+
+Live status shows “Keep this tab visible while this runs” under the awaiting-browser label (active runner only).
 
 ---
 

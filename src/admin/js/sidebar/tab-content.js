@@ -86,6 +86,7 @@ async function installAiPlugin() {
  * @param {boolean}     props.loading
  * @param {boolean}     props.busy
  * @param {string}      props.progressLabel
+ * @param {string}      [props.progressHint]      Secondary live-status note (e.g. keep-tab-visible).
  * @param {Object|null} props.pendingTool
  * @param {Object|null} props.plan
  * @param {string}      [props.thoughtProcess]    Ephemeral faded thought while busy.
@@ -110,6 +111,7 @@ export default function TabContent( {
 	loading = false,
 	busy = false,
 	progressLabel = '',
+	progressHint = '',
 	pendingTool = null,
 	plan = null,
 	thoughtProcess = '',
@@ -596,6 +598,11 @@ export default function TabContent( {
 						{ liveness === 'stuck' && progressLabel ? (
 							<span className="ahentic-live-status__hint">
 								{ progressLabel }
+							</span>
+						) : null }
+						{ liveness !== 'stuck' && progressHint ? (
+							<span className="ahentic-live-status__hint">
+								{ progressHint }
 							</span>
 						) : null }
 						{ liveness === 'stuck' ? (
