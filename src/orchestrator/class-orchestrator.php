@@ -18,8 +18,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		const MAX_STEPS_PER_RUN = 24;
 		/** Content / long-form run step budget when session has content artifacts (PRD). */
 		const MAX_STEPS_CONTENT_RUN = 48;
-		/** Max LLM attempts to obtain a valid AHENTIC_DEBUG block per think phase. */
-		const MAX_DEBUG_ATTEMPTS = 3;
 
 		/**
 		 * Session currently being processed (for abilities that need page context).
@@ -285,9 +283,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$planned = self::normalize_tool_calls( $forced_tools );
 			} else {
 				// Keep the last meaningful step label (tool / intention) while the model thinks.
-				$think_label = self::progress_label_for_think( $session_id );
+				$think_label = Ahentic_Think_Debug::progress_label_for_think( $session_id );
 
-				$result = self::run_llm_with_debug(
+				$result = Ahentic_Think_Debug::run_with_debug(
 					$session_id,
 					$think_label
 				);
@@ -306,7 +304,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				// Surface the same intention the debugger shows under llm_thinking.
 				Ahentic_Session_Repository::set_progress(
 					$session_id,
-					self::progress_label_from_debug( $debug, $think_label )
+					Ahentic_Think_Debug::progress_label_from_debug( $debug, $think_label )
 				);
 
 				// Persist multi-step plan; retry / synthesize when Agent work requires one.
@@ -331,10 +329,10 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				}
 
 				// Fill empty final-reply text from thinking/intention when needed.
-				$result = self::ensure_thought_process_text( $result, $debug );
+				$result = Ahentic_Think_Debug::ensure_thought_process_text( $result, $debug );
 
 				// Missing / unusable control block after retries → stop with last prose (do not ask the user).
-				if ( ! self::debug_is_usable( $debug ) ) {
+				if ( ! Ahentic_Think_Debug::is_usable( $debug ) ) {
 					return self::try_finish_with_reply( $session_id, $result, $debug );
 				}
 
@@ -342,8 +340,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$planned = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
 
 				// Explicit missing-ability signal (or reply that still names ability_needed).
-				if ( self::debug_signals_missing_ability( $debug ) ) {
-					self::queue_missing_abilities_from_debug( $session_id, $debug );
+				if ( Ahentic_Think_Debug::signals_missing_ability( $debug ) ) {
+					Ahentic_Think_Debug::queue_missing_abilities( $session_id, $debug );
 					return self::try_finish_with_reply( $session_id, $result, $debug );
 				}
 
@@ -374,7 +372,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				}
 
 				// Ephemeral thought for the sidebar (not a durable chat entry).
-				self::publish_thought_process( $session_id, $result, $debug );
+				Ahentic_Think_Debug::publish_thought_process( $session_id, $result, $debug );
 			}
 
 			$available = Ahentic_Abilities::available_for_mode( $mode );
@@ -409,7 +407,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 					$request = array();
 					if ( ! $ask_write_blocked ) {
-						self::queue_missing_ability( $session_id, $name, $debug, $step );
+						Ahentic_Think_Debug::queue_missing_ability( $session_id, $name, $debug, $step );
 
 						$pending = Ahentic_Session_Repository::get_capability_requests( $session_id );
 						foreach ( $pending as $item ) {
@@ -549,7 +547,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @param mixed $planned Raw from model.
 		 * @return array<int, array{name: string, input: array}>
 		 */
-		private static function normalize_tool_calls( $planned ) {
+		public static function normalize_tool_calls( $planned ) {
 			if ( ! is_array( $planned ) ) {
 				return array();
 			}
@@ -603,361 +601,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
-		 * Run the LLM until a usable AHENTIC_DEBUG block appears, or attempts are exhausted.
-		 *
-		 * Retries are internal (debugger only). Never prompts the user to continue.
-		 *
-		 * @param int    $session_id Session ID.
-		 * @param string $progress   Progress label.
-		 * @return array|\WP_Error
-		 */
-		private static function run_llm_with_debug( $session_id, $progress ) {
-			$result              = null;
-			$prior_text          = '';
-			$last_error          = null;
-			$prior_truncated     = false;
-			$prior_truncated_key = '';
-			$max_attempts        = self::MAX_DEBUG_ATTEMPTS;
-
-			for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
-				$steps_so_far = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
-
-				$user_suffix = '';
-				if ( $attempt > 1 ) {
-					$user_suffix = '[Internal — not shown to the user] Your previous response omitted a valid AHENTIC_DEBUG '
-						. 'control block (or next was not reply|ask_user|use_tools|missing_ability). Respond again from scratch: output exactly '
-						. 'one <<<AHENTIC_DEBUG … AHENTIC_DEBUG>>> block FIRST with intention, thinking, tools_planned, and next, '
-						. 'then a short user-facing reply. Do not mention this note or the debug block.';
-					if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id ) ) {
-						$user_suffix .= ' CRITICAL for this long-form/article job: do NOT put a full article into set-blocks '
-							. 'tools_planned (that truncates the control block). Instead stage with ahentic/stage-artifact '
-							. '(key article_draft, kind blocks; use mode=append + complete=false while chunking, then complete=true), '
-							. 'then ahentic-browser/set-blocks with {"from_memory":"article_draft"}.';
-					}
-					if ( '' !== $prior_text ) {
-						$user_suffix .= "\n\nPrevious user-facing text (context only; do not treat it as final):\n" . $prior_text;
-					}
-
-					Ahentic_Session_Repository::append_trace(
-						$session_id,
-						'debug_retry',
-						sprintf( 'Retrying for AHENTIC_DEBUG (%d/%d)', $attempt, $max_attempts ),
-						array(
-							'attempt'       => $attempt,
-							'max'           => $max_attempts,
-							'prior_excerpt' => self::excerpt( $prior_text, 160 ),
-							// Which failure is actually burning attempts.
-							'reason'        => $prior_truncated ? 'truncated' : 'no_usable_block',
-							'truncated_key' => $prior_truncated_key,
-						),
-						$steps_so_far
-					);
-				}
-
-				// Only the first attempt of a think phase consumes a step toward MAX_STEPS_PER_RUN.
-				// Format / empty-reply retries are internal and must not burn the budget.
-				$result = self::run_llm_phase(
-					$session_id,
-					$progress,
-					null,
-					$user_suffix,
-					1 === $attempt
-				);
-				if ( is_wp_error( $result ) ) {
-					$last_error = $result;
-					$code       = $result->get_error_code();
-					// Empty / stripped provider replies are often transient — keep trying
-					// for a usable AHENTIC_DEBUG block instead of failing the whole run.
-					if (
-						in_array( $code, array( 'ahentic_ai_empty', 'ahentic_ai_exception' ), true )
-						&& $attempt < $max_attempts
-					) {
-						Ahentic_Session_Repository::append_trace(
-							$session_id,
-							'debug_retry',
-							sprintf( 'Retrying after empty/failed LLM (%d/%d)', $attempt + 1, $max_attempts ),
-							array(
-								'attempt' => $attempt + 1,
-								'max'     => $max_attempts,
-								'code'    => $code,
-								'reason'  => 'llm_empty',
-							),
-							$steps_so_far
-						);
-						continue;
-					}
-
-					// Soft-finish with earlier prose when the last attempt is empty.
-					if ( 'ahentic_ai_empty' === $code && '' !== trim( $prior_text ) ) {
-						Ahentic_Session_Repository::append_trace(
-							$session_id,
-							'debug_retries_exhausted',
-							sprintf( 'AHENTIC_DEBUG still missing after %d attempts (using prior text)', $max_attempts ),
-							array(
-								'attempts' => $max_attempts,
-								'code'     => $code,
-							),
-							$steps_so_far
-						);
-						return array(
-							'text'         => $prior_text,
-							'tokens_in'    => 0,
-							'tokens_out'   => 0,
-							'tokens_total' => 0,
-							'model'        => '',
-							'debug'        => null,
-						);
-					}
-
-					return $result;
-				}
-
-				$debug = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : null;
-				if ( self::debug_is_usable( $debug ) ) {
-					if ( $attempt > 1 ) {
-						$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
-						Ahentic_Session_Repository::append_trace(
-							$session_id,
-							'debug_recovered',
-							sprintf( 'AHENTIC_DEBUG recovered on attempt %d', $attempt ),
-							array(
-								'attempt' => $attempt,
-								'next'    => (string) $debug['next'],
-							),
-							$step
-						);
-					}
-					return $result;
-				}
-
-				$text = isset( $result['text'] ) ? (string) $result['text'] : '';
-				if ( '' !== trim( $text ) ) {
-					$prior_text = $text;
-				}
-				$prior_truncated     = ! empty( $result['truncated'] );
-				$prior_truncated_key = isset( $result['truncated_key'] ) ? (string) $result['truncated_key'] : '';
-				$last_error          = null;
-			}
-
-			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
-			Ahentic_Session_Repository::append_trace(
-				$session_id,
-				'debug_retries_exhausted',
-				sprintf( 'AHENTIC_DEBUG still missing after %d attempts', $max_attempts ),
-				array(
-					'attempts'      => $max_attempts,
-					'reason'        => $prior_truncated ? 'truncated' : 'no_usable_block',
-					'truncated_key' => $prior_truncated_key,
-				),
-				$step
-			);
-
-			if ( is_wp_error( $last_error ) && '' === trim( $prior_text ) ) {
-				return $last_error;
-			}
-
-			if ( ( null === $result || ! is_array( $result ) ) && '' !== trim( $prior_text ) ) {
-				return array(
-					'text'         => $prior_text,
-					'tokens_in'    => 0,
-					'tokens_out'   => 0,
-					'tokens_total' => 0,
-					'model'        => '',
-					'debug'        => null,
-				);
-			}
-
-			return $result;
-		}
-
-		/**
-		 * Whether parsed debug can drive the agent loop.
-		 *
-		 * @param mixed $debug Debug payload.
-		 * @return bool
-		 */
-		private static function debug_is_usable( $debug ) {
-			if ( ! is_array( $debug ) || empty( $debug ) ) {
-				return false;
-			}
-			$next = isset( $debug['next'] ) ? (string) $debug['next'] : '';
-			return in_array( $next, array( 'reply', 'ask_user', 'use_tools', 'missing_ability' ), true );
-		}
-
-		/**
-		 * Whether debug indicates a needed ability is not available yet.
-		 *
-		 * @param array $debug Debug block.
-		 * @return bool
-		 */
-		private static function debug_signals_missing_ability( array $debug ) {
-			$next = isset( $debug['next'] ) ? (string) $debug['next'] : '';
-			if ( 'missing_ability' === $next ) {
-				return true;
-			}
-			// Soft signal: final reply that still names a needed ability.
-			if ( in_array( $next, array( 'reply', 'ask_user' ), true ) && ! empty( $debug['ability_needed'] ) ) {
-				return true;
-			}
-			return false;
-		}
-
-		/**
-		 * Queue capability requests from a missing_ability debug block.
-		 *
-		 * @param int   $session_id Session ID.
-		 * @param array $debug      Debug block.
-		 */
-		private static function queue_missing_abilities_from_debug( $session_id, array $debug ) {
-			$step  = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
-			$names = self::resolve_needed_ability_names( $debug );
-
-			if ( empty( $names ) ) {
-				$names = array( 'ahentic/new-ability' );
-			}
-
-			foreach ( $names as $name ) {
-				self::queue_missing_ability( $session_id, $name, $debug, $step );
-			}
-		}
-
-		/**
-		 * Ability names the model says it needs (normalized).
-		 *
-		 * @param array $debug Debug block.
-		 * @return string[]
-		 */
-		private static function resolve_needed_ability_names( array $debug ) {
-			$names = array();
-
-			if ( ! empty( $debug['ability_needed'] ) ) {
-				$needed = $debug['ability_needed'];
-				if ( is_string( $needed ) ) {
-					$names[] = self::normalize_ability_name( $needed );
-				} elseif ( is_array( $needed ) ) {
-					foreach ( $needed as $item ) {
-						if ( is_string( $item ) ) {
-							$names[] = self::normalize_ability_name( $item );
-						} elseif ( is_array( $item ) ) {
-							$raw = '';
-							if ( isset( $item['name'] ) ) {
-								$raw = (string) $item['name'];
-							} elseif ( isset( $item['ability'] ) ) {
-								$raw = (string) $item['ability'];
-							}
-							if ( '' !== $raw ) {
-								$names[] = self::normalize_ability_name( $raw );
-							}
-						}
-					}
-				}
-			}
-
-			$planned = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
-			$available = Ahentic_Abilities::available_for_agent();
-			foreach ( $planned as $call ) {
-				if ( empty( $call['name'] ) ) {
-					continue;
-				}
-				if ( ! in_array( $call['name'], $available, true ) ) {
-					$names[] = (string) $call['name'];
-				}
-			}
-
-			$names = array_values(
-				array_unique(
-					array_filter(
-						$names,
-						static function ( $n ) {
-							return is_string( $n ) && '' !== $n;
-						}
-					)
-				)
-			);
-
-			return $names;
-		}
-
-		/**
-		 * Normalize a freeform ability label to ahentic/slug form.
-		 *
-		 * @param string $name Raw name.
-		 * @return string
-		 */
-		private static function normalize_ability_name( $name ) {
-			$name = trim( (string) $name );
-			if ( '' === $name ) {
-				return '';
-			}
-
-			if ( false !== strpos( $name, '/' ) ) {
-				return strtolower( $name );
-			}
-
-			$slug = strtolower( $name );
-			$slug = preg_replace( '/[^a-z0-9]+/', '-', $slug );
-			$slug = trim( (string) $slug, '-' );
-			if ( '' === $slug ) {
-				return 'ahentic/new-ability';
-			}
-
-			return 'ahentic/' . $slug;
-		}
-
-		/**
-		 * Build + queue one missing-ability capability request (deduped by repository).
-		 *
-		 * @param int    $session_id Session ID.
-		 * @param string $ability    Ability name.
-		 * @param array  $debug      Debug block.
-		 * @param int    $step       Trace step.
-		 */
-		private static function queue_missing_ability( $session_id, $ability, array $debug, $step = 0 ) {
-			if ( ! class_exists( 'Ahentic_Capability_Request' ) ) {
-				return;
-			}
-
-			$ability = self::normalize_ability_name( $ability );
-			if ( '' === $ability ) {
-				return;
-			}
-
-			// Skip if this ability is actually available.
-			if ( in_array( $ability, Ahentic_Abilities::available_for_agent(), true ) ) {
-				return;
-			}
-
-			$context = self::raw_context_for_capability_request( $session_id, $debug );
-			$request = Ahentic_Capability_Request::build( $ability, $context );
-			if ( empty( $request ) ) {
-				return;
-			}
-
-			Ahentic_Session_Repository::queue_capability_request( $session_id, $request );
-
-			if ( ! empty( $request['tokens_total'] ) ) {
-				Ahentic_Session_Repository::add_tokens(
-					$session_id,
-					isset( $request['tokens_in'] ) ? (int) $request['tokens_in'] : 0,
-					isset( $request['tokens_out'] ) ? (int) $request['tokens_out'] : 0,
-					(int) $request['tokens_total']
-				);
-			}
-
-			Ahentic_Session_Repository::append_trace(
-				$session_id,
-				'capability_request_goal',
-				'Summarized capability request goal',
-				array(
-					'ability' => $ability,
-					'goal'    => isset( $request['goal'] ) ? $request['goal'] : '',
-					'raw'     => isset( $request['goal_raw'] ) ? self::excerpt( (string) $request['goal_raw'], 120 ) : '',
-				),
-				(int) $step
-			);
-		}
-
-		/**
 		 * One LLM phase with progress + trace.
 		 *
 		 * @param int         $session_id  Session ID.
@@ -968,7 +611,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 *                                 current step number and do not consume MAX_STEPS_PER_RUN.
 		 * @return array|\WP_Error
 		 */
-		private static function run_llm_phase( $session_id, $progress, $extra_turn = null, $user_suffix = '', $bump_step = true ) {
+		public static function run_llm_phase( $session_id, $progress, $extra_turn = null, $user_suffix = '', $bump_step = true ) {
 			if ( $bump_step ) {
 				$step = Ahentic_Session_Repository::bump_step( $session_id );
 			} else {
@@ -1097,11 +740,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				);
 			}
 
-			self::trace_debug( $session_id, $debug, $step );
+			Ahentic_Think_Debug::trace_debug( $session_id, $debug, $step );
 
 			// Prefer the model's intention/thinking over the generic phase label while tools/reply follow.
 			if ( is_array( $debug ) ) {
-				$reason_label = self::progress_label_from_debug( $debug, '' );
+				$reason_label = Ahentic_Think_Debug::progress_label_from_debug( $debug, '' );
 				if ( '' !== $reason_label ) {
 					Ahentic_Session_Repository::set_progress( $session_id, $reason_label, $step );
 					$progress = $reason_label;
@@ -1125,61 +768,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			);
 
 			return $result;
-		}
-
-		/**
-		 * Persist thinking / tools_planned into the trace.
-		 *
-		 * @param int        $session_id Session ID.
-		 * @param array|null $debug      Debug block.
-		 * @param int        $step       Step.
-		 */
-		private static function trace_debug( $session_id, $debug, $step ) {
-			if ( $debug ) {
-				$intention = isset( $debug['intention'] ) ? (string) $debug['intention'] : '';
-				$thinking  = isset( $debug['thinking'] ) ? (string) $debug['thinking'] : '';
-				$planned   = isset( $debug['tools_planned'] ) && is_array( $debug['tools_planned'] ) ? $debug['tools_planned'] : array();
-				$next      = isset( $debug['next'] ) ? (string) $debug['next'] : '';
-				$plan      = Ahentic_Plan::normalize_from_debug( $debug );
-				// Match the live status string so debugger + sidebar show the same step text.
-				$summary = self::progress_label_from_debug( $debug, '' );
-				if ( '' === $summary ) {
-					$summary = 'Model thinking';
-				}
-
-				$data = array(
-					'intention'     => $intention,
-					'thinking'      => $thinking,
-					'tools_planned' => array_values( $planned ),
-					'next'          => $next,
-				);
-				if ( null !== $plan ) {
-					$data['plan'] = $plan;
-				}
-
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'llm_thinking',
-					$summary,
-					$data,
-					$step
-				);
-				return;
-			}
-
-			Ahentic_Session_Repository::append_trace(
-				$session_id,
-				'llm_thinking',
-				'Thinking block not provided by model',
-				array(
-					'intention'     => '',
-					'thinking'      => '',
-					'tools_planned' => array(),
-					'next'          => '',
-					'missing'       => true,
-				),
-				$step
-			);
 		}
 
 		/**
@@ -1404,34 +992,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
-		 * Context for summarizing a capability-request action phrase.
-		 *
-		 * @param int   $session_id Session ID.
-		 * @param array $debug      Debug block.
-		 * @return string
-		 */
-		private static function raw_context_for_capability_request( $session_id, $debug = array() ) {
-			$parts = array();
-
-			$entries = Ahentic_Session_Repository::get_entries( $session_id );
-			for ( $i = count( $entries ) - 1; $i >= 0; $i-- ) {
-				if ( isset( $entries[ $i ]['role'] ) && 'user' === $entries[ $i ]['role'] ) {
-					$user = isset( $entries[ $i ]['content'] ) ? trim( (string) $entries[ $i ]['content'] ) : '';
-					if ( '' !== $user ) {
-						$parts[] = 'User: ' . $user;
-					}
-					break;
-				}
-			}
-
-			if ( is_array( $debug ) && ! empty( $debug['intention'] ) ) {
-				$parts[] = 'Agent intention: ' . trim( (string) $debug['intention'] );
-			}
-
-			return implode( "\n", $parts );
-		}
-
-		/**
 		 * Fail the run with an assistant error message.
 		 *
 		 * @param int      $session_id Session ID.
@@ -1468,30 +1028,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'Run idle after error',
 				array( 'reason' => 'error' )
 			);
-		}
-
-		/**
-		 * Whether a progress label is a generic phase placeholder (not a real step).
-		 *
-		 * @param string $label Progress label.
-		 * @return bool
-		 */
-		private static function is_generic_progress_label( $label ) {
-			$label = trim( (string) $label );
-			if ( '' === $label ) {
-				return true;
-			}
-
-			$generic = array(
-				__( 'Planning next steps…', 'ahentic' ),
-				__( 'Reviewing results…', 'ahentic' ),
-				__( 'Starting…', 'ahentic' ),
-				__( 'Finishing…', 'ahentic' ),
-				__( 'Thinking…', 'ahentic' ),
-				__( 'Retrying…', 'ahentic' ),
-			);
-
-			return in_array( $label, $generic, true );
 		}
 
 		/**
@@ -1594,105 +1130,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
-		 * Label to show while waiting on the LLM — prefer the last real step within this run.
-		 *
-		 * @param int $session_id Session ID.
-		 * @return string
-		 */
-		private static function progress_label_for_think( $session_id ) {
-			$fallback = __( 'Planning next steps…', 'ahentic' );
-			// First step of a new run — never reuse a prior-run intention/tool label.
-			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
-			if ( $step < 1 ) {
-				return $fallback;
-			}
-
-			$current = Ahentic_Session_Repository::get_progress( $session_id );
-			$label   = is_array( $current ) && ! empty( $current['label'] )
-				? (string) $current['label']
-				: '';
-
-			if ( '' !== $label && ! self::is_generic_progress_label( $label ) ) {
-				return $label;
-			}
-
-			return $fallback;
-		}
-
-		/**
-		 * Fill empty user-facing text from debug thinking / intention (final replies).
-		 *
-		 * @param array $result LLM result.
-		 * @param array $debug  Parsed debug block.
-		 * @return array
-		 */
-		private static function ensure_thought_process_text( array $result, array $debug ) {
-			$text = isset( $result['text'] ) ? trim( (string) $result['text'] ) : '';
-			if ( '' !== $text ) {
-				return $result;
-			}
-			if ( empty( $debug ) ) {
-				return $result;
-			}
-			$fallback = Ahentic_AI::fallback_reply_from_debug( $debug );
-			if ( '' === trim( (string) $fallback ) ) {
-				return $result;
-			}
-			$result['text'] = $fallback;
-			return $result;
-		}
-
-		/**
-		 * Prose to show in the sidebar for this think step.
-		 * Prefers debug.thinking (thought process), then reply text, then intention.
-		 *
-		 * @param array $result LLM result.
-		 * @param array $debug  Parsed debug block.
-		 * @return string
-		 */
-		private static function resolve_thought_process_for_chat( array $result, array $debug ) {
-			$thinking  = is_array( $debug ) && isset( $debug['thinking'] ) ? trim( (string) $debug['thinking'] ) : '';
-			$text      = isset( $result['text'] ) ? trim( (string) $result['text'] ) : '';
-			$intention = is_array( $debug ) && isset( $debug['intention'] ) ? trim( (string) $debug['intention'] ) : '';
-
-			if ( '' !== $thinking ) {
-				return $thinking;
-			}
-			if ( '' !== $text ) {
-				return $text;
-			}
-			if ( '' !== $intention ) {
-				return $intention;
-			}
-			return '';
-		}
-
-		/**
-		 * Publish ephemeral thought process for the sidebar (not a durable chat entry).
-		 *
-		 * @param int    $session_id Session ID.
-		 * @param array  $result     LLM result.
-		 * @param array  $debug      Parsed debug block.
-		 */
-		private static function publish_thought_process( $session_id, array $result, array $debug ) {
-			$content = self::resolve_thought_process_for_chat( $result, $debug );
-			if ( '' === $content ) {
-				return;
-			}
-			Ahentic_Session_Repository::set_thought( $session_id, $content );
-			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
-			Ahentic_Session_Repository::append_trace(
-				$session_id,
-				'thought_process',
-				self::excerpt( $content, 120 ),
-				array(
-					'text' => self::excerpt( $content, 400 ),
-				),
-				$step
-			);
-		}
-
-		/**
 		 * Whether an array is a list (0..n-1 keys).
 		 *
 		 * @param array $arr Array.
@@ -1706,65 +1143,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return true;
 			}
 			return array_keys( $arr ) === range( 0, count( $arr ) - 1 );
-		}
-
-		/**
-		 * User-facing progress label from the model's intention / thinking.
-		 *
-		 * @param array  $debug    Debug block.
-		 * @param string $fallback Label when reasoning is missing.
-		 * @return string
-		 */
-		private static function progress_label_from_debug( $debug, $fallback = '' ) {
-			if ( ! is_array( $debug ) ) {
-				return (string) $fallback;
-			}
-
-			$intention = isset( $debug['intention'] ) ? trim( (string) $debug['intention'] ) : '';
-			if ( '' !== $intention ) {
-				return self::format_progress_label( $intention );
-			}
-
-			$thinking = isset( $debug['thinking'] ) ? trim( (string) $debug['thinking'] ) : '';
-			if ( '' !== $thinking ) {
-				// Prefer the first sentence so the status stays short.
-				$parts = preg_split( '/(?<=[.!?])\s+/', $thinking, 2 );
-				$first = is_array( $parts ) && ! empty( $parts[0] ) ? $parts[0] : $thinking;
-				return self::format_progress_label( $first, 80 );
-			}
-
-			return (string) $fallback;
-		}
-
-		/**
-		 * Normalize a free-text progress phrase (ellipsis, length, capitalization).
-		 *
-		 * @param string $text Raw phrase.
-		 * @param int    $max  Max length before ellipsis.
-		 * @return string
-		 */
-		private static function format_progress_label( $text, $max = 72 ) {
-			$text = trim( preg_replace( '/\s+/', ' ', (string) $text ) );
-			$text = rtrim( $text, " \t." );
-			$text = preg_replace( '/…+$/u', '', $text );
-			$text = trim( (string) $text );
-			if ( '' === $text ) {
-				return '';
-			}
-
-			if ( function_exists( 'mb_strtoupper' ) && function_exists( 'mb_substr' ) ) {
-				$first = mb_strtoupper( mb_substr( $text, 0, 1 ) );
-				$rest  = mb_substr( $text, 1 );
-				$text  = $first . $rest;
-			} else {
-				$text = ucfirst( $text );
-			}
-
-			if ( strlen( $text ) > $max ) {
-				$text = rtrim( substr( $text, 0, $max - 1 ) );
-			}
-
-			return $text . '…';
 		}
 
 		/**
@@ -1792,7 +1170,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return $legacy[ $tool ];
 			}
 
-			$from_debug = self::progress_label_from_debug( $debug, '' );
+			$from_debug = Ahentic_Think_Debug::progress_label_from_debug( $debug, '' );
 			if ( '' !== $from_debug ) {
 				return $from_debug;
 			}

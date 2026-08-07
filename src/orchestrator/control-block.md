@@ -26,7 +26,7 @@ Optional short message the user can read.
 
 Closing marker: `AHENTIC_DEBUG` followed by exactly `>>>`.
 
-If the block is missing or `next` is invalid, the orchestrator **retries internally** (up to `MAX_DEBUG_ATTEMPTS`) without asking the user to continue.
+If the block is missing or `next` is invalid, the orchestrator **retries internally** (up to `Ahentic_Think_Debug::MAX_DEBUG_ATTEMPTS`) without asking the user to continue.
 
 ---
 
@@ -125,7 +125,7 @@ If a write is planned in Ask, the orchestrator injects `ability_ask_readonly` to
 | Ability availability / descriptions | Ability registration modules (preferred) |
 | Global routing (“editor vs server”, artifacts, refs) | `Ahentic_Prompt_Assembler::system_prompt()` in `class-prompt-assembler.php` |
 | Caps / retries | Class constants (`MAX_STEPS_PER_RUN`, `MAX_DEBUG_ATTEMPTS`, …) |
-| Debug parse / normalization | Helpers near `run_llm_with_debug` / `normalize_tool_calls` |
+| Debug parse / normalization | `Ahentic_AI` extract + `Ahentic_Think_Debug` usability / retry |
 
 Keep `system_prompt()` concise. Prefer rich ability `description` text for tool-specific rules so the catalog stays the source of truth.
 

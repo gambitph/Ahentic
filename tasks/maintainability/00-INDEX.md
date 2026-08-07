@@ -4,7 +4,7 @@ Temporary working folder — delete when the track is done. Not PRD/contract.
 
 **Source:** Post–M1–M6 grill · AI-slop detector triage · [`.cursor/rules/ahentic-anti-slop.mdc`](../../.cursor/rules/ahentic-anti-slop.mdc)
 
-**Track status:** M1–M4 done; next M5.
+**Track status:** M1–M5 done; next M6.
 
 ## Locked decisions
 
@@ -25,14 +25,14 @@ Temporary working folder — delete when the track is done. Not PRD/contract.
 | M2 | ~~content-ability-catalog~~ | done (removed) | Content `catalog()` like browser |
 | M3 | ~~orchestrator-plan-move~~ | done (removed) | `Ahentic_Plan` move-only |
 | M4 | ~~orchestrator-plan-deepen~~ | done (removed) | Deep plan API (`sync_after_think` / …) |
-| M5 | [05-orchestrator-think-debug-move.md](./05-orchestrator-think-debug-move.md) | ready | Move-only think/debug |
+| M5 | ~~orchestrator-think-debug-move~~ | done (removed) | `Ahentic_Think_Debug` move-only |
 | M6 | [06-orchestrator-think-debug-deepen.md](./06-orchestrator-think-debug-deepen.md) | ready | Deepen think/debug API after M5 |
 
 ## Implement order
 
 1. ~~M1 ∥ M2~~
 2. ~~M3 → M4~~
-3. **M5** → **M6**
+3. ~~M5~~ → **M6**
 
 ## Deferred (not in this track)
 

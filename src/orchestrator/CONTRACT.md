@@ -55,6 +55,8 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 **Plan module:** `Ahentic_Plan` owns the plan checklist. Primary interface: `sync_after_think()`, `ensure_after_think()`, `advance_after_tool()`, `complete_on_finish()`, `cancel_on_stop()`. The Orchestrator (and Finish Gate for advance) must call these — do not reimplement plan merge/normalize/FSM at call sites.
 
+**Think/debug module:** `Ahentic_Think_Debug` owns AHENTIC_DEBUG usability checks, debug-retry think loops, missing-ability queueing, thought-process publish, and related progress/trace helpers. The Orchestrator must call this module for “run a think with debug recovery” — do not reimplement debug retry at call sites. Single LLM phases remain `Ahentic_Orchestrator::run_llm_phase()` (used by Think/Debug and plan-retry).
+
 ## Browser preflight & recovery
 
 - Preflight page context / client capability before entering `awaiting_browser`.
