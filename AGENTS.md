@@ -12,6 +12,10 @@
 
 When code and docs disagree: **PRD/contract win**. How-it-works files under `src/**` map current implementation.
 
+## Coding standards (agents)
+
+Maintainability / anti-slop (deepen seams, derived catalogues, no phantom tools): [`.cursor/rules/ahentic-anti-slop.mdc`](./.cursor/rules/ahentic-anti-slop.mdc) — always-on Cursor rule.
+
 ## Agent skills
 
 ### Issue tracker

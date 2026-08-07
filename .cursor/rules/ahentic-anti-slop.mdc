@@ -1,0 +1,34 @@
+---
+description: Maintainability and anti-slop standards when changing Ahentic code
+alwaysApply: true
+---
+
+# Maintainability & anti-slop
+
+Prefer deepening existing seams over inventing parallel structure. Goal: one place to change a behaviour; catalogues and heuristics stay single-sourced.
+
+## Before you paste
+
+When adding or extending behaviour, check the nearest sibling first. If the change would clone a block (ability registration lists, `requireEditor` boilerplate, progress labels, placeholder detectors, `*ByTab` map clears), extract or reuse a shared helper **before** adding the nth copy.
+
+## Catalogues stay derived
+
+Ability / tool identity lives in one authoritative registration path. Lists such as names, write/HITL, progress labels, browser stubs, and JS `switch` cases must be derived from that catalog or updated in the documented checklist in one pass — never hand-sync a second map “for convenience.”
+
+Ship or silence: do not name an ability in `system_prompt`, playbooks, or error copy unless it is registered and executable on the path you advertise.
+
+## Deepen, don’t layer
+
+Keep the runtime spine: REST → orchestrator step → Tool runner → abilities; sidebar chrome in `localStorage`, messages/run state via session REST.
+
+New behaviour goes into an existing module cluster (prompt assembly, plan lifecycle, think/debug, session sync, ability module) when one fits. Do not add a second public tool registry, ad-hoc AJAX twin, or parallel session-state dictionary beside `*ByTab` / repository meta without an explicit extract.
+
+God-file rule of thumb: prefer extracting a coherent cluster over growing `class-orchestrator.php`, `sidebar.js`, `class-abilities-content.php`, or `editor-abilities.js` with another pasted case.
+
+## Single source for shared heuristics
+
+Heuristics that exist on both PHP and JS (e.g. content placeholders) share one definition of truth — shared data, generated copy, or a documented sync with a test. Same for optimistic UI labels vs PHP `progress_label()`.
+
+## Completion check
+
+Before finishing a change that adds an ability, tool name, prompt route, or session UI field: every list/map/prompt/playbook that must know about it is updated, no phantom names remain, and no new duplicate helper was introduced beside an existing one.
