@@ -1026,10 +1026,13 @@ export default function Sidebar() {
 		} ) )
 		// Floor freshness so a raced poll (same user turn, still idle) cannot
 		// clobber busy chrome before postMessage / the worker advances.
+		// Reset stepCount: each start_message zeroes steps server-side; keeping the
+		// prior run's stepCount makes real polls look "stale" (step 1 < known 6).
 		sessionMetaRef.current[ sessionId ] = {
 			...metaBeforeSend,
 			status: 'running',
 			progressAt: Date.now(),
+			stepCount: 0,
 			messageCount: Math.max( metaBeforeSend.messageCount, metaBeforeSend.messageCount + 1 ),
 			lastSeq: Math.max( metaBeforeSend.lastSeq, metaBeforeSend.lastSeq + 1 ),
 		}

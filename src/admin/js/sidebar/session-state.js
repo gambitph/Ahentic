@@ -115,6 +115,8 @@ export function sessionFingerprint( session ) {
 	}
 	const messages = Array.isArray( session.messages ) ? session.messages : []
 	const last = messages[ messages.length - 1 ]
+	const trace = Array.isArray( session.trace ) ? session.trace : []
+	const traceLen = Number( session.traceCount ) || trace.length
 	return [
 		session.modifiedAt || '',
 		session.status || '',
@@ -125,6 +127,8 @@ export function sessionFingerprint( session ) {
 		session.progress?.updatedAt || '',
 		session.plan?.updatedAt || '',
 		session.pendingTool ? JSON.stringify( session.pendingTool ) : '',
+		// Debugger / live-status can advance via trace alone while progress stays generic.
+		traceLen,
 	].join( '\u0001' )
 }
 
@@ -200,7 +204,9 @@ export function isSessionPayloadStale( incoming, known ) {
 	}
 
 	if ( next.lastSeq === known.lastSeq && next.messageCount === known.messageCount ) {
-		if ( next.stepCount < known.stepCount ) {
+		// stepCount resets to 0 on each new run while the debug trace keeps growing.
+		// Only treat a lower stepCount as stale when the trace did not advance.
+		if ( next.stepCount < known.stepCount && next.traceLen <= known.traceLen ) {
 			return true
 		}
 		if ( next.traceLen < known.traceLen ) {
@@ -213,7 +219,8 @@ export function isSessionPayloadStale( incoming, known ) {
 			known.progressAt &&
 			next.progressAt &&
 			next.progressAt < known.progressAt &&
-			next.stepCount <= known.stepCount
+			next.stepCount <= known.stepCount &&
+			next.traceLen <= known.traceLen
 		) {
 			return true
 		}
@@ -221,7 +228,8 @@ export function isSessionPayloadStale( incoming, known ) {
 			known.planAt &&
 			next.planAt &&
 			next.planAt < known.planAt &&
-			next.stepCount <= known.stepCount
+			next.stepCount <= known.stepCount &&
+			next.traceLen <= known.traceLen
 		) {
 			return true
 		}

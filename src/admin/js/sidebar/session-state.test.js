@@ -137,6 +137,34 @@ describe( 'session-state freshness', () => {
 		}
 		expect( isSessionPayloadStale( incoming, known ) ).toBe( true )
 	} )
+
+	// Regression: second prompt floors meta with prior stepCount; new run resets
+	// steps but grows the shared trace — that poll must apply (awaiting_browser).
+	it( 'isSessionPayloadStale allows stepCount reset when trace advanced', () => {
+		const known = {
+			messageCount: 17,
+			lastSeq: 17,
+			stepCount: 6,
+			traceLen: 128,
+			modifiedAt: 1,
+			progressAt: Date.now(),
+			planAt: 1,
+			status: 'running',
+		}
+		const incoming = {
+			messages: Array.from( { length: 17 }, ( _, i ) => ( {
+				seq: i + 1, role: 'user', content: 'x',
+			} ) ),
+			status: 'awaiting_browser',
+			stepCount: 1,
+			traceCount: 142,
+			progress: {
+				label: 'Waiting for this page to run: Updating block attributes…',
+				updatedAt: '2026-08-07T10:50:15+00:00',
+			},
+		}
+		expect( isSessionPayloadStale( incoming, known ) ).toBe( false )
+	} )
 } )
 
 describe( 'session-state optimistic merge', () => {
@@ -320,5 +348,24 @@ describe( 'sessionFingerprint', () => {
 			pendingTool: null,
 		}
 		expect( sessionFingerprint( session ) ).toBe( sessionFingerprint( { ...session } ) )
+	} )
+
+	// Regression: polls that only grow the debugger log (same progress label /
+	// messages / stepCount) must still apply so live status can leave
+	// "Planning next steps…" via resolveLiveStatusLabel(trace).
+	it( 'changes when only traceCount grows during a running think', () => {
+		const base = {
+			modifiedAt: '2026-01-01T00:00:00Z',
+			status: 'running',
+			stepCount: 1,
+			messages: [ { id: '1', seq: 1 } ],
+			progress: { label: 'Planning next steps…', updatedAt: '2026-01-01T00:00:01Z' },
+			plan: null,
+			pendingTool: null,
+			traceCount: 5,
+		}
+		expect( sessionFingerprint( base ) ).not.toBe(
+			sessionFingerprint( { ...base, traceCount: 12 } )
+		)
 	} )
 } )

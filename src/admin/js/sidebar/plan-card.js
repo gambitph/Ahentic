@@ -8,46 +8,100 @@ import {
 } from 'lucide-react'
 
 /**
- * @param {Object} props
- * @param {Object} props.plan Session plan payload { title?, steps, updatedAt }.
+ * Presentation state for the plan card header / chrome.
+ *
+ * Steps may all be marked completed while the run is still busy (finish gate,
+ * verify, final reply). Do not show "Plan complete" until the session is idle.
+ *
+ * @param {Object}  plan
+ * @param {Object}  [options]
+ * @param {boolean} [options.busy] Session still working (live status visible).
+ * @return {{ done: number, total: number, showComplete: boolean, wrappingUp: boolean, stopped: boolean, stateClass: string, eyebrow: string, steps: Array }} Result.
  */
-export default function PlanCard( { plan } ) {
-	const steps = Array.isArray( plan?.steps ) ? plan.steps : []
-	if ( ! steps.length ) {
+export function resolvePlanCardPresentation( plan, { busy = false } = {} ) {
+	const rawSteps = Array.isArray( plan?.steps ) ? plan.steps : []
+	const done = rawSteps.filter( step => step.status === 'completed' ).length
+	const total = rawSteps.length
+	const stepsAllDone = done === total && total > 0
+	// Checklist finished on paper, but the agent is still wrapping up.
+	const wrappingUp = stepsAllDone && busy
+	const showComplete = stepsAllDone && ! busy
+	const stopped = ! showComplete &&
+		! busy &&
+		rawSteps.some( step => step.status === 'cancelled' ) &&
+		! rawSteps.some( step => step.status === 'in_progress' )
+
+	let stateClass = ''
+	if ( showComplete ) {
+		stateClass = ' is-complete'
+	} else if ( wrappingUp ) {
+		stateClass = ' is-wrapping-up'
+	} else if ( stopped ) {
+		stateClass = ' is-stopped'
+	}
+
+	let eyebrow = __( 'Plan', 'ahentic' )
+	if ( showComplete ) {
+		eyebrow = __( 'Plan complete', 'ahentic' )
+	} else if ( wrappingUp ) {
+		eyebrow = __( 'Finishing…', 'ahentic' )
+	} else if ( stopped ) {
+		eyebrow = __( 'Plan stopped', 'ahentic' )
+	}
+
+	// Display-only: keep the last step spinning so the card does not look finished
+	// while live status is still on screen.
+	let steps = rawSteps
+	if ( wrappingUp && rawSteps.length ) {
+		const last = rawSteps.length - 1
+		steps = rawSteps.map( ( step, index ) => (
+			index === last
+				? { ...step, status: 'in_progress' }
+				: step
+		) )
+	}
+
+	return {
+		done,
+		total,
+		showComplete,
+		wrappingUp,
+		stopped,
+		stateClass,
+		eyebrow,
+		steps,
+	}
+}
+
+/**
+ * @param {Object}  props
+ * @param {Object}  props.plan Session plan payload { title?, steps, updatedAt }.
+ * @param {boolean} [props.busy] Whether the session is still actively working.
+ */
+export default function PlanCard( { plan, busy = false } ) {
+	const rawSteps = Array.isArray( plan?.steps ) ? plan.steps : []
+	if ( ! rawSteps.length ) {
 		return null
 	}
 
 	const title = typeof plan.title === 'string' ? plan.title.trim() : ''
-	const done = steps.filter( step => step.status === 'completed' ).length
-	const allDone = done === steps.length && steps.length > 0
-	const stopped = ! allDone &&
-		steps.some( step => step.status === 'cancelled' ) &&
-		! steps.some( step => step.status === 'in_progress' )
-
-	let state = ''
-	if ( allDone ) {
-		state = ' is-complete'
-	} else if ( stopped ) {
-		state = ' is-stopped'
-	}
+	const {
+		done, total, stateClass, eyebrow, steps,
+	} = resolvePlanCardPresentation( plan, { busy } )
 
 	return (
 		<div
-			className={ `ahentic-plan${ state }` }
+			className={ `ahentic-plan${ stateClass }` }
 			role="status"
 			aria-live="polite"
 			aria-label={ title || __( 'Plan', 'ahentic' ) }
 		>
 			<div className="ahentic-plan__header">
 				<span className="ahentic-plan__eyebrow">
-					{ allDone
-						? __( 'Plan complete', 'ahentic' )
-						: ( stopped
-							? __( 'Plan stopped', 'ahentic' )
-							: __( 'Plan', 'ahentic' ) ) }
+					{ eyebrow }
 				</span>
 				<span className="ahentic-plan__count">
-					{ done }/{ steps.length }
+					{ done }/{ total }
 				</span>
 			</div>
 			{ title ? (

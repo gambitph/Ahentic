@@ -559,6 +559,7 @@ export default function TabContent( {
 						<PlanCard
 							key={ plan.updatedAt || `plan-${ plan.steps.length }` }
 							plan={ plan }
+							busy={ busy }
 						/>
 					</div>
 				) : null }
