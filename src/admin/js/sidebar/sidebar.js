@@ -108,7 +108,6 @@ export default function Sidebar() {
 	const [ isMobile, setIsMobile ] = useState(
 		() => typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
 	)
-	const [ historyNotice, setHistoryNotice ] = useState( false )
 	const [ hasAdminBar, setHasAdminBar ] = useState(
 		() => typeof document !== 'undefined' && Boolean( document.getElementById( 'wpadminbar' ) )
 	)
@@ -880,59 +879,6 @@ export default function Sidebar() {
 		} )
 	}, [ mode ] )
 
-	const renameActiveTab = useCallback( async () => {
-		const active = tabs.find( tab => tab.id === activeTabId )
-		if ( ! active ) {
-			return
-		}
-		// eslint-disable-next-line no-alert
-		const nextTitle = window.prompt( 'Rename conversation', active.title )
-		if ( nextTitle === null ) {
-			return
-		}
-		const title = nextTitle.trim() || 'New Agent'
-		setTabs( current => current.map( tab => (
-			tab.id === activeTabId ? { ...tab, title } : tab
-		) ) )
-		if ( isSessionId( activeTabId ) ) {
-			try {
-				await patchSession( activeTabId, { title } )
-			} catch ( error ) {
-				// Local title still updated.
-			}
-		}
-	}, [ tabs, activeTabId ] )
-
-	const duplicateActiveTab = useCallback( async () => {
-		const active = tabs.find( tab => tab.id === activeTabId )
-		if ( ! active ) {
-			return
-		}
-		try {
-			const session = await createSession( {
-				mode,
-				title: `${ active.title } copy`,
-			} )
-			const id = String( session.id )
-			setTabs( current => [ ...current, {
-				id,
-				title: session.title || `${ active.title } copy`,
-				createdAt: Date.now(),
-				status: 'idle',
-			} ] )
-			setSessionsById( sessions => patchSessionRecord( sessions, id, {
-				messages: [],
-				status: 'idle',
-				trace: [],
-			} ) )
-			markHydrated( id )
-			setActiveTabId( id )
-		} catch ( error ) {
-			// eslint-disable-next-line no-alert
-			window.alert( error.message || 'Could not duplicate session.' )
-		}
-	}, [ tabs, activeTabId, mode, markHydrated ] )
-
 	const clearAllTabs = useCallback( async () => {
 		try {
 			const session = await createSession( { mode } )
@@ -1385,22 +1331,10 @@ export default function Sidebar() {
 					onSelect={ selectTab }
 					onClose={ closeTab }
 					onNew={ addTab }
-					onRename={ renameActiveTab }
-					onDuplicate={ duplicateActiveTab }
 					onClearAll={ clearAllTabs }
 					debugOpen={ debugOpen }
 					onToggleDebug={ () => setDebugOpen( value => ! value ) }
-					onHistory={ () => {
-						setHistoryNotice( true )
-						window.setTimeout( () => setHistoryNotice( false ), 2200 )
-					} }
 				/>
-
-				{ historyNotice && (
-					<div className="ahentic-toast" role="status">
-						Sessions are saved on this site. Full history browser coming soon.
-					</div>
-				) }
 
 				<div
 					className={ classnames( 'ahentic-session-pane', {

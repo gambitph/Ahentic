@@ -7,7 +7,7 @@ import {
 } from '@wordpress/element'
 import classnames from 'classnames'
 import {
-	MessageSquare, Plus, History, MoreHorizontal, X,
+	MessageSquare, Plus, MoreHorizontal, X,
 } from 'lucide-react'
 
 /**
@@ -17,10 +17,7 @@ import {
  * @param {Function} props.onSelect
  * @param {Function} props.onClose
  * @param {Function} props.onNew
- * @param {Function} props.onRename
- * @param {Function} props.onDuplicate
  * @param {Function} props.onClearAll
- * @param {Function} props.onHistory
  * @param {boolean}  props.debugOpen
  * @param {Function} props.onToggleDebug
  */
@@ -30,10 +27,7 @@ export default function TabBar( {
 	onSelect,
 	onClose,
 	onNew,
-	onRename,
-	onDuplicate,
 	onClearAll,
-	onHistory,
 	debugOpen = false,
 	onToggleDebug,
 } ) {
@@ -110,15 +104,7 @@ export default function TabBar( {
 				>
 					<Plus size={ 14 } strokeWidth={ 1.75 } />
 				</button>
-				<button
-					type="button"
-					className="ahentic-icon-btn"
-					onClick={ onHistory }
-					aria-label="Agent history"
-					title="History"
-				>
-					<History size={ 14 } strokeWidth={ 1.75 } />
-				</button>
+				{ /* History / saved sessions — hidden for now. */ }
 				<div className="ahentic-menu" ref={ menuRef }>
 					<button
 						type="button"
@@ -132,28 +118,7 @@ export default function TabBar( {
 					</button>
 					{ menuOpen && (
 						<div className="ahentic-menu__panel" role="menu">
-							<button
-								type="button"
-								role="menuitem"
-								className="ahentic-menu__item"
-								onClick={ () => {
-									setMenuOpen( false )
-									onRename()
-								} }
-							>
-								Rename
-							</button>
-							<button
-								type="button"
-								role="menuitem"
-								className="ahentic-menu__item"
-								onClick={ () => {
-									setMenuOpen( false )
-									onDuplicate()
-								} }
-							>
-								Duplicate
-							</button>
+							{ /* Rename, export conversation — hidden for now. */ }
 							<button
 								type="button"
 								role="menuitemcheckbox"
@@ -165,17 +130,6 @@ export default function TabBar( {
 								} }
 							>
 								{ debugOpen ? 'Hide debugger' : 'Debugger' }
-							</button>
-							<button
-								type="button"
-								role="menuitem"
-								className="ahentic-menu__item"
-								onClick={ () => {
-									setMenuOpen( false )
-									// Mock only — export later.
-								} }
-							>
-								Export conversation
 							</button>
 							<button
 								type="button"
