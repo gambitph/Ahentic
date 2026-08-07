@@ -292,7 +292,7 @@ test.describe( 'taxonomy CRUD + post term assignment', () => {
 			search: name,
 		} )
 		expect( listed.ok, JSON.stringify( listed ) ).toBe( true )
-		expect( listed.data.terms.some( ( t ) => t.term_id === termId ) ).toBe( true )
+		expect( listed.data.terms.some( t => t.term_id === termId ) ).toBe( true )
 
 		const got = await runAbility( requestUtils, 'ahentic/get-term', {
 			taxonomy: 'category',
@@ -331,7 +331,7 @@ test.describe( 'taxonomy CRUD + post term assignment', () => {
 
 		const content = await runAbility( requestUtils, 'ahentic/get-content', { id: postId } )
 		expect( content.ok, JSON.stringify( content ) ).toBe( true )
-		expect( content.data.terms.category.some( ( t ) => t.id === termId ) ).toBe( true )
+		expect( content.data.terms.category.some( t => t.id === termId ) ).toBe( true )
 
 		const missing = await runAbility( requestUtils, 'ahentic/update-post', {
 			id: postId,

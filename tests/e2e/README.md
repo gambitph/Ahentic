@@ -102,6 +102,7 @@ test( 'sends a message and renders the mocked reply', async ( { ahenticSidebar }
 	await ahenticSidebar.openWithSession()
 
 	await ahenticSidebar.sendMessage( 'Hi there, Ahentic.' )
+	// Or: await ahenticSidebar.sendMessage( 'Hi', { via: 'button' } )
 
 	await expect( ahenticSidebar.message( 'assistant' ) ).toContainText( 'Hello from the mocked assistant.' )
 } )

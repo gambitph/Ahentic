@@ -129,16 +129,31 @@ class AhenticSidebar {
 		return this.page.getByRole( 'textbox', { name: 'Ask Ahentic' } )
 	}
 
+	/** @return {import('@playwright/test').Locator} Composer Send (idle; right-most circle). */
+	get sendButton() {
+		return this.sidebar.locator( '.ahentic-composer__send' )
+	}
+
+	/** @return {import('@playwright/test').Locator} Composer Stop (replaces Send while a run is active). */
+	get stopButton() {
+		return this.sidebar.locator( '.ahentic-composer__stop' )
+	}
+
 	/**
-	 * Type a message into the composer and submit it (Enter — there is no
-	 * send button, see src/admin/js/sidebar/composer.js).
+	 * Type a message into the composer and submit it.
 	 *
 	 * @param {string} text Message to send.
+	 * @param {Object} [options]
+	 * @param {'enter'|'button'} [options.via='enter'] Submit via Enter or the Send button.
 	 * @return {Promise<void>}
 	 */
-	async sendMessage( text ) {
+	async sendMessage( text, { via = 'enter' } = {} ) {
 		await this.composer.click()
 		await this.composer.fill( text )
+		if ( via === 'button' ) {
+			await this.sendButton.click()
+			return
+		}
 		await this.composer.press( 'Enter' )
 	}
 

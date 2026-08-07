@@ -1888,7 +1888,15 @@ a.ahentic-empty__ai-install:hover {
 	min-width: 0;
 }
 
-.ahentic-composer__stop {
+/* Deferred attach/mic — keep markup; attach = free v3, voice = Premium v3 */
+/* See future-prompt-file-attachments.md / future-prompt-voice-input.md */
+.ahentic-composer__affordance--deferred,
+.ahentic-composer__affordance--deferred[hidden] {
+	display: none !important;
+}
+
+/* Send / Stop — one right-most circle control that swaps role (Cursor-style). */
+.ahentic-composer__circle-btn {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -1903,19 +1911,34 @@ a.ahentic-empty__ai-install:hover {
 	transition: background 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
-.ahentic-composer__stop:focus-visible {
+.ahentic-composer__circle-btn:focus-visible {
 	outline: 2px solid var(--ah-primary);
 	outline-offset: 2px;
+}
+
+.ahentic-composer__circle-btn:hover:not(:disabled) {
+	background: var(--ah-primary);
+	color: #fff;
+}
+
+.ahentic-composer__send:disabled {
+	opacity: 0.35;
+	cursor: not-allowed;
+}
+
+.ahentic-composer__send:not(:disabled) {
+	background: var(--ah-primary);
+	color: #fff;
+}
+
+.ahentic-composer__send:hover:not(:disabled) {
+	background: var(--ah-primary-hover);
+	color: #fff;
 }
 
 .ahentic-composer__stop:disabled {
 	opacity: 0.55;
 	cursor: wait;
-}
-
-.ahentic-composer__stop:hover:not(:disabled) {
-	background: var(--ah-primary);
-	color: #fff;
 }
 
 .ahentic-mode {

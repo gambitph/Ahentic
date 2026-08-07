@@ -37,7 +37,7 @@ test.describe( 'ahentic/list-media + get-media', () => {
 		} )
 		expect( listed.ok, JSON.stringify( listed ) ).toBe( true )
 		expect( listed.data.per_page ).toBeLessThanOrEqual( 50 )
-		const hit = ( listed.data.items || [] ).find( ( item ) => item.id === attachmentId )
+		const hit = ( listed.data.items || [] ).find( item => item.id === attachmentId )
 		expect( hit ).toBeTruthy()
 		expect( hit.title ).toBe( title )
 		expect( hit.alt ).toBe( 'List media alt' )

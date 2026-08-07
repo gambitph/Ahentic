@@ -27,7 +27,7 @@ Do not call AI vendors from the sidebar. Talk to WordPress REST (`ahentic/v1`) a
 | --- | --- |
 | `sidebar.js` | Root UI: tabs, send, poll, browser resume, HITL |
 | `tab-content.js` | Message list, composer chrome, pending cards |
-| `composer.js` | Input + mode |
+| `composer.js` | Input + mode; Send ↔ Stop (right-most circle) |
 | `api.js` | REST helpers |
 | `storage.js` | `localStorage` chrome state |
 | `session-runner-lock.js` | Per-session active-runner claim (multi-window) |
@@ -111,6 +111,8 @@ Live status shows “Keep this tab visible while this runs” under the awaiting
 - **Keyboard:** `Cmd+I` (macOS) / `Ctrl+I` (Windows/Linux) toggles the sidebar.
 - **Placement:** docked left/right pushes page content (`--ahentic-sidebar-inset`); floating overlays.
 - **Modes:** Agent vs Ask (Ask = readonly tools server-side).
+- **Send / Stop:** right-most circle control — ArrowUp Send when idle (disabled if empty/locked); Stop replaces it while a run is active (`canStop`). Never both.
+- **Composer attach / mic:** markup kept in `composer.js` but **visually hidden** (`hidden` + `.ahentic-composer__affordance--deferred`). Attach = free v3 ([future-prompt-file-attachments.md](../../../../pro__premium_only/docs/future-prompt-file-attachments.md)); voice = Premium v3 ([future-prompt-voice-input.md](../../../../pro__premium_only/docs/future-prompt-voice-input.md)) — grill before either.
 - **Live status:** progress label + trace-derived label while busy.
 - **Plans:** server `_ahentic_plan` → `plan-card.js`.
 - **Stale polls:** fingerprint / meta checks avoid clobbering in-flight sends or optimistic messages.

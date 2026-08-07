@@ -1,5 +1,11 @@
 /**
- * Composer: mode select, attachment/mic affordances, textarea, stop.
+ * Composer: mode select, attachment/mic affordances, textarea, send/stop.
+ *
+ * Paperclip + mic stay in the DOM but are visually hidden until later:
+ * attach = free v3 (pro__premium_only/docs/future-prompt-file-attachments.md);
+ * voice = Premium v3 (pro__premium_only/docs/future-prompt-voice-input.md). Grill before wiring.
+ *
+ * Right-most control: Send (idle) or Stop (active run) — never both (Cursor-style).
  */
 
 import {
@@ -7,7 +13,7 @@ import {
 } from '@wordpress/element'
 import { __ } from '@wordpress/i18n'
 import {
-	ChevronDown, Paperclip, Mic, Square,
+	ArrowUp, ChevronDown, Paperclip, Mic, Square,
 } from 'lucide-react'
 import { MODES } from './constants'
 
@@ -20,7 +26,7 @@ import { MODES } from './constants'
  * @param {string}   props.shortcutLabel
  * @param {boolean}  [props.disabled]      Blocked (no AI / connector) — whole composer inert.
  * @param {boolean}  [props.inputDisabled] Textarea/mode locked while a run is active.
- * @param {boolean}  [props.canStop]       Show stop control for the active run.
+ * @param {boolean}  [props.canStop]       Show stop (replaces send) for the active run.
  * @param {Function} [props.onStop]
  * @param {boolean}  [props.stopping]
  * @param {string}   [props.disabledHint]
@@ -51,6 +57,7 @@ export default function Composer( {
 	const textareaRef = useRef( null )
 	const modeRef = useRef( null )
 	const typingLocked = disabled || inputDisabled
+	const canSend = ! typingLocked && value.trim().length > 0
 
 	useEffect( () => {
 		if ( typingLocked ) {
@@ -198,28 +205,31 @@ export default function Composer( {
 					</div>
 
 					<div className="ahentic-composer__footer-right">
+						{ /* Deferred: attach = free v3; voice = Premium v3 — visually hidden; do not remove. */ }
 						<button
 							type="button"
-							className="ahentic-icon-btn"
+							className="ahentic-icon-btn ahentic-composer__affordance--deferred"
 							aria-label="Attach file"
 							title="Attach"
 							disabled
+							hidden
 						>
 							<Paperclip size={ 14 } strokeWidth={ 1.75 } />
 						</button>
 						<button
 							type="button"
-							className="ahentic-icon-btn"
+							className="ahentic-icon-btn ahentic-composer__affordance--deferred"
 							aria-label="Voice input"
 							title="Voice"
 							disabled
+							hidden
 						>
 							<Mic size={ 14 } strokeWidth={ 1.75 } />
 						</button>
 						{ canStop ? (
 							<button
 								type="button"
-								className="ahentic-composer__stop"
+								className="ahentic-composer__circle-btn ahentic-composer__stop"
 								aria-label={ __( 'Stop', 'ahentic' ) }
 								title={ __( 'Stop', 'ahentic' ) }
 								disabled={ stopping || typeof onStop !== 'function' }
@@ -231,7 +241,20 @@ export default function Composer( {
 							>
 								<Square size={ 11 } fill="currentColor" strokeWidth={ 0 } aria-hidden="true" />
 							</button>
-						) : null }
+						) : (
+							<button
+								type="button"
+								className="ahentic-composer__circle-btn ahentic-composer__send"
+								aria-label={ __( 'Send', 'ahentic' ) }
+								title={ __( 'Send', 'ahentic' ) }
+								disabled={ ! canSend }
+								onClick={ () => {
+									submit()
+								} }
+							>
+								<ArrowUp size={ 16 } strokeWidth={ 2.25 } aria-hidden="true" />
+							</button>
+						) }
 					</div>
 				</div>
 			</div>

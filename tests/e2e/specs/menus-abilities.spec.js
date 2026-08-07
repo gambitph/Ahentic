@@ -47,7 +47,7 @@ test.describe( 'ahentic/list-menus + get-menu + update-menu', () => {
 
 		const listed = await runAbility( requestUtils, 'ahentic/list-menus' )
 		expect( listed.ok, JSON.stringify( listed ) ).toBe( true )
-		expect( listed.data.menus.some( ( m ) => m.id === menuId ) ).toBe( true )
+		expect( listed.data.menus.some( m => m.id === menuId ) ).toBe( true )
 
 		const items = await runAbility( requestUtils, 'ahentic/list-menu-items', {
 			menu: menuId,

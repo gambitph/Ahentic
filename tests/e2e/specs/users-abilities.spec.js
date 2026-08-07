@@ -185,6 +185,6 @@ test.describe( 'ahentic/delete-user', () => {
 			search: `ahentic_del_${ suffix }`,
 		} )
 		expect( gone.ok ).toBe( true )
-		expect( gone.data.users.some( ( u ) => u.id === deleteId ) ).toBe( false )
+		expect( gone.data.users.some( u => u.id === deleteId ) ).toBe( false )
 	} )
 } )
