@@ -7,7 +7,7 @@ Protocol between the **LLM** and the **orchestrator**. Ahentic does **not** use 
 
 **Verification:** Agent writes verify themselves from their own return payload — never a readonly follow-up. Long-form runs must not idle with a body under the floor — see Agent runtime PRD.
 
-**Code:** `Ahentic_Orchestrator::system_prompt()`, debug parse/retry helpers, `build_chat_payload()`  
+**Code:** `Ahentic_Prompt_Assembler::for_llm()` / `system_prompt()`, Orchestrator debug parse/retry helpers  
 **Related:** [orchestrator.md](./orchestrator.md) · [abilities.md](../abilities/abilities.md) · [artifacts.md](../session/artifacts.md)
 
 ---
@@ -123,7 +123,7 @@ If a write is planned in Ask, the orchestrator injects `ability_ask_readonly` to
 | Change | Where |
 | --- | --- |
 | Ability availability / descriptions | Ability registration modules (preferred) |
-| Global routing (“editor vs server”, artifacts, refs) | `system_prompt()` in `class-orchestrator.php` |
+| Global routing (“editor vs server”, artifacts, refs) | `Ahentic_Prompt_Assembler::system_prompt()` in `class-prompt-assembler.php` |
 | Caps / retries | Class constants (`MAX_STEPS_PER_RUN`, `MAX_DEBUG_ATTEMPTS`, …) |
 | Debug parse / normalization | Helpers near `run_llm_with_debug` / `normalize_tool_calls` |
 

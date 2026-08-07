@@ -25,7 +25,7 @@ Temporary working folder — delete when the track is done. Not PRD/contract.
 | M3 | [03-shared-placeholder-heuristic.md](./03-shared-placeholder-heuristic.md) | done | Shared JSON rules + PHP/JS consumers |
 | M4 | [04-derived-ability-catalog-one-module.md](./04-derived-ability-catalog-one-module.md) | done | Browser `catalog()` pilot |
 | M5 | [05-progress-labels-single-source.md](./05-progress-labels-single-source.md) | done | PHP map → `abilityProgressLabels` |
-| M6 | [06-orchestrator-prompt-assembler.md](./06-orchestrator-prompt-assembler.md) | ready | Unblocked by M1 |
+| M6 | [06-orchestrator-prompt-assembler.md](./06-orchestrator-prompt-assembler.md) | done | `for_llm()` deep entry; move-only |
 
 ## Implement order
 

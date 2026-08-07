@@ -51,6 +51,8 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 `Ahentic_Abilities::execute` remains the ability **dispatch** seam (registration → `execute_*`). The Tool runner is the orchestrator **pipeline** around that dispatch. Orchestrator still owns step-loop concerns shared with prompts (e.g. `progress_label_for_tool`, plan advance after a tool, session `with_current_session`).
 
+**Prompt assembly module:** `Ahentic_Prompt_Assembler` owns system prompt text, history/tool compaction, and user-turn shaping. The Orchestrator must call `for_llm()` (or the assembler’s tested helpers) — do not reimplement prompt/payload assembly at call sites.
+
 ## Browser preflight & recovery
 
 - Preflight page context / client capability before entering `awaiting_browser`.

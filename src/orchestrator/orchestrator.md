@@ -5,7 +5,7 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 > **Canonical should:** [Agent runtime PRD](../../pro__premium_only/docs/prd/agent-runtime.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)  
 > This file is **how-it-works** (current implementation map). If it disagrees with the PRD/contract, the PRD/contract win — treat gaps as bugs.
 
-**Code:** `class-orchestrator.php`, `class-tool-runner.php`, `class-finish-gate.php`, `class-ai.php`, `class-queue.php`, `class-usage.php`
+**Code:** `class-orchestrator.php`, `class-prompt-assembler.php`, `class-tool-runner.php`, `class-finish-gate.php`, `class-ai.php`, `class-queue.php`, `class-usage.php`
 
 **Related:** [Control block](./control-block.md) · [Abilities](../abilities/abilities.md) · [Sidebar](../admin/js/sidebar/sidebar.md) · [Session](../session/session.md) · [Artifacts](../session/artifacts.md) · [REST](../admin/rest.md) · [Architecture](../../docs/architecture.md)
 
@@ -103,11 +103,11 @@ HITL runs **before** browser pause when both apply (e.g. approve then run browse
 
 ## Prompt assembly
 
-Each think builds chat from session entries (`build_chat_payload`):
+Each think goes through `Ahentic_Prompt_Assembler::for_llm()` (system + compacted history/user turn):
 
-- Prior user/assistant turns → history
+- Prior user/assistant turns → history (`build_chat_payload`)
 - Tool results after the latest user message → appended as “Ability results from this run…”
-- **Page context** — open tab / editor routing (`format_page_context_for_prompt`)
+- **Page context** — open tab / editor routing
 - **Artifact pointers** — keys/status only, no bodies (`Ahentic_Session_Artifacts::format_for_prompt`)
 - **Plan** — injected into the system prompt when present
 
@@ -156,5 +156,5 @@ Defined in `src/admin/class-rest-sessions.php`.
 
 - **New tools** — register Abilities; list them in the module’s `names()` and wire `Ahentic_Abilities` dispatch / mode filters. Agent runs go through `Ahentic_Tool_Runner` automatically — do **not** add a parallel HITL/browser/execute path in the Orchestrator. See [abilities.md](../abilities/abilities.md).
 - **New pause types** — extend the Tool runner (or follow HITL / browser patterns already there); do not fork a second pipeline.
-- **Prompt guidance** — `system_prompt()` in `class-orchestrator.php` (keep concise; prefer ability descriptions for tool-specific rules).
+- **Prompt guidance** — `Ahentic_Prompt_Assembler::for_llm()` / `system_prompt()` in `class-prompt-assembler.php` (keep concise; prefer ability descriptions for tool-specific rules).
 - **Large drafts** — stage via artifacts + `from_memory`; do not rely on transcript alone.

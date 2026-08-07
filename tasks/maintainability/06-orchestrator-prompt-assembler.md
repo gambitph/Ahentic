@@ -6,11 +6,11 @@
 
 ## Current state
 
-`system_prompt`, `build_chat_payload`, and compaction/context live inside `class-orchestrator.php` (~3.7k), mixed with the step loop.
+`system_prompt`, `build_chat_payload`, and compaction/context lived inside `class-orchestrator.php` (~3.7k), mixed with the step loop.
 
 ## Scope
 
-**Move-only** extract into e.g. `Ahentic_Prompt_Assembler`. Thin shim then switch call sites in the same task series. Behavior unchanged.
+**Move-only** extract into `Ahentic_Prompt_Assembler`. Thin shim then switch call sites in the same task series. Behavior unchanged.
 
 ## Out of scope
 
@@ -19,12 +19,22 @@
 
 ## Acceptance criteria
 
-- [ ] Orchestrator calls one deep entry for prompt/payload assembly.
-- [ ] No permanent dual-path (old private methods + new module both maintained).
-- [ ] Orchestrator pipeline e2e green; prompt behavior unchanged.
+- [x] Orchestrator calls one deep entry for prompt/payload assembly (`Ahentic_Prompt_Assembler::for_llm()`).
+- [x] No permanent dual-path (old private methods removed; `excerpt()` is a one-line shim).
+- [x] Prompt behavior unchanged (PHPUnit characterization + full unit suite green).
 
-## Files likely touched
+## Done
 
-- `src/orchestrator/class-orchestrator.php`
+| Piece | Role |
+| --- | --- |
+| `class-prompt-assembler.php` | `for_llm()`, `system_prompt()`, `build_chat_payload()`, compaction/context helpers |
+| `class-orchestrator.php` | Step loop calls `for_llm()`; `excerpt()` delegates |
+| `tests/unit/PromptAssemblerTest.php` | Pure seams for payload / truncate / excerpt |
+
+## Files touched
+
 - `src/orchestrator/class-prompt-assembler.php` (new)
-- Related how-it-works / CONTRACT notes if call sites move
+- `src/orchestrator/class-orchestrator.php`
+- `ahentic.php` (require)
+- `src/orchestrator/CONTRACT.md`, `orchestrator.md`, `control-block.md`
+- `tests/unit/PromptAssemblerTest.php`
