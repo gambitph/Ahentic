@@ -70,10 +70,10 @@ module.exports = defineConfig( {
 			testMatch: /(?:content-and-plugins|media-abilities|settings-abilities)\.spec\.js/,
 		},
 		{
-			// Specs that seed `ahentic_e2e_ai_queue` must not run in parallel —
-			// the queue is a single WP option inside Playground.
+			// Specs that seed `ahentic_e2e_ai_queue` or `ahentic_e2e_ai_status_false_remaining`
+			// must not run in parallel — both are single WP options inside Playground.
 			name: 'ai-orchestrator',
-			testMatch: /(?:orchestrator-pipeline|hitl-and-undo|sidebar-chat)\.spec\.js/,
+			testMatch: /(?:orchestrator-pipeline|hitl-and-undo|sidebar-chat|connector-status-recovery|ai-plugin-status)\.spec\.js/,
 			fullyParallel: false,
 			workers: 1,
 		},

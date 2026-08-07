@@ -35,6 +35,7 @@ import FloatHandles from './float-handles'
 import {
 	createSession,
 	getSession,
+	getAiPluginStatus,
 	patchSession,
 	postMessage,
 	continueSession,
@@ -247,6 +248,44 @@ export default function Sidebar() {
 	const aiPlugin = window.ahentic?.aiPlugin || {}
 	const canGenerate = aiReady && hasConnector
 	const connectorsUrl = aiPlugin.connectorsUrl || ''
+
+	/**
+	 * Re-check AI/connector status over REST. Boot `window.ahentic.aiPlugin`
+	 * is a one-shot localize probe and can false-negative (list-models flake)
+	 * while a later GET is green — without this, the "Add an AI connector"
+	 * banner sticks until a full page reload.
+	 */
+	const syncAiPluginStatus = useCallback( async () => {
+		try {
+			const status = await getAiPluginStatus()
+			if ( ! status || typeof status !== 'object' ) {
+				return
+			}
+			setAiReady( Boolean( status.isReady ) )
+			setHasConnector( Boolean( status.hasConnector ) )
+			if ( window.ahentic?.aiPlugin && typeof window.ahentic.aiPlugin === 'object' ) {
+				window.ahentic.aiPlugin = {
+					...window.ahentic.aiPlugin,
+					...status,
+				}
+			}
+		} catch {
+			// Keep boot values — offline / permission errors should not clear a
+			// previously green composer.
+		}
+	}, [] )
+
+	// Always reconcile once on mount (cheap GET; fixes localized false negatives).
+	useEffect( () => {
+		syncAiPluginStatus()
+	}, [ syncAiPluginStatus ] )
+
+	// If the sidebar opens while still blocked, try again (long-lived tabs).
+	useEffect( () => {
+		if ( open && ! canGenerate ) {
+			syncAiPluginStatus()
+		}
+	}, [ open, canGenerate, syncAiPluginStatus ] )
 
 	// Persist chrome state (not message bodies).
 	useEffect( () => {

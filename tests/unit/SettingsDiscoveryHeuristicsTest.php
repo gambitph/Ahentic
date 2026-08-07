@@ -168,5 +168,6 @@ class SettingsDiscoveryHeuristicsTest extends TestCase {
 		$this->assertContains( 'template_parts', $block['surfaces'] );
 		$this->assertNotContains( 'theme_settings', $block['surfaces'] );
 		$this->assertStringNotContainsString( 'list-settings', $block['routing_hint'] );
+		$this->assertStringContainsString( 'update-global-styles', $block['routing_hint'] );
 	}
 }

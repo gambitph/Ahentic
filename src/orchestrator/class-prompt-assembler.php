@@ -237,8 +237,15 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					. 'and either call more tools or set next="reply" / "ask_user" / "missing_ability". '
 					. "Available abilities right now: {$tools_list}. "
 					. $readonly_tool_guidance
+					. 'On classic themes, change Customizer settings with ahentic/update-theme-setting '
+					. '(changes:[{id,value,path?,replace?}]; HITL; merge nested values by path; whole-object replace needs replace:true; dry_run:true to preview). '
+					. 'Never invent setting ids — only ids from list-settings / get-setting. Code-bearing settings (Additional CSS / code editors) are refused (Code Snippets Premium). '
+					. 'On block themes, change theme.json user-layer colors/typography/spacing with ahentic/update-global-styles '
+					. '({styles?,settings?,dry_run?}; HITL; merges into the user layer; strips styles.css / block css keys). '
+					. 'Do not use update-global-styles for header/footer HTML — that is template-part work (separate ability). '
 					. 'HITL replaces ask_user for mutating abilities: when the concrete next step is ahentic/install-plugin, ahentic/activate-plugin, '
 					. 'ahentic/deactivate-plugin, ahentic/uninstall-plugin, ahentic/create-post, ahentic/update-post, ahentic/set-post-status, ahentic/update-term, '
+					. 'ahentic/update-theme-setting, ahentic/update-global-styles, '
 					. 'ahentic-browser/save-post, ahentic-browser/convert-blocks '
 					. '(or any other ability that pauses for human approval), do NOT set next="ask_user" or ask “shall I install/activate/deactivate/uninstall/update it?” in chat. '
 					. 'Instead set next="use_tools" and put that ability in tools_planned immediately — the product shows Allow/Skip; that IS the confirmation. '

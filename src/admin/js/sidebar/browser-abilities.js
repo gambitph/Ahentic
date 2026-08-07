@@ -272,3 +272,20 @@ function htmlToExcerpt( html ) {
 	}
 	return text
 }
+
+/**
+ * Expose browser ability entry points for Playwright e2e (gated on __AHENTIC_E2E__).
+ * Set by the e2e mu-plugin before this bundle runs — never relied on in production.
+ */
+function installE2EHooks() {
+	if ( typeof window === 'undefined' || ! window.__AHENTIC_E2E__ ) {
+		return
+	}
+	window.__ahenticE2E = {
+		auditAccessibility,
+		updateBlockAttributes,
+		runBrowserAbility,
+	}
+}
+
+installE2EHooks()

@@ -29,7 +29,7 @@ Official refs: [Abilities API in WP 6.9](https://make.wordpress.org/core/2025/11
 | `class-abilities-content.php` | `ahentic/*` content | Server |
 | `class-abilities-plugins.php` | `ahentic/*` plugins | Server |
 | `class-abilities-site.php` | site health, options, http-fetch, … | Server (http-fetch may pause for browser when `as_user`) |
-| `class-abilities-settings.php` | settings context, list-settings, get-setting | Server |
+| `class-abilities-settings.php` | settings context, list-settings, get-setting, update-theme-setting, update-global-styles | Server |
 | `class-abilities-media.php` | media | Server |
 | `class-abilities-taxonomy.php` | terms | Server |
 | `class-abilities-browser.php` | `ahentic-browser/*` | **Client** (PHP stubs) |

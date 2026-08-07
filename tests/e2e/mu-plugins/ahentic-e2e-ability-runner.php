@@ -108,6 +108,23 @@ add_action(
 
 		register_rest_route(
 			'ahentic-e2e/v1',
+			'/seed-ai-status-flake',
+			array(
+				'methods'             => 'POST',
+				'callback'            => 'ahentic_e2e_seed_ai_status_flake',
+				'permission_callback' => 'ahentic_e2e_permission_check',
+				'args'                => array(
+					'count' => array(
+						'type'     => 'integer',
+						'required' => false,
+						'default'  => 1,
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			'ahentic-e2e/v1',
 			'/inspect-attachment',
 			array(
 				'methods'             => 'GET',
@@ -242,6 +259,30 @@ function ahentic_e2e_run_ability( WP_REST_Request $request ) {
 
 /** Option name backing the mocked-AI response queue. Not autoloaded. */
 const AHENTIC_E2E_AI_QUEUE_OPTION = 'ahentic_e2e_ai_queue';
+const AHENTIC_E2E_AI_STATUS_FALSE_REMAINING = 'ahentic_e2e_ai_status_false_remaining';
+
+/**
+ * Seed N upcoming `build_status_payload()` calls to report hasConnector=false.
+ * Used to reproduce localize-time false negatives; the next calls return ready.
+ *
+ * @param WP_REST_Request $request Incoming request with optional `count`.
+ * @return WP_REST_Response
+ */
+function ahentic_e2e_seed_ai_status_flake( WP_REST_Request $request ) {
+	$count = (int) $request->get_param( 'count' );
+	if ( $count < 0 ) {
+		$count = 0;
+	}
+	update_option( AHENTIC_E2E_AI_STATUS_FALSE_REMAINING, $count, false );
+
+	return new WP_REST_Response(
+		array(
+			'ok'    => true,
+			'count' => $count,
+		),
+		200
+	);
+}
 
 /**
  * Push canned AI responses onto the queue `pre_ahentic_ai_complete_chat`
@@ -284,6 +325,7 @@ function ahentic_e2e_seed_ai_responses( WP_REST_Request $request ) {
  */
 function ahentic_e2e_reset() {
 	delete_option( AHENTIC_E2E_AI_QUEUE_OPTION );
+	delete_option( AHENTIC_E2E_AI_STATUS_FALSE_REMAINING );
 
 	return new WP_REST_Response( array( 'ok' => true ), 200 );
 }
@@ -430,6 +472,25 @@ add_filter( 'pre_ahentic_ai_generate_image', 'ahentic_e2e_generate_image_overrid
 function ahentic_e2e_ai_status_override( $override ) {
 	if ( null !== $override ) {
 		return $override;
+	}
+
+	$remaining = (int) get_option( AHENTIC_E2E_AI_STATUS_FALSE_REMAINING, 0 );
+	if ( $remaining > 0 ) {
+		update_option( AHENTIC_E2E_AI_STATUS_FALSE_REMAINING, $remaining - 1, false );
+
+		return array(
+			'isReady'         => true,
+			'hasConnector'    => false,
+			'canGenerate'     => false,
+			'requiredAbility' => 'core/read-content',
+			'pluginSlug'      => 'ai',
+			'pluginFile'      => 'ai/ai.php',
+			'pluginInstalled' => true,
+			'pluginActive'    => true,
+			'canInstall'      => false,
+			'pluginUrl'       => 'https://wordpress.org/plugins/ai/',
+			'connectorsUrl'   => admin_url( 'options-connectors.php' ),
+		);
 	}
 
 	return array(
@@ -805,3 +866,28 @@ if ( ! class_exists( 'Ahentic_E2E_Stub_Settings_Write' ) ) {
 		20
 	);
 }
+
+/**
+ * Opt the Ahentic sidebar bundle into Playwright hooks (`window.__ahenticE2E`).
+ * Must run before `ahentic-script` evaluates (inline `before`).
+ */
+add_action(
+	'admin_enqueue_scripts',
+	static function () {
+		if ( ! wp_script_is( 'ahentic-script', 'enqueued' ) && ! wp_script_is( 'ahentic-script', 'registered' ) ) {
+			return;
+		}
+		wp_add_inline_script( 'ahentic-script', 'window.__AHENTIC_E2E__=true;', 'before' );
+	},
+	100
+);
+add_action(
+	'wp_enqueue_scripts',
+	static function () {
+		if ( ! wp_script_is( 'ahentic-script', 'enqueued' ) && ! wp_script_is( 'ahentic-script', 'registered' ) ) {
+			return;
+		}
+		wp_add_inline_script( 'ahentic-script', 'window.__AHENTIC_E2E__=true;', 'before' );
+	},
+	100
+);

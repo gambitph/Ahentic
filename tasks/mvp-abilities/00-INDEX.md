@@ -12,6 +12,8 @@ Each task file is self-contained: current state, what's missing, scope, out of s
 - **Track F / Task 14:** `delete-blocks`, relative `move-blocks` (`before_ref`/`after_ref`), `update-post-document`, leave-canvas/wrap playbooks.
 - **Track C / Task 07:** `get-settings-context`, `list-settings`, `get-setting` + Customizer registry bootstrap/cache (`class-abilities-settings.php`).
 - **Track C / Task 08:** `ahentic/update-theme-setting` (classic Customizer write + snapshot/undo).
+- **Track C / Task 09:** `ahentic/update-global-styles` (block-theme theme.json user layer + css strip + snapshot/undo).
+- **Track E / Task 13:** `update-media`, `set-featured-image` (server), `delete-media`, `replace-media-file` + audit↔alt e2e loop.
 
 Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sidebar/sidebar.md`](../../src/admin/js/sidebar/sidebar.md). Take-over remains deferred: [`../future/multi-window-take-over.md`](../future/multi-window-take-over.md).
 
@@ -25,7 +27,6 @@ Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sid
 
 | # | Task |
 | --- | --- |
-| [09](./09-ability-update-global-styles.md) | `update-global-styles` (block theme) |
 | [10](./10-ability-update-template-part.md) | `update-template-part` (block theme, client/server routing) |
 | [11](./11-ability-update-option.md) | `update-option` (interactive, registered + vetted keys, denylist) |
 
@@ -35,14 +36,7 @@ Sidebar multi-window viewer overlay (v1) also shipped — see [`src/admin/js/sid
 | --- | --- |
 | [12](./12-users-abilities.md) | `list-users` (upgrade), `create-user`, `update-user`, `delete-user` |
 
-## Track E — Media (remaining) — needs Track A for snapshotted writes
-
-| # | Task |
-| --- | --- |
-| [13](./13-media-abilities.md) | Remaining: `update-media`, `set-featured-image` (server), `delete-media`, `replace-media-file` (`upload-media` + browser `set-featured-image` already shipped) — code shipped; one manual acceptance item open |
-
 ## Suggested order
 
-1. Track C (09 → 10 → 11) — **next**
+1. Track C (10 → 11) — **next**
 2. Track D (12)
-3. Track E remainder (13) — close the open manual check or remove when done

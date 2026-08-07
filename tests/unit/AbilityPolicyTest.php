@@ -89,7 +89,7 @@ class AbilityPolicyTest extends TestCase {
 	}
 
 	/**
-	 * Track C settings discovery is readonly (no HITL).
+	 * Track C settings discovery is readonly (no HITL); theme/global-styles writes are HITL.
 	 */
 	public function test_settings_discovery_readonly_flags() {
 		foreach (
@@ -103,6 +103,21 @@ class AbilityPolicyTest extends TestCase {
 			$this->assertTrue( Ahentic_Abilities_Settings::is_readonly( $name ), $name );
 			$this->assertFalse( Ahentic_Abilities_Settings::requires_hitl( $name ), $name );
 			$this->assertTrue( Ahentic_Abilities::is_readonly( $name ), 'facade: ' . $name );
+		}
+
+		foreach (
+			array(
+				'ahentic/update-theme-setting',
+				'ahentic/update-global-styles',
+			) as $write
+		) {
+			$this->assertContains( $write, Ahentic_Abilities_Settings::names() );
+			$this->assertFalse( Ahentic_Abilities_Settings::is_readonly( $write ) );
+			$this->assertTrue( Ahentic_Abilities_Settings::requires_hitl( $write ) );
+			$this->assertTrue( Ahentic_Abilities::requires_hitl( $write ) );
+			$this->assertContains( $write, Ahentic_Abilities::available_for_agent() );
+			$this->assertNotContains( $write, Ahentic_Abilities::available_for_mode( 'ask' ) );
+			$this->assertFalse( Ahentic_Abilities::is_non_preallowable( $write ) );
 		}
 	}
 

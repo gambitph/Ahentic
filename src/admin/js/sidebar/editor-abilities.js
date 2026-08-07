@@ -1727,11 +1727,16 @@ export function auditAccessibility() {
 				if ( ! alt && ! attrs.url ) {
 					// Ignore empty placeholder images.
 				} else if ( ! alt ) {
+					const attachmentId = Number( attrs.id )
 					issues.push( {
 						type: 'missing_alt',
 						ref,
+						attachment_id: Number.isFinite( attachmentId ) && attachmentId > 0 ? attachmentId : null,
 						message: 'Image is missing alt text.',
 						path: here,
+						hint: attachmentId > 0
+							? 'Set library alt with ahentic/update-media, then ahentic-browser/update-block-attributes { alt } on this ref so the canvas matches.'
+							: 'Set alt via ahentic-browser/update-block-attributes on this ref.',
 					} )
 				}
 			}

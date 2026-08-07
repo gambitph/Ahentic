@@ -150,7 +150,7 @@ Stage with `ahentic/stage-artifact`, then `create-post` / `update-post` with `fr
 | Category | Examples |
 | --- | --- |
 | `ahentic-site` | Snapshot, health, options, http-fetch, admin context, debug log |
-| `ahentic-settings` | get-settings-context, list-settings, get-setting |
+| `ahentic-settings` | get-settings-context, list-settings, get-setting, update-theme-setting, update-global-styles |
 | `ahentic-content` | list/get/search/create/update/set-status |
 | `ahentic-plugins` | list/search/install/activate/deactivate/uninstall |
 | `ahentic-media` | unused media scan, … |

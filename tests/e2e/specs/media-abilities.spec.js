@@ -346,3 +346,95 @@ test.describe( 'ahentic/replace-media-file', () => {
 		expect( still.file_md5 ).toBe( after.file_md5 )
 	} )
 } )
+
+test.describe( 'audit-accessibility ↔ update-media alt loop', () => {
+	test( 'update-media + block alt clears missing_alt from audit-accessibility', async ( {
+		admin,
+		page,
+		requestUtils,
+	} ) => {
+		const seededAtt = await seed( requestUtils, {
+			attachments: [
+				{
+					title: 'Audit alt target',
+					filename: 'audit-alt-loop.png',
+					alt_text: '',
+				},
+			],
+		} )
+		expect( seededAtt.ok ).toBe( true )
+		const attachmentId = seededAtt.created.attachments[ 0 ]
+
+		const media = await requestUtils.rest( {
+			path: `/wp/v2/media/${ attachmentId }`,
+		} )
+		const url = media.source_url || media.guid?.rendered
+		expect( url ).toBeTruthy()
+
+		const content = [
+			`<!-- wp:image {"id":${ attachmentId },"sizeSlug":"full","linkDestination":"none"} -->`,
+			`<figure class="wp-block-image size-full"><img src="${ url }" alt="" class="wp-image-${ attachmentId }"/></figure>`,
+			'<!-- /wp:image -->',
+		].join( '\n' )
+
+		const seededPost = await seed( requestUtils, {
+			posts: [
+				{
+					post_title: `Audit alt loop ${ Date.now() }`,
+					post_status: 'draft',
+					post_type: 'post',
+					post_content: content,
+				},
+			],
+		} )
+		expect( seededPost.ok ).toBe( true )
+		const postId = seededPost.created.posts[ 0 ]
+
+		await admin.visitAdminPage( 'post.php', `post=${ postId }&action=edit` )
+
+		await page.waitForFunction(
+			() => Boolean( window.wp?.data?.select( 'core/block-editor' )?.getBlocks?.()?.length ),
+			null,
+			{ timeout: 60_000 }
+		)
+		await page.waitForFunction(
+			() => typeof window.__ahenticE2E?.auditAccessibility === 'function',
+			null,
+			{ timeout: 60_000 }
+		)
+
+		const before = await page.evaluate( () => window.__ahenticE2E.auditAccessibility() )
+		expect( before.ok, JSON.stringify( before ) ).toBe( true )
+		const missingBefore = ( before.issues || [] ).filter( i => i.type === 'missing_alt' )
+		expect( missingBefore.length ).toBeGreaterThan( 0 )
+		expect( missingBefore[ 0 ].attachment_id ).toBe( attachmentId )
+		expect( missingBefore[ 0 ].ref ).toBeTruthy()
+
+		const altText = 'A red pixel used for the accessibility e2e loop'
+		const updated = await runAbility( requestUtils, 'ahentic/update-media', {
+			attachment_id: attachmentId,
+			alt_text: altText,
+		} )
+		expect( updated.ok, JSON.stringify( updated ) ).toBe( true )
+		expect( updated.data.alt_text ).toBe( altText )
+
+		const inspected = await inspectAttachment( requestUtils, attachmentId )
+		expect( inspected.alt_text ).toBe( altText )
+
+		// Audit reads block attrs — library meta alone must not clear missing_alt.
+		const mid = await page.evaluate( () => window.__ahenticE2E.auditAccessibility() )
+		expect( ( mid.issues || [] ).filter( i => i.type === 'missing_alt' ).length ).toBeGreaterThan( 0 )
+
+		// Agent closes the canvas gap the same way prompts recommend after describe-image.
+		const patched = await page.evaluate( ( { ref, alt } ) => window.__ahenticE2E.updateBlockAttributes( {
+			ref,
+			attributes: { alt },
+		} ), { ref: missingBefore[ 0 ].ref, alt: altText } )
+		expect( patched.ok, JSON.stringify( patched ) ).toBe( true )
+
+		const after = await page.evaluate( () => window.__ahenticE2E.auditAccessibility() )
+		expect( after.ok, JSON.stringify( after ) ).toBe( true )
+		const missingAfter = ( after.issues || [] ).filter( i => i.type === 'missing_alt' )
+		expect( missingAfter ).toHaveLength( 0 )
+	} )
+} )

@@ -50,6 +50,17 @@ export async function apiRequest( path, options = {} ) {
 }
 
 /**
+ * Live AI readiness / connector status (same payload as script localization).
+ * Prefer this over a one-shot `window.ahentic.aiPlugin` boot value — the
+ * localize-time probe can false-negative while a later GET is green.
+ *
+ * @return {Promise<Object>} Status payload (`isReady`, `hasConnector`, …).
+ */
+export function getAiPluginStatus() {
+	return apiRequest( '/ai-plugin/status' )
+}
+
+/**
  * @param {Object} [body]
  * @return {Promise<Object>} Created session record.
  */

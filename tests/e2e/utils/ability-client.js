@@ -100,6 +100,23 @@ async function resetAiResponses( requestUtils ) {
 	} )
 }
 
+/**
+ * Make the next N `build_status_payload()` calls report hasConnector=false
+ * (then return to ready). Reproduces localize-time false negatives for the
+ * sidebar recovery path (GET /ai-plugin/status after mount).
+ *
+ * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils Fixture.
+ * @param {number}                                                      [count=1]    How many status builds should false-negative.
+ * @return {Promise<{ok: boolean, count: number}>} Confirmation.
+ */
+async function seedAiStatusFlake( requestUtils, count = 1 ) {
+	return requestUtils.rest( {
+		path: '/ahentic-e2e/v1/seed-ai-status-flake',
+		method: 'POST',
+		data: { count },
+	} )
+}
+
 module.exports = {
-	runAbility, seedAiResponses, seed, resetAiResponses, inspectAttachment,
+	runAbility, seedAiResponses, seed, resetAiResponses, inspectAttachment, seedAiStatusFlake,
 }

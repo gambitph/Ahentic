@@ -57,7 +57,7 @@ class SettingsAbilityCatalogTest extends TestCase {
 	}
 
 	/**
-	 * Discovery abilities are readonly (Task 07).
+	 * Discovery abilities are readonly (Task 07); update-theme-setting is write + HITL (Task 08).
 	 */
 	public function test_discovery_abilities_are_readonly() {
 		foreach (
@@ -70,6 +70,25 @@ class SettingsAbilityCatalogTest extends TestCase {
 			$this->assertContains( $name, Ahentic_Abilities_Settings::names() );
 			$this->assertTrue( Ahentic_Abilities_Settings::is_readonly( $name ), $name );
 			$this->assertFalse( Ahentic_Abilities_Settings::requires_hitl( $name ), $name );
+		}
+	}
+
+	/**
+	 * update-theme-setting and update-global-styles are standard HITL writes (not non-preallowable).
+	 */
+	public function test_settings_write_abilities_are_hitl() {
+		foreach (
+			array(
+				'ahentic/update-theme-setting',
+				'ahentic/update-global-styles',
+			) as $name
+		) {
+			$this->assertContains( $name, Ahentic_Abilities_Settings::names() );
+			$this->assertContains( $name, Ahentic_Abilities_Settings::write_names() );
+			$this->assertFalse( Ahentic_Abilities_Settings::is_readonly( $name ) );
+			$this->assertTrue( Ahentic_Abilities_Settings::requires_hitl( $name ) );
+			$this->assertNotSame( '', Ahentic_Abilities_Settings::progress_label( $name ) );
+			$this->assertNotSame( $name, Ahentic_Abilities_Settings::summary( $name ) );
 		}
 	}
 }

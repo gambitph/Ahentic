@@ -87,7 +87,10 @@ orchestrator + Tool runner pipeline (HITL / browser / execute / assess) still
 runs end-to-end; only the model call is faked. `src/admin/class-rest.php`'s
 `build_status_payload()`
 has an equivalent `pre_ahentic_ai_status` filter so the sidebar composer isn't
-disabled for lack of a real AI plugin/connector.
+disabled for lack of a real AI plugin/connector. Specs that need a
+localize-time false negative use `seedAiStatusFlake( requestUtils, n )`
+(`POST /ahentic-e2e/v1/seed-ai-status-flake`) — see
+`connector-status-recovery.spec.js` and `ai-plugin-status.spec.js`.
 
 ```js
 const { test, expect } = require( '../fixtures/test' )
