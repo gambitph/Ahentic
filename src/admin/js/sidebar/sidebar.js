@@ -9,7 +9,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element'
-import { __, sprintf } from '@wordpress/i18n'
+import { __ } from '@wordpress/i18n'
 import classnames from 'classnames'
 import Toolbar from './toolbar'
 import TabBar from './tab-bar'
@@ -22,17 +22,16 @@ import {
 	PLACEMENTS,
 	isFloatingPlacement,
 	getDefaultFloatingRect,
-	clampFloatingRect,
 } from './constants'
 import {
 	loadPersistedState,
 	savePersistedState,
-	clampWidth,
 } from './storage'
 import { syncPageInset, clearPageInset } from './page-inset'
 import { openLink } from './links'
 import AhenticLogo from './ahentic-logo'
 import DebuggerPanel from './debugger-panel'
+import FloatHandles from './float-handles'
 import {
 	createSession,
 	getSession,
@@ -42,21 +41,12 @@ import {
 	cancelSession,
 	postApproval,
 	postSuggestedAction,
-	postBrowserResult,
 	mapEntriesToMessages,
 	isSessionId,
 } from './api'
 import { collectPageContext } from './page-context'
-import { runBrowserAbility } from './browser-abilities'
-import {
-	exportEditorRefs,
-	hydrateEditorRefs,
-} from './block-ref-registry'
-import {
-	HEARTBEAT_MS as RUNNER_HEARTBEAT_MS,
-	RUNNER_LOCK_KEY,
-	createSessionRunnerLock,
-} from './session-runner-lock'
+import { exportEditorRefs } from './block-ref-registry'
+import { createSessionRunnerLock } from './session-runner-lock'
 import {
 	createEmptySessionRecord,
 	getSessionRecord,
@@ -69,216 +59,18 @@ import {
 	isSessionPayloadStale,
 	hasPendingLocalTurns,
 	pendingLocalsConfirmedOnServer,
-	mergeServerSessionIntoRecord,
 	cancelIncompletePlanSteps,
 } from './session-state'
 import ViewerOverlay from './viewer-overlay'
 import { progressLabelForAbility } from './progress-label'
-
-const POLL_MS = 650
-/** Quiet queue nudge when the worker heartbeat goes quiet (not progress-label based). */
-const HEARTBEAT_STALL_MS = 8000
-/** Show stuck recovery UI when heartbeat is this old while still running. */
-const HEARTBEAT_DEAD_MS = 45000
-/** Recover stale awaiting_browser via continue (server timed fallback). */
-const BROWSER_STALL_MS = 45000
-
-/** Shared copy when another window holds the active-runner claim. */
-const VIEWER_ACTIVE_ELSEWHERE = __( 'This agent is active in another window', 'ahentic' )
-
-/** Generic phase placeholders — prefer real debugger step summaries instead. */
-const GENERIC_PROGRESS_LABELS = new Set( [
-	'Planning next steps…',
-	'Reviewing results…',
-	'Starting…',
-	'Finishing…',
-	'Thinking…',
-	'Ahentic is thinking…',
-	// HITL wait label must not stick as live status after Allow/Skip.
-	'Waiting for your approval…',
-] )
-
-/** Debugger-only llm_thinking summaries — never surface in the live-status row. */
-const HIDDEN_LIVE_STATUS_LABELS = new Set( [
-	'Model thinking',
-	'Thinking block not provided by model',
-] )
-
-/**
- * Age of a heartbeat ISO timestamp in ms, or null when unknown.
- *
- * @param {string} heartbeatAt ISO timestamp.
- * @return {number|null} Age in milliseconds, or null when unknown.
- */
-function heartbeatAgeMs( heartbeatAt ) {
-	if ( ! heartbeatAt || typeof heartbeatAt !== 'string' ) {
-		return null
-	}
-	const t = Date.parse( heartbeatAt )
-	if ( Number.isNaN( t ) ) {
-		return null
-	}
-	return Math.max( 0, Date.now() - t )
-}
-
-/**
- * Live status text: prefer a real step label (tool / intention), matching the debugger.
- *
- * @param {string}      progressLabel   Server progress.label.
- * @param {Array}       trace           Session trace events.
- * @param {boolean}     isBusy          Whether the session is actively working.
- * @param {Object|null} pendingTool     HITL pending tool, if any.
- * @param {string}      [sessionStatus] Session status.
- * @return {string} Label for the live-status row.
- */
-function resolveLiveStatusLabel( progressLabel, trace, isBusy, pendingTool, sessionStatus = '' ) {
-	if ( ! isBusy ) {
-		return ''
-	}
-
-	if ( sessionStatus === 'awaiting_human' && pendingTool ) {
-		const summary = pendingTool.summary || pendingTool.name || ''
-		return summary
-			? sprintf(
-				/* translators: %s: action summary */
-				__( 'Waiting for your approval: %s', 'ahentic' ),
-				summary
-			)
-			: __( 'Waiting for your approval…', 'ahentic' )
-	}
-
-	if ( sessionStatus === 'awaiting_browser' && pendingTool ) {
-		const summary = pendingTool.summary || progressLabelForAbility( pendingTool.name || '' )
-		return sprintf(
-			/* translators: %s: action summary */
-			__( 'Waiting for this page to run: %s', 'ahentic' ),
-			summary
-		)
-	}
-
-	const label = typeof progressLabel === 'string' ? progressLabel.trim() : ''
-	if (
-		label &&
-		! GENERIC_PROGRESS_LABELS.has( label ) &&
-		! HIDDEN_LIVE_STATUS_LABELS.has( label )
-	) {
-		return label
-	}
-
-	// Waiting for approval uses its own card; still surface the waiting label if present.
-	if ( pendingTool ) {
-		return label || ''
-	}
-
-	const events = Array.isArray( trace ) ? trace : []
-	// Only use trace from the current run — older run_start boundaries leak prior intentions.
-	let runStart = 0
-	for ( let i = events.length - 1; i >= 0; i-- ) {
-		if ( events[ i ]?.type === 'run_start' ) {
-			runStart = i
-			break
-		}
-	}
-
-	for ( let i = events.length - 1; i >= runStart; i-- ) {
-		const event = events[ i ]
-		const summary = typeof event?.summary === 'string' ? event.summary.trim() : ''
-		if ( ! summary ) {
-			continue
-		}
-		if ( event.type === 'tool_executed' ) {
-			return summary
-		}
-		// Prefer intention/thinking labels; skip missing-debug diagnostics (debugger only).
-		if (
-			event.type === 'llm_thinking' &&
-			! HIDDEN_LIVE_STATUS_LABELS.has( summary ) &&
-			! event?.data?.missing
-		) {
-			return summary
-		}
-		if (
-			event.type === 'progress' &&
-			! GENERIC_PROGRESS_LABELS.has( summary ) &&
-			! HIDDEN_LIVE_STATUS_LABELS.has( summary )
-		) {
-			return summary
-		}
-	}
-
-	if (
-		label &&
-		! GENERIC_PROGRESS_LABELS.has( label ) &&
-		! HIDDEN_LIVE_STATUS_LABELS.has( label )
-	) {
-		return label
-	}
-	return 'Planning next steps…'
-}
-
-/**
- * Detect Cmd vs Ctrl for shortcut labels.
- *
- * @return {string} Human-readable shortcut label.
- */
-function getShortcutLabel() {
-	const isMac = typeof navigator !== 'undefined' &&
-		/Mac|iPhone|iPad|iPod/.test( navigator.platform || navigator.userAgent || '' )
-	return isMac ? '⌘I' : 'Ctrl+I'
-}
-
-/**
- * Truncate a title for tab display / auto-naming.
- *
- * @param {string} text Source text.
- * @param {number} max  Max length.
- * @return {string} Truncated title.
- */
-function truncateTitle( text, max = 32 ) {
-	const clean = text.replace( /\s+/g, ' ' ).trim()
-	if ( clean.length <= max ) {
-		return clean
-	}
-	return `${ clean.slice( 0, max - 1 ) }…`
-}
-
-/**
- * Apply a session REST payload into tabs + unified sessionsById state.
- *
- * @param {Object}   session
- * @param {Function} setTabs
- * @param {Function} setSessionsById
- * @param {Object}   [pendingLocalBySession]
- */
-function applySessionPayload( session, setTabs, setSessionsById, pendingLocalBySession ) {
-	if ( ! session?.id ) {
-		return
-	}
-	const id = String( session.id )
-	setTabs( current => current.map( tab => (
-		tab.id === id
-			? {
-				...tab,
-				title: session.title || tab.title,
-				status: session.status,
-			}
-			: tab
-	) ) )
-	setSessionsById( sessions => patchSessionRecord(
-		sessions,
-		id,
-		record => mergeServerSessionIntoRecord(
-			session,
-			record,
-			pendingLocalBySession?.[ id ],
-			mapEntriesToMessages
-		)
-	) )
-	if ( session.editorRefs && typeof session.editorRefs === 'object' ) {
-		const livePostId = Number( collectPageContext()?.post_id || 0 )
-		hydrateEditorRefs( session.editorRefs, livePostId )
-	}
-}
+import { applySessionPayload } from './apply-session-payload'
+import { getShortcutLabel, truncateTitle } from './sidebar-chrome-utils'
+import { resolveLiveStatusLabel, heartbeatAgeMs } from './sidebar-live-status'
+import { HEARTBEAT_DEAD_MS, VIEWER_ACTIVE_ELSEWHERE } from './session-run-constants'
+import { useRunnerLockEffects } from './use-runner-lock-effects'
+import { useFloatInteraction } from './use-float-interaction'
+import { useSessionPoll } from './use-session-poll'
+import { useBrowserResume } from './use-browser-resume'
 
 export default function Sidebar() {
 	const initial = useMemo( () => loadPersistedState(), [] )
@@ -328,11 +120,6 @@ export default function Sidebar() {
 	// Bumps when hydratedRef changes so session-loading UI can re-render.
 	const [ hydratedVersion, setHydratedVersion ] = useState( 0 )
 
-	const resizingRef = useRef( false )
-	const resizeEdgeRef = useRef( null )
-	const dragRef = useRef( null )
-	const floatRectRef = useRef( floatRect )
-	floatRectRef.current = floatRect
 	const placementRef = useRef( placement )
 	placementRef.current = placement
 	const hydratedRef = useRef( new Set() )
@@ -376,112 +163,13 @@ export default function Sidebar() {
 		bumpLockRevision()
 	}, [ runnerLock, bumpLockRevision ] )
 
-	// Keep claims aligned with live run status; heartbeat owned sessions.
-	useEffect( () => {
-		Object.entries( sessionsById ).forEach( ( [ id, record ] ) => {
-			if ( ! isSessionId( id ) ) {
-				return
-			}
-			const status = record.status
-			if ( ! isActiveRunStatus( status ) ) {
-				if ( runnerLock.readClaim( id )?.ownerId === runnerLock.ownerId ) {
-					runnerLock.release( id )
-				}
-				return
-			}
-			if ( runnerLock.isOwner( id ) ) {
-				runnerLock.heartbeat( id )
-				return
-			}
-			if ( runnerLock.isViewer( id ) ) {
-				return
-			}
-			runnerLock.claim( id )
-		} )
-		bumpLockRevision()
-	}, [ sessionsById, runnerLock, bumpLockRevision ] )
+	useRunnerLockEffects( {
+		sessionsById,
+		sessionsByIdRef,
+		runnerLock,
+		bumpLockRevision,
+	} )
 
-	useEffect( () => {
-		const tick = () => {
-			let changed = false
-			Object.entries( sessionsByIdRef.current ).forEach( ( [ id, record ] ) => {
-				const status = record?.status
-				if ( ! isSessionId( id ) || ! isActiveRunStatus( status ) ) {
-					return
-				}
-				if ( runnerLock.isOwner( id ) ) {
-					runnerLock.heartbeat( id )
-					return
-				}
-				if ( runnerLock.isViewer( id ) ) {
-					return
-				}
-				if ( runnerLock.claim( id ) ) {
-					changed = true
-				}
-			} )
-			if ( changed ) {
-				bumpLockRevision()
-			}
-		}
-		const timer = window.setInterval( tick, RUNNER_HEARTBEAT_MS )
-		return () => {
-			window.clearInterval( timer )
-		}
-	}, [ runnerLock, bumpLockRevision ] )
-
-	useEffect( () => {
-		const onStorage = event => {
-			if ( event.key !== RUNNER_LOCK_KEY ) {
-				return
-			}
-			Object.entries( sessionsByIdRef.current ).forEach( ( [ id, record ] ) => {
-				const status = record?.status
-				if ( ! isSessionId( id ) || ! isActiveRunStatus( status ) ) {
-					return
-				}
-				if ( runnerLock.isOwner( id ) || runnerLock.isViewer( id ) ) {
-					return
-				}
-				runnerLock.claim( id )
-			} )
-			bumpLockRevision()
-		}
-		window.addEventListener( 'storage', onStorage )
-		return () => {
-			window.removeEventListener( 'storage', onStorage )
-		}
-	}, [ bumpLockRevision, runnerLock ] )
-
-	useEffect( () => {
-		const renew = () => {
-			Object.entries( sessionsByIdRef.current ).forEach( ( [ id, record ] ) => {
-				const status = record?.status
-				if ( isSessionId( id ) && isActiveRunStatus( status ) && runnerLock.isOwner( id ) ) {
-					runnerLock.heartbeat( id )
-				}
-			} )
-			bumpLockRevision()
-		}
-		document.addEventListener( 'visibilitychange', renew )
-		window.addEventListener( 'focus', renew )
-		return () => {
-			document.removeEventListener( 'visibilitychange', renew )
-			window.removeEventListener( 'focus', renew )
-		}
-	}, [ runnerLock, bumpLockRevision ] )
-
-	useEffect( () => {
-		const onPageHide = () => {
-			Object.keys( sessionsByIdRef.current ).forEach( id => {
-				runnerLock.release( id )
-			} )
-		}
-		window.addEventListener( 'pagehide', onPageHide )
-		return () => {
-			window.removeEventListener( 'pagehide', onPageHide )
-		}
-	}, [ runnerLock ] )
 	const tabsRef = useRef( tabs )
 	tabsRef.current = tabs
 
@@ -1036,220 +724,23 @@ export default function Sidebar() {
 		return [ ...ids ].sort().join( ',' )
 	}, [ sessionsById ] )
 
-	/**
-	 * Tracks browser-tool resume attempts.
-	 * Values: 'inflight' | 'done'. Cleared on failure so another attempt can run.
-	 *
-	 * @type {React.MutableRefObject<{[key: string]: string}>}
-	 */
-	const browserResumeRef = useRef( {} )
-	/** Bumps when a resume attempt exhausts retries so the effect can try again. */
-	const [ browserResumeNudge, setBrowserResumeNudge ] = useState( 0 )
+	const { clearBrowserResumesForSession } = useBrowserResume( {
+		activeTabId,
+		activeStatus,
+		activeSession,
+		isViewerSession,
+		sessionsByIdRef,
+		runnerLock,
+		claimRunner,
+		applySession,
+	} )
 
-	const activeBrowserPending = activeSession.pendingTool
-	const activeBrowserCallId = activeBrowserPending?.runtime === 'browser'
-		? ( activeBrowserPending.call_id || activeBrowserPending.callId || activeBrowserPending.name || '' )
-		: ''
-
-	const browserResumeKey = (
-		activeStatus === 'awaiting_browser' &&
-		isSessionId( activeTabId ) &&
-		activeBrowserCallId
-	) ? `${ activeTabId }:${ activeBrowserCallId }` : ''
-
-	// Execute pending browser abilities when the orchestrator pauses for them.
-	// Important: once started, finish the POST even if deps churn — cancelling
-	// mid-flight and leaving a sticky "handled" flag stuck the live status on
-	// labels like "Reading editor blocks…".
-	useEffect( () => {
-		if ( ! browserResumeKey || isViewerSession ) {
-			return undefined
-		}
-
-		if ( ! runnerLock.isOwner( activeTabId ) && ! claimRunner( activeTabId ) ) {
-			return undefined
-		}
-
-		const state = browserResumeRef.current[ browserResumeKey ]
-		if ( state === 'done' || state === 'inflight' ) {
-			return undefined
-		}
-
-		const pending = getSessionRecord( sessionsByIdRef.current, activeTabId ).pendingTool
-		if ( ! pending || pending.runtime !== 'browser' ) {
-			return undefined
-		}
-
-		const callId = pending.call_id || pending.callId || ''
-		const sessionId = activeTabId
-		const resumeKey = browserResumeKey
-		browserResumeRef.current[ resumeKey ] = 'inflight'
-
-		const sleep = ms => new Promise( resolve => {
-			window.setTimeout( resolve, ms )
-		} )
-
-		const isAlreadyResumedError = error => {
-			const code = error?.code || ''
-			const status = error?.status
-			return status === 409 ||
-				code === 'ahentic_not_awaiting' ||
-				code === 'ahentic_no_pending' ||
-				code === 'ahentic_call_mismatch'
-		}
-
-		;( async () => {
-			const maxAttempts = 5
-			for ( let attempt = 1; attempt <= maxAttempts; attempt++ ) {
-				try {
-					const outcome = await runBrowserAbility( pending )
-					if ( outcome?.result?.wiped ) {
-						try {
-							await patchSession( sessionId, { editorRefs: null } )
-						} catch {
-							// Poller / next sync will catch up.
-						}
-					}
-					const session = await postBrowserResult( sessionId, {
-						// REST body uses snake_case (matches server pending tool).
-						// eslint-disable-next-line camelcase
-						call_id: callId,
-						...( outcome.error
-							? { error: outcome.error }
-							: { result: outcome.result }
-						),
-					} )
-					browserResumeRef.current[ resumeKey ] = 'done'
-					applySession( session, { force: true } )
-					return
-				} catch ( error ) {
-					if ( isAlreadyResumedError( error ) ) {
-						browserResumeRef.current[ resumeKey ] = 'done'
-						try {
-							const session = await getSession( sessionId )
-							applySession( session, { force: true } )
-						} catch {
-							// Poller will catch up.
-						}
-						return
-					}
-					if ( attempt < maxAttempts ) {
-						await sleep( 400 * attempt )
-					}
-				}
-			}
-
-			// Exhausted retries — clear and nudge so the effect can retry.
-			if ( browserResumeRef.current[ resumeKey ] === 'inflight' ) {
-				delete browserResumeRef.current[ resumeKey ]
-				await sleep( 1500 )
-				// Only nudge if this call is still the active browser pause.
-				if ( ! browserResumeRef.current[ resumeKey ] ) {
-					setBrowserResumeNudge( value => value + 1 )
-				}
-			}
-		} )()
-
-		return undefined
-	}, [ browserResumeKey, browserResumeNudge, activeTabId, applySession, isViewerSession, runnerLock, claimRunner ] )
-
-	// Poll running sessions for live progress + final messages.
-	useEffect( () => {
-		if ( ! runningSessionKey ) {
-			return undefined
-		}
-
-		const ids = runningSessionKey.split( ',' ).filter( Boolean )
-		let cancelled = false
-		const continueInFlight = new Set()
-
-		const apply = session => {
-			const id = session?.id !== undefined && session?.id !== null ? String( session.id ) : ''
-			// While approval POST is in flight, ignore stale awaiting_human polls.
-			if ( id && getSessionRecord( sessionsByIdRef.current, id ).approving && session.status === 'awaiting_human' ) {
-				return
-			}
-			applySession( session )
-		}
-
-		/**
-		 * Quiet queue recovery when heartbeat is stale — not progress-label based.
-		 * @param {Object} session Session REST payload.
-		 */
-		const needsHeartbeatNudge = session => {
-			if ( session?.status !== 'running' ) {
-				return false
-			}
-			const age = heartbeatAgeMs( session.heartbeatAt || '' )
-			if ( age === null ) {
-				return false
-			}
-			return age >= HEARTBEAT_STALL_MS
-		}
-
-		/**
-		 * Timed browser recovery (server falls back or errors clearly).
-		 * @param {Object} session Session REST payload.
-		 */
-		const needsBrowserNudge = session => {
-			if ( session?.status !== 'awaiting_browser' ) {
-				return false
-			}
-			const paused = session.browserPausedAt || session.progress?.updatedAt || ''
-			const age = heartbeatAgeMs( paused )
-			if ( age === null ) {
-				return false
-			}
-			return age >= BROWSER_STALL_MS
-		}
-
-		const pollOne = async id => {
-			try {
-				const session = await getSession( id )
-				if ( cancelled ) {
-					return
-				}
-				apply( session )
-
-				const shouldContinue = (
-					( needsHeartbeatNudge( session ) || needsBrowserNudge( session ) ) &&
-					! continueInFlight.has( id ) &&
-					! runnerLock.isViewer( id ) &&
-					( runnerLock.isOwner( id ) || runnerLock.claim( id ) )
-				)
-				if ( shouldContinue ) {
-					continueInFlight.add( id )
-					continueSession( id )
-						.then( continued => {
-							if ( ! cancelled && continued ) {
-								apply( continued )
-							}
-						} )
-						.catch( () => {
-							// Next poll will retry if still stalled.
-						} )
-						.finally( () => {
-							continueInFlight.delete( id )
-						} )
-				}
-			} catch ( error ) {
-				// Keep polling; transient network errors are fine.
-			}
-		}
-
-		const tick = () => {
-			ids.forEach( id => {
-				pollOne( id )
-			} )
-		}
-
-		tick()
-		const timer = window.setInterval( tick, POLL_MS )
-		return () => {
-			cancelled = true
-			window.clearInterval( timer )
-		}
-	}, [ runningSessionKey, applySession, runnerLock ] )
+	useSessionPoll( {
+		runningSessionKey,
+		sessionsByIdRef,
+		applySession,
+		runnerLock,
+	} )
 
 	const openSidebar = useCallback( () => setOpen( true ), [] )
 	const closeSidebar = useCallback( () => setOpen( false ), [] )
@@ -1655,11 +1146,7 @@ export default function Sidebar() {
 		setSending( false )
 
 		// Drop any in-flight browser resume for this tab.
-		Object.keys( browserResumeRef.current ).forEach( key => {
-			if ( key.startsWith( `${ sessionId }:` ) ) {
-				delete browserResumeRef.current[ key ]
-			}
-		} )
+		clearBrowserResumesForSession( sessionId )
 
 		try {
 			const session = await cancelSession( sessionId )
@@ -1678,7 +1165,7 @@ export default function Sidebar() {
 			delete stopRequestedRef.current[ sessionId ]
 			setStopping( false )
 		}
-	}, [ activeTabId, stopping, applySession, releaseRunner ] )
+	}, [ activeTabId, stopping, applySession, releaseRunner, clearBrowserResumesForSession ] )
 
 	const onApproval = useCallback( async decision => {
 		if ( ! isSessionId( activeTabId ) || isViewerSession ) {
@@ -1763,183 +1250,20 @@ export default function Sidebar() {
 		sendMessage( prompt )
 	}, [ sendMessage ] )
 
-	// Docked width resize + floating move/resize.
-	useEffect( () => {
-		const clearInteraction = () => {
-			resizingRef.current = false
-			resizeEdgeRef.current = null
-			dragRef.current = null
-			document.body.classList.remove(
-				'ahentic-is-resizing',
-				'ahentic-is-resizing--row',
-				'ahentic-is-resizing--corner',
-				'ahentic-is-resizing--corner-nesw',
-				'ahentic-is-dragging'
-			)
-		}
-
-		const onMove = event => {
-			if ( isMobile ) {
-				return
-			}
-
-			if ( dragRef.current ) {
-				const {
-					startX, startY, originLeft, originTop,
-				} = dragRef.current
-				const next = clampFloatingRect( {
-					...floatRectRef.current,
-					left: originLeft + ( event.clientX - startX ),
-					top: originTop + ( event.clientY - startY ),
-				} )
-				setFloatRect( next )
-				return
-			}
-
-			if ( ! resizingRef.current ) {
-				return
-			}
-
-			const currentPlacement = placementRef.current
-			const edge = resizeEdgeRef.current
-
-			if ( isFloatingPlacement( currentPlacement ) && edge ) {
-				const origin = resizeEdgeRef.current.origin
-				const anchorRight = origin.left + origin.width
-				const anchorBottom = origin.top + origin.height
-				let {
-					left, top, width: nextW, height: nextH,
-				} = origin
-
-				if ( edge.dir.includes( 'e' ) ) {
-					nextW = event.clientX - origin.left
-				}
-				if ( edge.dir.includes( 's' ) ) {
-					nextH = event.clientY - origin.top
-				}
-				if ( edge.dir.includes( 'w' ) ) {
-					nextW = anchorRight - event.clientX
-					left = event.clientX
-				}
-				if ( edge.dir.includes( 'n' ) ) {
-					nextH = anchorBottom - event.clientY
-					top = event.clientY
-				}
-
-				const clamped = clampFloatingRect( {
-					left,
-					top,
-					width: nextW,
-					height: nextH,
-				} )
-
-				// Keep the opposite edge fixed when min/max size clamping kicks in.
-				if ( edge.dir.includes( 'w' ) ) {
-					clamped.left = Math.max( 0, anchorRight - clamped.width )
-					clamped.width = Math.min( clamped.width, anchorRight - clamped.left )
-				}
-				if ( edge.dir.includes( 'n' ) ) {
-					clamped.top = Math.max( 0, anchorBottom - clamped.height )
-					clamped.height = Math.min( clamped.height, anchorBottom - clamped.top )
-				}
-
-				setFloatRect( clamped )
-				setWidth( clamped.width )
-				return
-			}
-
-			if ( currentPlacement === PLACEMENTS.LEFT ) {
-				setWidth( clampWidth( event.clientX ) )
-				return
-			}
-
-			if ( currentPlacement === PLACEMENTS.RIGHT ) {
-				setWidth( clampWidth( window.innerWidth - event.clientX ) )
-			}
-		}
-
-		const onUp = () => {
-			clearInteraction()
-		}
-
-		window.addEventListener( 'mousemove', onMove )
-		window.addEventListener( 'mouseup', onUp )
-		return () => {
-			window.removeEventListener( 'mousemove', onMove )
-			window.removeEventListener( 'mouseup', onUp )
-			clearInteraction()
-		}
-	}, [ isMobile ] )
-
-	const startDockResize = event => {
-		if ( isMobile || isFloatingPlacement( placement ) ) {
-			return
-		}
-		event.preventDefault()
-		resizingRef.current = true
-		resizeEdgeRef.current = null
-		document.body.classList.add( 'ahentic-is-resizing' )
-	}
-
-	const startFloatResize = ( event, dir ) => {
-		if ( isMobile || ! isFloatingPlacement( placement ) ) {
-			return
-		}
-		const origin = floatRect || getDefaultFloatingRect( placement, width )
-		if ( ! floatRect ) {
-			setFloatRect( origin )
-		}
-		event.preventDefault()
-		event.stopPropagation()
-		resizingRef.current = true
-		resizeEdgeRef.current = {
-			dir,
-			origin: { ...origin },
-		}
-		document.body.classList.add( 'ahentic-is-resizing' )
-		if ( dir === 'n' || dir === 's' ) {
-			document.body.classList.add( 'ahentic-is-resizing--row' )
-		} else if ( dir.length > 1 ) {
-			document.body.classList.add( 'ahentic-is-resizing--corner' )
-			if ( dir === 'ne' || dir === 'sw' ) {
-				document.body.classList.add( 'ahentic-is-resizing--corner-nesw' )
-			}
-		}
-	}
-
-	const startFloatDrag = event => {
-		if ( isMobile || ! isFloatingPlacement( placement ) || ! floatRect ) {
-			return
-		}
-		event.preventDefault()
-		dragRef.current = {
-			startX: event.clientX,
-			startY: event.clientY,
-			originLeft: floatRect.left,
-			originTop: floatRect.top,
-		}
-		document.body.classList.add( 'ahentic-is-dragging' )
-	}
-
-	const floating = ! isMobile && isFloatingPlacement( placement )
-	const activeFloat = floating
-		? ( floatRect || getDefaultFloatingRect( placement, width ) )
-		: null
-
-	const panelStyle = ( () => {
-		if ( isMobile ) {
-			return undefined
-		}
-		if ( activeFloat ) {
-			return {
-				width: `${ activeFloat.width }px`,
-				height: `${ activeFloat.height }px`,
-				left: `${ activeFloat.left }px`,
-				top: `${ activeFloat.top }px`,
-			}
-		}
-		return { width: `${ width }px` }
-	} )()
+	const {
+		startDockResize,
+		startFloatResize,
+		startFloatDrag,
+		floating,
+		panelStyle,
+	} = useFloatInteraction( {
+		isMobile,
+		placement,
+		floatRect,
+		width,
+		setFloatRect,
+		setWidth,
+	} )
 
 	return (
 		<div
@@ -1994,68 +1318,7 @@ export default function Sidebar() {
 				) }
 
 				{ floating && (
-					<>
-						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
-						<div
-							className="ahentic-float-handle ahentic-float-handle--n"
-							onMouseDown={ event => startFloatResize( event, 'n' ) }
-							role="separator"
-							aria-orientation="horizontal"
-							aria-label="Resize Ahentic sidebar from top"
-						/>
-						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
-						<div
-							className="ahentic-float-handle ahentic-float-handle--s"
-							onMouseDown={ event => startFloatResize( event, 's' ) }
-							role="separator"
-							aria-orientation="horizontal"
-							aria-label="Resize Ahentic sidebar from bottom"
-						/>
-						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
-						<div
-							className="ahentic-float-handle ahentic-float-handle--e"
-							onMouseDown={ event => startFloatResize( event, 'e' ) }
-							role="separator"
-							aria-orientation="vertical"
-							aria-label="Resize Ahentic sidebar from right"
-						/>
-						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
-						<div
-							className="ahentic-float-handle ahentic-float-handle--w"
-							onMouseDown={ event => startFloatResize( event, 'w' ) }
-							role="separator"
-							aria-orientation="vertical"
-							aria-label="Resize Ahentic sidebar from left"
-						/>
-						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
-						<div
-							className="ahentic-float-handle ahentic-float-handle--nw"
-							onMouseDown={ event => startFloatResize( event, 'nw' ) }
-							role="separator"
-							aria-label="Resize Ahentic sidebar from top-left corner"
-						/>
-						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
-						<div
-							className="ahentic-float-handle ahentic-float-handle--ne"
-							onMouseDown={ event => startFloatResize( event, 'ne' ) }
-							role="separator"
-							aria-label="Resize Ahentic sidebar from top-right corner"
-						/>
-						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
-						<div
-							className="ahentic-float-handle ahentic-float-handle--sw"
-							onMouseDown={ event => startFloatResize( event, 'sw' ) }
-							role="separator"
-							aria-label="Resize Ahentic sidebar from bottom-left corner"
-						/>
-						{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
-						<div
-							className="ahentic-float-handle ahentic-float-handle--se"
-							onMouseDown={ event => startFloatResize( event, 'se' ) }
-							role="separator"
-							aria-label="Resize Ahentic sidebar from bottom-right corner"
-						/>
-					</>
+					<FloatHandles onResizeStart={ startFloatResize } />
 				) }
 
 				<Toolbar

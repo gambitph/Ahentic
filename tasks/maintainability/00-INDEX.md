@@ -21,7 +21,7 @@ Temporary working folder — delete when the track is done. Not PRD/contract.
 | # | File | Status | Notes |
 | --- | --- | --- | --- |
 | M1 | [01-sidebar-session-state.md](./01-sidebar-session-state.md) | done | Area 2 first slice; manual smoke OK |
-| M2 | [02-sidebar-shell-split.md](./02-sidebar-shell-split.md) | ready | Unblocked by M1 |
+| M2 | [02-sidebar-shell-split.md](./02-sidebar-shell-split.md) | done | Chrome / poll / browser / float / runner-lock extracted |
 | M3 | [03-shared-placeholder-heuristic.md](./03-shared-placeholder-heuristic.md) | done | Shared JSON rules + PHP/JS consumers |
 | M4 | [04-derived-ability-catalog-one-module.md](./04-derived-ability-catalog-one-module.md) | done | Browser `catalog()` pilot |
 | M5 | [05-progress-labels-single-source.md](./05-progress-labels-single-source.md) | done | PHP map → `abilityProgressLabels` |
