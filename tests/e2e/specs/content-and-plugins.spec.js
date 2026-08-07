@@ -57,12 +57,12 @@ test.describe( 'ahentic/list-post-types', () => {
 
 		expect( result.ok ).toBe( true )
 		expect( Array.isArray( result.data.post_types ) ).toBe( true )
-		const names = result.data.post_types.map( ( t ) => t.name )
+		const names = result.data.post_types.map( t => t.name )
 		expect( names ).toContain( 'post' )
 		expect( names ).toContain( 'page' )
 		expect( names ).not.toContain( 'revision' )
 		expect( names ).not.toContain( 'ahentic-session' )
-		const post = result.data.post_types.find( ( t ) => t.name === 'post' )
+		const post = result.data.post_types.find( t => t.name === 'post' )
 		expect( post ).toMatchObject( {
 			label: expect.any( String ),
 			public: expect.any( Boolean ),
@@ -96,7 +96,7 @@ test.describe( 'ahentic/list-themes', () => {
 		expect( result.ok ).toBe( true )
 		expect( result.data.count ).toBeGreaterThan( 0 )
 		expect( Array.isArray( result.data.themes ) ).toBe( true )
-		const active = result.data.themes.filter( ( t ) => t.is_active )
+		const active = result.data.themes.filter( t => t.is_active )
 		expect( active ).toHaveLength( 1 )
 		expect( active[ 0 ] ).toMatchObject( {
 			stylesheet: expect.any( String ),

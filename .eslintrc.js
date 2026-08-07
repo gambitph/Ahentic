@@ -73,4 +73,28 @@ module.exports = {
 		MutationObserver: true,
 		IntersectionObserver: true,
 	},
+	overrides: [
+		{
+			files: [ '**/*.test.js' ],
+			extends: [ 'plugin:@wordpress/eslint-plugin/test-unit' ],
+			rules: {
+				// Jest pragma — not a real JSDoc tag, but required for node env.
+				'jsdoc/check-tag-names': [ 'error', { definedTags: [ 'jest-environment' ] } ],
+				// Ability / editor wire fixtures intentionally use schema snake_case.
+				camelcase: 'off',
+			},
+		},
+		{
+			files: [ 'tests/e2e/**/*.js' ],
+			extends: [ 'plugin:@wordpress/eslint-plugin/test-playwright' ],
+			rules: {
+				// Ability / REST I/O matches PHP schema snake_case.
+				camelcase: 'off',
+				// Long RequestUtils import types make param alignment noisy.
+				'jsdoc/check-line-alignment': 'off',
+				// Specs branch on live WP/UI state (optional controls, soft waits).
+				'playwright/no-conditional-in-test': 'off',
+			},
+		},
+	],
 }

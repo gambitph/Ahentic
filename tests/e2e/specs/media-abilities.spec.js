@@ -3,7 +3,9 @@
  */
 /* eslint-disable camelcase -- Ability / REST I/O matches PHP schema snake_case. */
 const { test, expect } = require( '@wordpress/e2e-test-utils-playwright' )
-const { runAbility, seed, inspectAttachment } = require( '../utils/ability-client' )
+const {
+	runAbility, seed, inspectAttachment,
+} = require( '../utils/ability-client' )
 const { createSession } = require( '../utils/session-client' )
 
 test.describe.configure( { mode: 'serial', timeout: 90_000 } )

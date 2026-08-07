@@ -104,7 +104,9 @@ describe( 'pickMediaEssentialAttrs', () => {
 	it( 'does not treat bare alt/id on non-media blocks as media essentials', () => {
 		expect(
 			pickMediaEssentialAttrs(
-				{ alt: 'not an image block', id: 123, content: 'Hi' },
+				{
+					alt: 'not an image block', id: 123, content: 'Hi',
+				},
 				'core/paragraph'
 			)
 		).toEqual( {} )

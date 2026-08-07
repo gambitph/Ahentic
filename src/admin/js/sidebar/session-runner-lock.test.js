@@ -25,7 +25,7 @@ function createMemoryStorage() {
 describe( 'session-runner-lock', () => {
 	it( 'lets the first owner claim a session when no claim exists', () => {
 		const storage = createMemoryStorage()
-		let now = 1_000
+		const now = 1_000
 		const lock = createSessionRunnerLock( {
 			storage,
 			ownerId: 'window-a',
@@ -39,7 +39,7 @@ describe( 'session-runner-lock', () => {
 
 	it( 'makes a second window a viewer while the first claim is fresh', () => {
 		const storage = createMemoryStorage()
-		let now = 1_000
+		const now = 1_000
 		const lockA = createSessionRunnerLock( {
 			storage,
 			ownerId: 'window-a',
@@ -106,7 +106,7 @@ describe( 'session-runner-lock', () => {
 
 	it( 'release drops the claim so another window can become active', () => {
 		const storage = createMemoryStorage()
-		let now = 1_000
+		const now = 1_000
 		const lockA = createSessionRunnerLock( {
 			storage,
 			ownerId: 'window-a',
@@ -126,7 +126,7 @@ describe( 'session-runner-lock', () => {
 
 	it( 'does not let a non-owner release someone else\'s claim', () => {
 		const storage = createMemoryStorage()
-		let now = 1_000
+		const now = 1_000
 		const lockA = createSessionRunnerLock( {
 			storage,
 			ownerId: 'window-a',
@@ -146,7 +146,7 @@ describe( 'session-runner-lock', () => {
 
 	it( 'tracks claims per session id independently', () => {
 		const storage = createMemoryStorage()
-		let now = 1_000
+		const now = 1_000
 		const lockA = createSessionRunnerLock( {
 			storage,
 			ownerId: 'window-a',
