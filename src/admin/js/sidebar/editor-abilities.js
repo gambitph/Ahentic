@@ -569,6 +569,96 @@ function missingRefsError( missing ) {
 }
 
 /**
+ * Resolve target block clientIds for mutate abilities (refs → selection fallback → errors).
+ *
+ * @param {Object} input
+ * @param {{ select: Function }} ctx
+ * @param {Object} [options]
+ * @param {boolean} [options.allowSelection=true]
+ * @param {string} [options.missingMessage]
+ * @param {boolean} [options.requireExisting=false]
+ * @return {{ ok: true, clientIds: string[] } | { ok: false, error: string, message?: string, missing?: string[], wiped?: boolean }}
+ */
+export function resolveTargetClientIds( input, ctx, {
+	allowSelection = true,
+	missingMessage = 'Provide refs or select blocks.',
+	requireExisting = false,
+} = {} ) {
+	const blockSelect = ctx.select( 'core/block-editor' )
+	let { clientIds, missing } = resolveInputRefs( input, ctx.select, [
+		'refs', 'ref', 'client_ids', 'clientIds', 'client_id', 'clientId',
+	] )
+	if ( ! clientIds.length && allowSelection ) {
+		clientIds = blockSelect.getSelectedBlockClientIds?.() || []
+	}
+	if ( ! clientIds.length ) {
+		return missing.length
+			? missingRefsError( missing )
+			: {
+				ok: false,
+				error: 'missing_refs',
+				message: missingMessage,
+			}
+	}
+	if ( missing.length ) {
+		return missingRefsError( missing )
+	}
+	if ( requireExisting ) {
+		const notFound = clientIds.filter( id => ! blockSelect.getBlock?.( id ) )
+		if ( notFound.length ) {
+			return missingRefsError( refsForClientIds( notFound ) )
+		}
+	}
+	return { ok: true, clientIds }
+}
+
+/**
+ * Validate and normalize a blocks payload for insert / replace / set.
+ *
+ * @param {Object} input
+ * @param {{ wp: Object }} ctx
+ * @param {Object} [options]
+ * @param {string} [options.emptyMessage]
+ * @return {{ ok: true, blocks: Array } | { ok: false, error: string, message?: string, hint?: string }}
+ */
+export function prepareBlocksPayload( input, ctx, {
+	emptyMessage = 'Blocks cannot be empty.',
+} = {} ) {
+	const stub = rejectPlaceholderBlocks( input.blocks )
+	if ( stub ) {
+		return stub
+	}
+	let blocks
+	try {
+		blocks = normalizeBlocksInput( input.blocks, ctx.wp )
+	} catch ( error ) {
+		return {
+			ok: false,
+			error: 'invalid_blocks',
+			message: error?.message || 'Invalid blocks payload.',
+		}
+	}
+	if ( ! blocks.length ) {
+		return {
+			ok: false,
+			error: 'empty_blocks',
+			message: emptyMessage,
+		}
+	}
+	const parsedStub = rejectPlaceholderBlocks(
+		blocks.map( block => ( {
+			name: block.name,
+			attributes: block.attributes || {},
+			innerBlocks: block.innerBlocks || [],
+		} ) )
+	)
+	if ( parsedStub ) {
+		return parsedStub
+	}
+	return { ok: true, blocks }
+}
+
+/**
  * Resolve target clientIds for scope helpers (refs in, clientIds out).
  *
  * @param {Object} input
@@ -1162,54 +1252,22 @@ export function replaceBlocks( input = {} ) {
 	if ( ! ctx.ok ) {
 		return ctx
 	}
+	const targets = resolveTargetClientIds( input, ctx, {
+		missingMessage: 'Provide refs (from get-blocks) or select blocks.',
+		requireExisting: true,
+	} )
+	if ( ! targets.ok ) {
+		return targets
+	}
+	const payload = prepareBlocksPayload( input, ctx, {
+		emptyMessage: 'Replacement blocks cannot be empty.',
+	} )
+	if ( ! payload.ok ) {
+		return payload
+	}
+	const { clientIds } = targets
+	const { blocks } = payload
 	const blockSelect = ctx.select( 'core/block-editor' )
-	let { clientIds, missing } = resolveInputRefs( input, ctx.select, [
-		'refs', 'ref', 'client_ids', 'clientIds', 'client_id', 'clientId',
-	] )
-	if ( ! clientIds.length ) {
-		clientIds = blockSelect.getSelectedBlockClientIds?.() || []
-	}
-	if ( ! clientIds.length ) {
-		return missing.length
-			? missingRefsError( missing )
-			: {
-				ok: false, error: 'missing_refs', message: 'Provide refs (from get-blocks) or select blocks.',
-			}
-	}
-	if ( missing.length ) {
-		return missingRefsError( missing )
-	}
-	const notFound = clientIds.filter( id => ! blockSelect.getBlock?.( id ) )
-	if ( notFound.length ) {
-		return missingRefsError( refsForClientIds( notFound ) )
-	}
-	const stub = rejectPlaceholderBlocks( input.blocks )
-	if ( stub ) {
-		return stub
-	}
-	let blocks
-	try {
-		blocks = normalizeBlocksInput( input.blocks, ctx.wp )
-	} catch ( error ) {
-		return {
-			ok: false, error: 'invalid_blocks', message: error?.message || 'Invalid blocks payload.',
-		}
-	}
-	if ( ! blocks.length ) {
-		return {
-			ok: false, error: 'empty_blocks', message: 'Replacement blocks cannot be empty.',
-		}
-	}
-	const parsedStub = rejectPlaceholderBlocks(
-		blocks.map( block => ( {
-			name: block.name,
-			attributes: block.attributes || {},
-			innerBlocks: block.innerBlocks || [],
-		} ) )
-	)
-	if ( parsedStub ) {
-		return parsedStub
-	}
 	const replacedRefs = refsForClientIds( clientIds )
 	ctx.dispatch( 'core/block-editor' ).replaceBlocks( clientIds, blocks )
 	syncRegistryFromEditor( ctx.select )
@@ -1234,33 +1292,11 @@ export function setBlocks( input = {} ) {
 	if ( ! ctx.ok ) {
 		return ctx
 	}
-	const stub = rejectPlaceholderBlocks( input.blocks )
-	if ( stub ) {
-		return stub
+	const payload = prepareBlocksPayload( input, ctx )
+	if ( ! payload.ok ) {
+		return payload
 	}
-	let blocks
-	try {
-		blocks = normalizeBlocksInput( input.blocks, ctx.wp )
-	} catch ( error ) {
-		return {
-			ok: false, error: 'invalid_blocks', message: error?.message || 'Invalid blocks payload.',
-		}
-	}
-	if ( ! blocks.length ) {
-		return {
-			ok: false, error: 'empty_blocks', message: 'Blocks cannot be empty.',
-		}
-	}
-	const parsedStub = rejectPlaceholderBlocks(
-		blocks.map( block => ( {
-			name: block.name,
-			attributes: block.attributes || {},
-			innerBlocks: block.innerBlocks || [],
-		} ) )
-	)
-	if ( parsedStub ) {
-		return parsedStub
-	}
+	const { blocks } = payload
 
 	const blockSelect = ctx.select( 'core/block-editor' )
 	const dispatch = ctx.dispatch( 'core/block-editor' )
@@ -1291,33 +1327,13 @@ export function insertBlocks( input = {} ) {
 	if ( ! ctx.ok ) {
 		return ctx
 	}
-	const stub = rejectPlaceholderBlocks( input.blocks )
-	if ( stub ) {
-		return stub
+	const payload = prepareBlocksPayload( input, ctx, {
+		emptyMessage: 'No blocks to insert.',
+	} )
+	if ( ! payload.ok ) {
+		return payload
 	}
-	let blocks
-	try {
-		blocks = normalizeBlocksInput( input.blocks, ctx.wp )
-	} catch ( error ) {
-		return {
-			ok: false, error: 'invalid_blocks', message: error?.message || 'Invalid blocks payload.',
-		}
-	}
-	if ( ! blocks.length ) {
-		return {
-			ok: false, error: 'empty_blocks', message: 'No blocks to insert.',
-		}
-	}
-	const parsedStub = rejectPlaceholderBlocks(
-		blocks.map( block => ( {
-			name: block.name,
-			attributes: block.attributes || {},
-			innerBlocks: block.innerBlocks || [],
-		} ) )
-	)
-	if ( parsedStub ) {
-		return parsedStub
-	}
+	const { blocks } = payload
 
 	const blockSelect = ctx.select( 'core/block-editor' )
 	const dispatch = ctx.dispatch( 'core/block-editor' )
@@ -1374,23 +1390,11 @@ export function duplicateBlocks( input = {} ) {
 	if ( ! ctx.ok ) {
 		return ctx
 	}
-	const blockSelect = ctx.select( 'core/block-editor' )
-	let { clientIds, missing } = resolveInputRefs( input, ctx.select, [
-		'refs', 'ref', 'client_ids', 'clientIds', 'client_id', 'clientId',
-	] )
-	if ( ! clientIds.length ) {
-		clientIds = blockSelect.getSelectedBlockClientIds?.() || []
+	const targets = resolveTargetClientIds( input, ctx )
+	if ( ! targets.ok ) {
+		return targets
 	}
-	if ( ! clientIds.length ) {
-		return missing.length
-			? missingRefsError( missing )
-			: {
-				ok: false, error: 'missing_refs', message: 'Provide refs or select blocks.',
-			}
-	}
-	if ( missing.length ) {
-		return missingRefsError( missing )
-	}
+	const { clientIds } = targets
 	ctx.dispatch( 'core/block-editor' ).duplicateBlocks( clientIds )
 	syncRegistryFromEditor( ctx.select )
 	return { ok: true, duplicated_refs: refsForClientIds( clientIds ) }
@@ -1401,23 +1405,12 @@ export function deleteBlocks( input = {} ) {
 	if ( ! ctx.ok ) {
 		return ctx
 	}
+	const targets = resolveTargetClientIds( input, ctx )
+	if ( ! targets.ok ) {
+		return targets
+	}
+	const { clientIds } = targets
 	const blockSelect = ctx.select( 'core/block-editor' )
-	let { clientIds, missing } = resolveInputRefs( input, ctx.select, [
-		'refs', 'ref', 'client_ids', 'clientIds', 'client_id', 'clientId',
-	] )
-	if ( ! clientIds.length ) {
-		clientIds = blockSelect.getSelectedBlockClientIds?.() || []
-	}
-	if ( ! clientIds.length ) {
-		return missing.length
-			? missingRefsError( missing )
-			: {
-				ok: false, error: 'missing_refs', message: 'Provide refs or select blocks.',
-			}
-	}
-	if ( missing.length ) {
-		return missingRefsError( missing )
-	}
 	const deletedRefs = refsForClientIds( clientIds )
 	ctx.dispatch( 'core/block-editor' ).removeBlocks( clientIds )
 	syncRegistryFromEditor( ctx.select )
@@ -1434,19 +1427,14 @@ export function moveBlocks( input = {} ) {
 	if ( ! ctx.ok ) {
 		return ctx
 	}
-	const { clientIds, missing } = resolveInputRefs( input, ctx.select, [
-		'refs', 'ref', 'client_ids', 'clientIds', 'client_id', 'clientId',
-	] )
-	if ( ! clientIds.length ) {
-		return missing.length
-			? missingRefsError( missing )
-			: {
-				ok: false, error: 'missing_refs', message: 'refs is required.',
-			}
+	const targets = resolveTargetClientIds( input, ctx, {
+		allowSelection: false,
+		missingMessage: 'refs is required.',
+	} )
+	if ( ! targets.ok ) {
+		return targets
 	}
-	if ( missing.length ) {
-		return missingRefsError( missing )
-	}
+	const { clientIds } = targets
 	const blockSelect = ctx.select( 'core/block-editor' )
 	const fromRoot = blockSelect.getBlockRootClientId?.( clientIds[ 0 ] ) || ''
 	const placement = resolveMovePlacement( input, {
