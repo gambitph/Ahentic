@@ -98,4 +98,65 @@ class JobResumeTest extends TestCase {
 			Ahentic_Job_Resume::should_finish_after_forced_tools( false, true, true )
 		);
 	}
+
+	/**
+	 * Last update-block-attributes in a browser batch should try finish (no free think).
+	 *
+	 * Forced browser tools pause one-at-a-time; the final resume has an empty forced
+	 * queue so should_finish_after_forced_tools never runs — this closes that gap for
+	 * light attribute patches (internal links) when not mid content_work.
+	 */
+	public function test_try_finish_after_browser_attr_batch() {
+		$this->assertTrue(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/update-block-attributes',
+				true,
+				false,
+				false
+			)
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/update-block-attributes',
+				true,
+				true,
+				false
+			),
+			'More forced tools remain — keep the batch going'
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/update-block-attributes',
+				false,
+				false,
+				false
+			),
+			'Failed patch needs another think'
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/update-block-attributes',
+				true,
+				false,
+				true
+			),
+			'Long-form content work still needs think/verify'
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/set-blocks',
+				true,
+				false,
+				false
+			)
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/get-blocks',
+				true,
+				false,
+				false
+			)
+		);
+	}
 }

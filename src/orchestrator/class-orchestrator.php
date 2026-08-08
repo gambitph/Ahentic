@@ -1711,6 +1711,34 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$step
 			);
 
+			$forced_remain = ! empty( Ahentic_Session_Repository::get_forced_tools( $session_id ) );
+			$has_content_work = class_exists( 'Ahentic_Session_Artifacts' )
+				? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
+				: Ahentic_Session_Repository::get_content_work( $session_id );
+			if ( Ahentic_Job_Resume::should_try_finish_after_browser_resume( $name, $ok, $forced_remain, $has_content_work ) ) {
+				$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
+				$result  = array(
+					'text'  => ( is_array( $stashed ) && ! empty( $stashed['text'] ) ) ? (string) $stashed['text'] : '',
+					'model' => ( is_array( $stashed ) && ! empty( $stashed['model'] ) ) ? (string) $stashed['model'] : '',
+				);
+				$debug = ( is_array( $stashed ) && ! empty( $stashed['debug'] ) && is_array( $stashed['debug'] ) )
+					? $stashed['debug']
+					: array( 'next' => 'reply' );
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'browser_attr_batch_finish',
+					'Attribute patch batch complete — finishing without another think',
+					array(
+						'ability' => $name,
+						'ok'      => $ok,
+					),
+					$step
+				);
+				if ( ! self::try_finish_with_reply( $session_id, $result, $debug ) ) {
+					return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
+				}
+			}
+
 			Ahentic_Step_Queue::enqueue_step( $session_id );
 			Ahentic_Step_Queue::schedule_interactive_run( $session_id );
 

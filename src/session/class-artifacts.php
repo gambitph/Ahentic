@@ -582,7 +582,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				$payload          = $existing['payload'];
 				$mode             = 'replace';
 			} else {
-				$payload = self::normalize_payload( $kind, $payload );
+				$payload = self::normalize_stage_payload( $kind, $payload );
 				if ( is_wp_error( $payload ) ) {
 					return $payload;
 				}
@@ -1218,28 +1218,47 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		}
 
 		/**
+		 * Normalize a stage payload for a kind (shape + placeholder stubs).
+		 *
+		 * Public so unit tests and callers share one seam with execute_stage / stage().
+		 *
 		 * @param string $kind    Kind.
 		 * @param mixed  $payload Raw payload.
 		 * @return mixed|\WP_Error
 		 */
-		private static function normalize_payload( $kind, $payload ) {
+		public static function normalize_stage_payload( $kind, $payload ) {
 			if ( self::KIND_BLOCKS === $kind ) {
 				if ( is_string( $payload ) ) {
 					$decoded = json_decode( $payload, true );
-					$payload = is_array( $decoded ) ? $decoded : $payload;
+					if ( is_array( $decoded ) ) {
+						$payload = $decoded;
+					} else {
+						$stub = self::reject_placeholder_text( $payload );
+						if ( is_wp_error( $stub ) ) {
+							return $stub;
+						}
+						return self::invalid_blocks_payload_error();
+					}
+				}
+				if ( is_array( $payload ) && array_key_exists( 'blocks', $payload ) && is_string( $payload['blocks'] ) ) {
+					$stub = self::reject_placeholder_text( $payload['blocks'] );
+					if ( is_wp_error( $stub ) ) {
+						return $stub;
+					}
+					return self::invalid_blocks_payload_error();
 				}
 				if ( is_array( $payload ) && isset( $payload['blocks'] ) && is_array( $payload['blocks'] ) ) {
 					$blocks = $payload['blocks'];
 				} elseif ( is_array( $payload ) && self::looks_like_block_list( $payload ) ) {
 					$blocks = $payload;
 				} else {
-					return new WP_Error(
-						'ahentic_invalid_artifact_payload',
-						__( 'blocks artifacts need payload.blocks as an array of {name, attributes, innerBlocks}.', 'ahentic' )
-					);
+					return self::invalid_blocks_payload_error();
 				}
 				if ( empty( $blocks ) ) {
 					return new WP_Error( 'ahentic_invalid_artifact_payload', __( 'blocks payload cannot be empty.', 'ahentic' ) );
+				}
+				if ( self::blocks_contain_placeholder( $blocks ) ) {
+					return self::placeholder_content_error();
 				}
 				return array( 'blocks' => array_values( $blocks ) );
 			}
@@ -1257,6 +1276,10 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				}
 				if ( '' === trim( $content ) ) {
 					return new WP_Error( 'ahentic_invalid_artifact_payload', __( 'Artifact content cannot be empty.', 'ahentic' ) );
+				}
+				$stub = self::reject_placeholder_text( $content );
+				if ( is_wp_error( $stub ) ) {
+					return $stub;
 				}
 				return array( 'content' => $content );
 			}
@@ -1292,6 +1315,89 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 			}
 
 			return new WP_Error( 'ahentic_invalid_artifact_kind', __( 'Invalid artifact kind.', 'ahentic' ) );
+		}
+
+		/**
+		 * @return \WP_Error
+		 */
+		private static function invalid_blocks_payload_error() {
+			return new WP_Error(
+				'ahentic_invalid_artifact_payload',
+				__(
+					'blocks artifacts need payload.blocks as an array of {name, attributes, innerBlocks}.',
+					'ahentic'
+				),
+				array(
+					'hint' => __(
+						'Pass real Gutenberg block objects, not a prose description or string. If you described the article instead of writing blocks, rewrite with actual heading/paragraph content.',
+						'ahentic'
+					),
+				)
+			);
+		}
+
+		/**
+		 * @return \WP_Error
+		 */
+		private static function placeholder_content_error() {
+			return new WP_Error(
+				'ahentic_placeholder_content',
+				__(
+					'Artifact content looks like a placeholder stub (e.g. [full article] or “complete article will be provided”). Pass real Gutenberg blocks or prose unless the user asked for placeholders.',
+					'ahentic'
+				),
+				array(
+					'hint' => __(
+						'Rewrite with actual heading/paragraph/list content. For long articles, append chunks with complete=false, then complete=true.',
+						'ahentic'
+					),
+				)
+			);
+		}
+
+		/**
+		 * @param string $text Candidate text.
+		 * @return true|\WP_Error
+		 */
+		private static function reject_placeholder_text( $text ) {
+			if ( ! is_string( $text ) || '' === trim( $text ) ) {
+				return true;
+			}
+			if ( ! class_exists( 'Ahentic_Content_Placeholder' ) ) {
+				$path = dirname( __DIR__ ) . '/abilities/class-ahentic-content-placeholder.php';
+				if ( is_readable( $path ) ) {
+					require_once $path;
+				}
+			}
+			if ( class_exists( 'Ahentic_Content_Placeholder' ) && Ahentic_Content_Placeholder::looks_like( $text ) ) {
+				return self::placeholder_content_error();
+			}
+			return true;
+		}
+
+		/**
+		 * @param array $blocks Block list.
+		 * @return bool
+		 */
+		private static function blocks_contain_placeholder( array $blocks ) {
+			foreach ( $blocks as $block ) {
+				if ( ! is_array( $block ) ) {
+					continue;
+				}
+				$attrs = isset( $block['attributes'] ) && is_array( $block['attributes'] ) ? $block['attributes'] : array();
+				foreach ( array( 'content', 'text', 'caption', 'citation' ) as $key ) {
+					if ( isset( $attrs[ $key ] ) && is_string( $attrs[ $key ] ) ) {
+						$check = self::reject_placeholder_text( $attrs[ $key ] );
+						if ( is_wp_error( $check ) ) {
+							return true;
+						}
+					}
+				}
+				if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) && self::blocks_contain_placeholder( $block['innerBlocks'] ) ) {
+					return true;
+				}
+			}
+			return false;
 		}
 
 		/**

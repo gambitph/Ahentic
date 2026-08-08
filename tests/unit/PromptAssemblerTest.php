@@ -407,6 +407,8 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertStringContainsString( 'get-blocks with {"refs"', $guidance );
 		$this->assertStringContainsString( 'ahentic/get-content-summary', $guidance );
 		$this->assertStringContainsString( 'never get-content solely to pick a link target', $guidance );
+		$this->assertStringContainsString( 'batch all update-block-attributes in one tools_planned', $guidance );
+		$this->assertStringContainsString( 'ONE tools_planned with final HTML', $guidance );
 	}
 
 	public function test_content_work_adds_editor_pack_off_editor_screen() {

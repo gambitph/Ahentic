@@ -115,5 +115,28 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 			}
 			return true;
 		}
+
+		/**
+		 * After a browser pause resumes, whether to try finishing instead of a free LLM think.
+		 *
+		 * Forced browser tools pause one-at-a-time; when the last tool resumes the forced
+		 * queue is empty so should_finish_after_forced_tools never runs. Light attribute
+		 * patches (internal links, alt text) must not buy another think just to re-verify.
+		 *
+		 * @param string $ability             Completed browser ability.
+		 * @param bool   $ok                  Tool succeeded.
+		 * @param bool   $forced_tools_remain Forced queue still has tools.
+		 * @param bool   $has_content_work    Session is mid long-form content work.
+		 * @return bool True → try finish/idle before enqueueing another think.
+		 */
+		public static function should_try_finish_after_browser_resume( $ability, $ok, $forced_tools_remain, $has_content_work ) {
+			if ( $forced_tools_remain || ! $ok || $has_content_work ) {
+				return false;
+			}
+			$attr_patch = class_exists( 'Ahentic_Abilities_Browser' )
+				? Ahentic_Abilities_Browser::UPDATE_BLOCK_ATTRIBUTES
+				: 'ahentic-browser/update-block-attributes';
+			return $attr_patch === (string) $ability;
+		}
 	}
 }
