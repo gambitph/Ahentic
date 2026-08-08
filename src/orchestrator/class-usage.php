@@ -28,7 +28,7 @@ if ( ! class_exists( 'Ahentic_Usage' ) ) {
 		 */
 		const OPTION_LIMITS = 'ahentic_token_limits';
 
-		const DEFAULT_DAILY_LIMIT = 5000000;
+		const DEFAULT_DAILY_LIMIT = 1000000;
 
 		const RUNAWAY_STREAK_DAYS = 3;
 

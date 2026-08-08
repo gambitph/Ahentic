@@ -21,11 +21,11 @@ class UsageTokenLimitsTest extends TestCase {
 	}
 
 	/**
-	 * Fresh state: default daily limit 5M, not runaway-locked, spend allowed.
+	 * Fresh state: default daily limit 1M, not runaway-locked, spend allowed.
 	 */
 	public function test_default_state_allows_spend_under_limit() {
 		$limits = Ahentic_Usage::default_limits_state();
-		$this->assertSame( 5000000, $limits['daily_limit'] );
+		$this->assertSame( 1000000, $limits['daily_limit'] );
 		$this->assertFalse( $limits['runaway_locked'] );
 		$this->assertSame( 0, $limits['streak'] );
 
