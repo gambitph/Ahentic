@@ -28,7 +28,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		const UPDATE    = 'ahentic/update-post';
 		const SET_STATUS = 'ahentic/set-post-status';
 
-		const MAX_PER_PAGE      = 50;
+		const MAX_PER_PAGE      = 25;
+		/** Default page size for list-content — prefer pagination over large dumps. */
+		const DEFAULT_PER_PAGE  = 15;
 		const MAX_CONTENT_CHARS = 20000;
 		const MAX_WRITE_CHARS   = 500000;
 		const MAX_META_KEYS     = 80;
@@ -405,7 +407,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::LIST,
 				array(
 					'label'               => __( 'List content', 'ahentic' ),
-					'description'         => __( 'Lists posts or pages with id, title, type, status, and view URL (use get-content for full details).', 'ahentic' ),
+					'description'         => __( 'Lists posts or pages with id, title, type, status, and view URL (use get-content for full details). Prefer a small per_page (about 10–20); request page 2+ or refine search/type when you need more. Do not re-list in the same run unless filters change.', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -422,11 +424,11 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 							),
 							'per_page'  => array(
 								'type'        => 'integer',
-								'description' => __( 'Results per page (1–50).', 'ahentic' ),
+								'description' => __( 'Results per page (default 15, max 25). Prefer 10–20; use page for more.', 'ahentic' ),
 							),
 							'page'      => array(
 								'type'        => 'integer',
-								'description' => __( 'Page number (1-based).', 'ahentic' ),
+								'description' => __( 'Page number (1-based). Use when per_page results are not enough.', 'ahentic' ),
 							),
 							'orderby'   => array(
 								'type' => 'string',
@@ -1158,6 +1160,22 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		}
 
 		/**
+		 * Normalize list-content page size / page number.
+		 *
+		 * @param mixed $input Ability input.
+		 * @return array{per_page:int,page:int}
+		 */
+		public static function normalize_list_pagination( $input = array() ) {
+			$input    = is_array( $input ) ? $input : array();
+			$per_page = isset( $input['per_page'] ) ? (int) $input['per_page'] : self::DEFAULT_PER_PAGE;
+			$page     = isset( $input['page'] ) ? (int) $input['page'] : 1;
+			return array(
+				'per_page' => max( 1, min( self::MAX_PER_PAGE, $per_page ) ),
+				'page'     => max( 1, $page ),
+			);
+		}
+
+		/**
 		 * List posts/pages.
 		 *
 		 * @param mixed $input Input.
@@ -1168,10 +1186,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 
 			$post_types = self::normalize_post_types( isset( $input['post_type'] ) ? $input['post_type'] : null );
 			$statuses   = self::normalize_statuses( isset( $input['status'] ) ? $input['status'] : null );
-			$per_page   = isset( $input['per_page'] ) ? (int) $input['per_page'] : 20;
-			$page       = isset( $input['page'] ) ? (int) $input['page'] : 1;
-			$per_page   = max( 1, min( self::MAX_PER_PAGE, $per_page ) );
-			$page       = max( 1, $page );
+			$paging     = self::normalize_list_pagination( $input );
+			$per_page   = $paging['per_page'];
+			$page       = $paging['page'];
 
 			$orderby = isset( $input['orderby'] ) ? (string) $input['orderby'] : 'date';
 			if ( ! in_array( $orderby, array( 'date', 'title', 'modified', 'ID' ), true ) ) {

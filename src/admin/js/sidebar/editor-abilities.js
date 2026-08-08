@@ -809,6 +809,46 @@ export function getBlocks( input = {} ) {
 	const blockSelect = ctx.select( 'core/block-editor' )
 	syncRegistryFromEditor( ctx.select )
 
+	// Scoped by refs: return only those blocks (not the whole document).
+	const scopeRaw = pickRefInput( input, [ 'refs', 'ref', 'client_ids', 'clientIds', 'client_id', 'clientId' ] )
+	if ( scopeRaw !== undefined ) {
+		const resolved = resolveToClientIds( scopeRaw, id => blockSelect.getBlock?.( id ) )
+		if ( resolved.missing.length || ! resolved.clientIds.length ) {
+			return missingRefsError( resolved.missing.length ? resolved.missing : [ String( scopeRaw ) ] )
+		}
+		// Default attributes on for scoped reads so update-block-attributes can see exact HTML.
+		const includeAttributes = ( input.include_attributes === undefined && input.includeAttributes === undefined )
+			? true
+			: Boolean( input.include_attributes || input.includeAttributes )
+		const requestedMaxBlocks = Number( input.max_blocks || input.maxBlocks || MAX_BLOCKS_DEFAULT )
+		const maxBlocks = Math.max( 1, Math.min( 200, requestedMaxBlocks ) )
+		const budget = { remaining: maxBlocks }
+		const tree = []
+		let truncated = false
+		for ( const clientId of resolved.clientIds ) {
+			const block = blockSelect.getBlock?.( clientId )
+			if ( ! block ) {
+				continue
+			}
+			const node = serializeBlockTree( block, budget, { full: includeAttributes } )
+			if ( node ) {
+				tree.push( node )
+			}
+			if ( budget.remaining <= 0 ) {
+				truncated = true
+				break
+			}
+		}
+		return {
+			ok: true,
+			scoped: true,
+			count: tree.length,
+			truncated,
+			blocks: tree,
+			refs: tree.map( node => node.ref ).filter( Boolean ),
+		}
+	}
+
 	let rootId = ''
 	const rootToken = pickRefInput( input, [ 'root_ref', 'rootRef', 'root_client_id', 'rootClientId' ] )
 	if ( rootToken ) {

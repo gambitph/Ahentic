@@ -529,7 +529,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 
 				case 'content':
 					return 'Prefer ahentic/search-content to find posts/pages by phrase (title, body, or meta); '
-						. 'ahentic/list-content to browse by type/status; ahentic/get-content to read one post (body + safe meta). '
+						. 'ahentic/list-content to browse by type/status (prefer per_page 10–20, default 15, max 25 — use page:2+ or a tighter search/type when you need more; '
+						. 'do NOT re-call list-content in the same run if Ability results already include a usable list unless post_type/status/search changed); '
+						. 'ahentic/get-content to read one post (body + safe meta). '
+						. 'Internal linking: for blog posts, title + view_url from list-content is enough — do not get-content just to pick a link target. '
 						. 'Prefer ahentic/create-post + ahentic/update-post + ahentic/set-post-status when the block editor is NOT open (server-side drafts/publish). '
 						. 'Prefer ahentic/update-post (Agent mode, editor not open) to change content/title/excerpt/slug/meta (does not change publish status); '
 						. 'ahentic/set-post-status to publish/schedule/trash (HITL). '
@@ -579,6 +582,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'CRITICAL — block refs: get-blocks / get-selection return short refs (b1, b2, …). When calling tools that take ref / refs / after_ref / before_ref / root_ref, '
 						. 'copy those refs EXACTLY from the latest get-blocks / get-selection result. Never invent refs and never send Gutenberg clientId UUID hashes. '
 						. 'If a tool returns missing refs / block_not_found, re-call get-blocks (or get-selection) and use the fresh refs — do not guess. '
+						. 'To re-read specific blocks for an edit, call get-blocks with {"refs":["b7","b18"]} (returns ONLY those blocks, with attributes) — do not omit refs and re-fetch the whole document. '
 						. 'Core block cookbook (common attrs): '
 						. 'core/heading → content (HTML), level (1–6; for posts/pages prefer 2+ — title field is the H1); '
 						. 'core/paragraph → content (HTML); '

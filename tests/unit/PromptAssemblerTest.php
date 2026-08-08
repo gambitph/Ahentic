@@ -324,6 +324,9 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertStringNotContainsString( 'Prefer ahentic/list-users', $guidance );
 		$this->assertStringNotContainsString( 'Prefer ahentic/list-menus', $guidance );
 		$this->assertStringNotContainsString( 'Prefer ahentic/list-plugins', $guidance );
+		$this->assertStringContainsString( 'prefer per_page 10–20', $guidance );
+		$this->assertStringContainsString( 'do NOT re-call list-content', $guidance );
+		$this->assertStringContainsString( 'get-blocks with {"refs"', $guidance );
 	}
 
 	public function test_content_work_adds_editor_pack_off_editor_screen() {

@@ -352,14 +352,21 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				array(
 					'name'        => self::GET_BLOCKS,
 					'label'       => __( 'Get blocks', 'ahentic' ),
-					'description' => __( 'Returns the block tree from the open block editor (ref, name, preview, content_attr, attribute_keys, innerBlocks), capped for size. Full attribute values are omitted by default — use "preview" to match user phrases and "content_attr" as the attribute key to patch via update-block-attributes. Blocks with image-looking media also include compact attributes (real keys such as url/alt/id, mediaUrl/mediaAlt/mediaId, imageUrl, or other image URL fields) so you can call ahentic/describe-image and update alt without include_attributes. Pass include_attributes:true (ideally with a narrow root_ref) for other full attribute values, e.g. before a non-text style edit. Use returned ref values (b1, b2, …) in later browser tools — never invent clientId hashes. Runs in the browser.', 'ahentic' ),
+					'description' => __( 'Returns the block tree from the open block editor (ref, name, preview, content_attr, attribute_keys, innerBlocks), capped for size. Full attribute values are omitted by default — use "preview" to match user phrases and "content_attr" as the attribute key to patch via update-block-attributes. Blocks with image-looking media also include compact attributes (real keys such as url/alt/id, mediaUrl/mediaAlt/mediaId, imageUrl, or other image URL fields) so you can call ahentic/describe-image and update alt without include_attributes. Pass include_attributes:true (ideally with a narrow root_ref) for other full attribute values, e.g. before a non-text style edit. Pass refs/ref to return ONLY those blocks (attributes included by default) instead of the whole document. Use returned ref values (b1, b2, …) in later browser tools — never invent clientId hashes. Runs in the browser.', 'ahentic' ),
 					'meta'        => $readonly_meta,
 					'input'       => array(
 						'type'       => 'object',
 						'properties' => array(
+							'refs'               => array(
+								'description' => __( 'Optional block ref or list of refs from a prior get-blocks/get-selection. When set, only those blocks are returned (not the full document).', 'ahentic' ),
+							),
+							'ref'                => array(
+								'type'        => 'string',
+								'description' => __( 'Optional single block ref (same as refs with one item).', 'ahentic' ),
+							),
 							'root_ref'           => array(
 								'type'        => 'string',
-								'description' => __( 'Optional root block ref from a prior get-blocks/get-selection; omit for the full document.', 'ahentic' ),
+								'description' => __( 'Optional root block ref from a prior get-blocks/get-selection; omit for the full document. Ignored when refs/ref is set.', 'ahentic' ),
 							),
 							'max_blocks'         => array(
 								'type'        => 'integer',
@@ -367,7 +374,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 							),
 							'include_attributes' => array(
 								'type'        => 'boolean',
-								'description' => __( 'Include full attribute values per block (default false). Only set this with a narrow root_ref — on large/third-party blocks (e.g. page builders) it can produce a very large result.', 'ahentic' ),
+								'description' => __( 'Include full attribute values per block (default false for full-document reads; default true when refs/ref is set). Only set this with a narrow root_ref or refs — on large/third-party blocks (e.g. page builders) it can produce a very large result.', 'ahentic' ),
 							),
 						),
 					),

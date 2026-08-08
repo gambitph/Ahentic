@@ -4,11 +4,13 @@
 
 import {
 	blockTextChars,
+	getBlocks,
 	measureEditorTextChars,
 	plainTextCharsFromHtml,
 	prepareBlocksPayload,
 	resolveTargetClientIds,
 } from './editor-abilities'
+import { resetBlockRefs, syncFromBlocks } from './block-ref-registry'
 
 /**
  * Mimic WP 7 RichTextData after createBlock / getBlocks (content is not a string).
@@ -223,6 +225,95 @@ describe( 'blockTextChars (set-blocks text_chars / Finish Gate)', () => {
 				},
 			] )
 		).toBe( 0 )
+	} )
+} )
+
+describe( 'getBlocks scoped refs', () => {
+	beforeEach( () => {
+		resetBlockRefs()
+		global.window = global.window || {}
+	} )
+
+	afterEach( () => {
+		delete global.window.wp
+	} )
+
+	it( 'returns only requested refs, not the full tree', () => {
+		const blocksById = {
+			cid_a: {
+				clientId: 'cid_a',
+				name: 'core/paragraph',
+				attributes: { content: 'First paragraph about transit.' },
+				innerBlocks: [],
+			},
+			cid_b: {
+				clientId: 'cid_b',
+				name: 'core/paragraph',
+				attributes: { content: 'Second paragraph about traffic.' },
+				innerBlocks: [],
+			},
+			cid_c: {
+				clientId: 'cid_c',
+				name: 'core/paragraph',
+				attributes: { content: 'Third unused paragraph.' },
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_a, blocksById.cid_b, blocksById.cid_c ]
+		syncFromBlocks( root, 1 )
+
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: () => ( {} ),
+			},
+		}
+
+		const result = getBlocks( { refs: [ 'b1', 'b3' ] } )
+		expect( result.ok ).toBe( true )
+		expect( result.scoped ).toBe( true )
+		expect( result.count ).toBe( 2 )
+		expect( result.blocks.map( b => b.ref ) ).toEqual( [ 'b1', 'b3' ] )
+		expect( result.blocks[ 0 ].attributes.content ).toContain( 'transit' )
+		expect( result.blocks[ 1 ].attributes.content ).toContain( 'unused' )
+	} )
+
+	it( 'errors when scoped refs are missing', () => {
+		syncFromBlocks( [], 1 )
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => [],
+							getBlock: () => null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: () => ( {} ),
+			},
+		}
+
+		const result = getBlocks( { refs: [ 'b99' ] } )
+		expect( result.ok ).toBe( false )
+		expect( result.wiped ).toBe( true )
 	} )
 } )
 
