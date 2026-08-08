@@ -327,6 +327,8 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertStringContainsString( 'prefer per_page 10–20', $guidance );
 		$this->assertStringContainsString( 'do NOT re-call list-content', $guidance );
 		$this->assertStringContainsString( 'get-blocks with {"refs"', $guidance );
+		$this->assertStringContainsString( 'ahentic/get-content-summary', $guidance );
+		$this->assertStringContainsString( 'never get-content solely to pick a link target', $guidance );
 	}
 
 	public function test_content_work_adds_editor_pack_off_editor_screen() {

@@ -45,6 +45,7 @@ class AbilityPolicyTest extends TestCase {
 
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/list-content' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/get-content' ) );
+		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/get-content-summary' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/search-content' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/list-post-types' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/list-revisions' ) );

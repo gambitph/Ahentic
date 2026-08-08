@@ -19,6 +19,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 	class Ahentic_Abilities_Content {
 		const LIST      = 'ahentic/list-content';
 		const GET       = 'ahentic/get-content';
+		const GET_SUMMARY = 'ahentic/get-content-summary';
 		const SEARCH    = 'ahentic/search-content';
 		const LIST_POST_TYPES = 'ahentic/list-post-types';
 		const REPLACE_IN_CONTENT = 'ahentic/replace-in-content';
@@ -27,6 +28,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		const CREATE    = 'ahentic/create-post';
 		const UPDATE    = 'ahentic/update-post';
 		const SET_STATUS = 'ahentic/set-post-status';
+
+		const META_CONTENT_SUMMARY    = '_ahentic_content_summary';
+		const META_CONTENT_SUMMARY_AT = '_ahentic_content_summary_at';
 
 		const MAX_PER_PAGE      = 25;
 		/** Default page size for list-content — prefer pagination over large dumps. */
@@ -39,6 +43,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		const MAX_POST_TYPES    = 40;
 		const MAX_REVISIONS     = 20;
 		const MAX_REPLACE       = 50;
+		/** Min stripped plain-text words before a non-post gets a cached summary. */
+		const SUMMARY_MIN_WORDS = 300;
+		/** Max chars for the deterministic link-discovery summary excerpt. */
+		const SUMMARY_MAX_CHARS = 400;
 
 		/**
 		 * Single policy catalog: drives names / write / HITL / progress / summary.
@@ -54,6 +62,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::GET                => array(
 					'progress' => __( 'Reading post content…', 'ahentic' ),
 					'summary'  => __( 'Read post or page content', 'ahentic' ),
+				),
+				self::GET_SUMMARY        => array(
+					'progress' => __( 'Summarizing content…', 'ahentic' ),
+					'summary'  => __( 'Get a short content summary', 'ahentic' ),
 				),
 				self::SEARCH             => array(
 					'progress' => __( 'Searching site content…', 'ahentic' ),
@@ -478,6 +490,30 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			);
 
 			wp_register_ability(
+				self::GET_SUMMARY,
+				array(
+					'label'               => __( 'Get content summary', 'ahentic' ),
+					'description'         => __( 'Returns a short cached summary for long non-post content (pages, etc.) to support internal linking without loading the full body. Blog posts: use title + view_url from list-content instead. Short pages are skipped. Never a substitute for get-content when you need the full body or meta.', 'ahentic' ),
+					'category'            => 'ahentic-content',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'id' ),
+						'properties' => array(
+							'id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Post ID.', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_get_content_summary' ),
+					'permission_callback' => $permission,
+					// Readonly+idempotent: agent intent is discovery. Hidden summary meta is a cache side-effect, not a content mutate (issue #1 grill).
+					'meta'                => $meta,
+				)
+			);
+
+			wp_register_ability(
 				self::SEARCH,
 				array(
 					'label'               => __( 'Search content', 'ahentic' ),
@@ -791,6 +827,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					return self::execute_list_content( $input );
 				case self::GET:
 					return self::execute_get_content( $input );
+				case self::GET_SUMMARY:
+					return self::execute_get_content_summary( $input );
 				case self::SEARCH:
 					return self::execute_search_content( $input );
 				case self::LIST_POST_TYPES:
@@ -1176,6 +1214,131 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		}
 
 		/**
+		 * Strip markup from post_content for word-count / summary heuristics.
+		 *
+		 * @param string $raw Raw post_content.
+		 * @return string
+		 */
+		public static function plain_text_from_post_content( $raw ) {
+			$text = (string) $raw;
+			// Strip HTML comments (including block delimiters) then tags — pure PHP, no WP.
+			$text = preg_replace( '/<!--.*?-->/s', '', $text );
+			$text = strip_tags( $text );
+			$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			$text = preg_replace( '/\s+/u', ' ', $text );
+			return trim( (string) $text );
+		}
+
+		/**
+		 * Count whitespace-separated words in stripped plain text.
+		 *
+		 * @param string $plain Plain text.
+		 * @return int
+		 */
+		public static function count_plain_words( $plain ) {
+			$plain = trim( (string) $plain );
+			if ( '' === $plain ) {
+				return 0;
+			}
+			$parts = preg_split( '/\s+/u', $plain, -1, PREG_SPLIT_NO_EMPTY );
+			return is_array( $parts ) ? count( $parts ) : 0;
+		}
+
+		/**
+		 * Whether a post is eligible for a cached link-discovery summary.
+		 *
+		 * Blog posts stay on title+URL from list-content. Short / empty / trash /
+		 * revision bodies skip without writing cache.
+		 *
+		 * @param string $post_type   Post type.
+		 * @param string $post_status Post status.
+		 * @param string $plain_text  Stripped body text.
+		 * @return array{eligible:bool,reason?:string}
+		 */
+		public static function summarize_eligibility( $post_type, $post_status, $plain_text ) {
+			$post_type   = (string) $post_type;
+			$post_status = (string) $post_status;
+			$plain_text  = trim( (string) $plain_text );
+
+			if ( 'revision' === $post_type ) {
+				return array(
+					'eligible' => false,
+					'reason'   => 'revision',
+				);
+			}
+			if ( 'trash' === $post_status ) {
+				return array(
+					'eligible' => false,
+					'reason'   => 'trash',
+				);
+			}
+			if ( 'post' === $post_type ) {
+				return array(
+					'eligible' => false,
+					'reason'   => 'list_enough',
+				);
+			}
+			if ( '' === $plain_text ) {
+				return array(
+					'eligible' => false,
+					'reason'   => 'empty',
+				);
+			}
+			if ( self::count_plain_words( $plain_text ) < self::SUMMARY_MIN_WORDS ) {
+				return array(
+					'eligible' => false,
+					'reason'   => 'too_short',
+				);
+			}
+
+			return array( 'eligible' => true );
+		}
+
+		/**
+		 * Deterministic short excerpt for link-target discovery (no LLM).
+		 *
+		 * @param string   $plain     Stripped plain text.
+		 * @param int|null $max_chars Max length (defaults to SUMMARY_MAX_CHARS).
+		 * @return string
+		 */
+		public static function build_deterministic_summary( $plain, $max_chars = null ) {
+			$plain     = trim( (string) $plain );
+			$max_chars = null === $max_chars ? self::SUMMARY_MAX_CHARS : max( 1, (int) $max_chars );
+			if ( '' === $plain ) {
+				return '';
+			}
+			if ( self::strlen( $plain ) <= $max_chars ) {
+				return $plain;
+			}
+			$chunk = self::substr( $plain, 0, $max_chars );
+			$space = strrpos( $chunk, ' ' );
+			if ( false !== $space && $space > 0 ) {
+				$chunk = self::substr( $chunk, 0, $space );
+			}
+			return rtrim( $chunk );
+		}
+
+		/**
+		 * Whether a cached summary timestamp is still valid for a post_modified_gmt.
+		 *
+		 * @param string $summary_at        ISO-8601 or strtotime-parseable cache time.
+		 * @param string $post_modified_gmt Post modified GMT (MySQL or ISO).
+		 * @return bool
+		 */
+		public static function is_summary_cache_fresh( $summary_at, $post_modified_gmt ) {
+			$summary_at = trim( (string) $summary_at );
+			if ( '' === $summary_at ) {
+				return false;
+			}
+			$summary_ts  = strtotime( $summary_at );
+			$modified_ts = strtotime( (string) $post_modified_gmt );
+			if ( false === $summary_ts || false === $modified_ts ) {
+				return false;
+			}
+			return $summary_ts >= $modified_ts;
+		}
+
+		/**
 		 * List posts/pages.
 		 *
 		 * @param mixed $input Input.
@@ -1295,6 +1458,95 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			}
 
 			return $payload;
+		}
+
+		/**
+		 * Short cached summary for link-target discovery (not full body).
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_get_content_summary( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$id    = isset( $input['id'] ) ? (int) $input['id'] : 0;
+			if ( $id <= 0 ) {
+				return new WP_Error( 'ahentic_missing_id', __( 'A valid post id is required.', 'ahentic' ) );
+			}
+
+			$post = get_post( $id );
+			if ( ! $post instanceof WP_Post ) {
+				return new WP_Error( 'ahentic_post_not_found', __( 'Post not found.', 'ahentic' ), array( 'status' => 404 ) );
+			}
+
+			if ( ! current_user_can( 'edit_post', $post->ID ) && ! current_user_can( 'manage_options' ) ) {
+				return new WP_Error( 'ahentic_ability_forbidden', __( 'You cannot read this post.', 'ahentic' ), array( 'status' => 403 ) );
+			}
+
+			$card  = self::summarize_post( $post, false );
+			$plain = self::plain_text_from_post_content( (string) $post->post_content );
+			$gate  = self::summarize_eligibility( $post->post_type, $post->post_status, $plain );
+
+			if ( empty( $gate['eligible'] ) ) {
+				$reason = isset( $gate['reason'] ) ? (string) $gate['reason'] : 'unavailable';
+				$out    = array_merge(
+					$card,
+					array(
+						'ok'      => true,
+						'skipped' => true,
+						'reason'  => $reason,
+					)
+				);
+				if ( in_array( $reason, array( 'too_short', 'empty' ), true ) && '' !== $plain ) {
+					$out['excerpt'] = self::build_deterministic_summary( $plain, 160 );
+				}
+				return $out;
+			}
+
+			$cached    = get_post_meta( $post->ID, self::META_CONTENT_SUMMARY, true );
+			$cached_at = get_post_meta( $post->ID, self::META_CONTENT_SUMMARY_AT, true );
+			$cached    = is_string( $cached ) ? $cached : '';
+			$cached_at = is_string( $cached_at ) ? $cached_at : '';
+			$modified  = $post->post_modified_gmt ? (string) $post->post_modified_gmt : (string) $post->post_modified;
+
+			if ( '' !== $cached && self::is_summary_cache_fresh( $cached_at, $modified ) ) {
+				return array_merge(
+					$card,
+					array(
+						'ok'         => true,
+						'summary'    => $cached,
+						'cached'     => true,
+						'summary_at' => $cached_at,
+						'word_count' => self::count_plain_words( $plain ),
+					)
+				);
+			}
+
+			$summary = self::build_deterministic_summary( $plain );
+			if ( '' === $summary ) {
+				return array_merge(
+					$card,
+					array(
+						'ok'      => true,
+						'skipped' => true,
+						'reason'  => 'empty',
+					)
+				);
+			}
+
+			$summary_at = gmdate( 'c' );
+			update_post_meta( $post->ID, self::META_CONTENT_SUMMARY, $summary );
+			update_post_meta( $post->ID, self::META_CONTENT_SUMMARY_AT, $summary_at );
+
+			return array_merge(
+				$card,
+				array(
+					'ok'         => true,
+					'summary'    => $summary,
+					'cached'     => false,
+					'summary_at' => $summary_at,
+					'word_count' => self::count_plain_words( $plain ),
+				)
+			);
 		}
 
 		/**

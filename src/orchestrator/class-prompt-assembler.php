@@ -533,6 +533,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'do NOT re-call list-content in the same run if Ability results already include a usable list unless post_type/status/search changed); '
 						. 'ahentic/get-content to read one post (body + safe meta). '
 						. 'Internal linking: for blog posts, title + view_url from list-content is enough — do not get-content just to pick a link target. '
+						. 'For long non-posts (pages, etc.), prefer ahentic/get-content-summary before get-content; if summary is skipped (e.g. too_short), title + view_url is enough — never get-content solely to pick a link target. '
 						. 'Prefer ahentic/create-post + ahentic/update-post + ahentic/set-post-status when the block editor is NOT open (server-side drafts/publish). '
 						. 'Prefer ahentic/update-post (Agent mode, editor not open) to change content/title/excerpt/slug/meta (does not change publish status); '
 						. 'ahentic/set-post-status to publish/schedule/trash (HITL). '

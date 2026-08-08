@@ -425,3 +425,82 @@ test.describe( 'taxonomy CRUD + post term assignment', () => {
 		expect( bodyBlocked.error ).toBe( 'ahentic_use_browser_editor' )
 	} )
 } )
+
+test.describe( 'ahentic/get-content-summary', () => {
+	test( 'long page returns summary and caches; short page and blog post skip', async ( {
+		requestUtils,
+	} ) => {
+		const suffix = Date.now()
+		const longBody = Array.from( { length: 320 }, ( _, i ) => `word${ i }` ).join( ' ' )
+		const shortBody = 'Just a few words on this page.'
+
+		const seeded = await seed( requestUtils, {
+			posts: [
+				{
+					post_title: `Long page ${ suffix }`,
+					post_status: 'publish',
+					post_type: 'page',
+					post_content: `<!-- wp:paragraph --><p>${ longBody }</p><!-- /wp:paragraph -->`,
+				},
+				{
+					post_title: `Short page ${ suffix }`,
+					post_status: 'publish',
+					post_type: 'page',
+					post_content: shortBody,
+				},
+				{
+					post_title: `Blog post ${ suffix }`,
+					post_status: 'publish',
+					post_type: 'post',
+					post_content: longBody,
+				},
+			],
+		} )
+		expect( seeded.ok, JSON.stringify( seeded ) ).toBe( true )
+		const [ longId, shortId, postId ] = seeded.created.posts
+
+		const first = await runAbility( requestUtils, 'ahentic/get-content-summary', { id: longId } )
+		expect( first.ok, JSON.stringify( first ) ).toBe( true )
+		expect( first.data.skipped ).toBeUndefined()
+		expect( typeof first.data.summary ).toBe( 'string' )
+		expect( first.data.summary.length ).toBeGreaterThan( 0 )
+		expect( first.data.summary.length ).toBeLessThanOrEqual( 400 )
+		expect( first.data.content ).toBeUndefined()
+		expect( first.data.cached ).toBe( false )
+		expect( first.data.word_count ).toBeGreaterThanOrEqual( 300 )
+		expect( first.data.type ).toBe( 'page' )
+		expect( first.data.view_url ).toBeTruthy()
+
+		const second = await runAbility( requestUtils, 'ahentic/get-content-summary', { id: longId } )
+		expect( second.ok, JSON.stringify( second ) ).toBe( true )
+		expect( second.data.cached ).toBe( true )
+		expect( second.data.summary ).toBe( first.data.summary )
+
+		const rewritten = `CHANGED ${ longBody }`
+		const updated = await runAbility( requestUtils, 'ahentic/update-post', {
+			id: longId,
+			content: `<!-- wp:paragraph --><p>${ rewritten }</p><!-- /wp:paragraph -->`,
+		} )
+		expect( updated.ok, JSON.stringify( updated ) ).toBe( true )
+
+		const afterEdit = await runAbility( requestUtils, 'ahentic/get-content-summary', { id: longId } )
+		expect( afterEdit.ok, JSON.stringify( afterEdit ) ).toBe( true )
+		expect( afterEdit.data.cached ).toBe( false )
+		expect( afterEdit.data.summary ).toMatch( /^CHANGED/ )
+
+		const short = await runAbility( requestUtils, 'ahentic/get-content-summary', { id: shortId } )
+		expect( short.ok, JSON.stringify( short ) ).toBe( true )
+		expect( short.data.skipped ).toBe( true )
+		expect( short.data.reason ).toBe( 'too_short' )
+		expect( short.data.summary ).toBeUndefined()
+		expect( short.data.content ).toBeUndefined()
+		expect( typeof short.data.excerpt ).toBe( 'string' )
+
+		const blog = await runAbility( requestUtils, 'ahentic/get-content-summary', { id: postId } )
+		expect( blog.ok, JSON.stringify( blog ) ).toBe( true )
+		expect( blog.data.skipped ).toBe( true )
+		expect( blog.data.reason ).toBe( 'list_enough' )
+		expect( blog.data.summary ).toBeUndefined()
+		expect( blog.data.content ).toBeUndefined()
+	} )
+} )

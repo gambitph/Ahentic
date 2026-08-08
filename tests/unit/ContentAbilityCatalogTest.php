@@ -82,4 +82,15 @@ class ContentAbilityCatalogTest extends TestCase {
 		$this->assertStringContainsString( 'unspecified status', $summary );
 		$this->assertStringContainsString( '42', $summary );
 	}
+
+	/**
+	 * get-content-summary is catalogued as readonly discovery (cache write is an impl detail).
+	 */
+	public function test_get_content_summary_is_readonly_not_hitl() {
+		$name = 'ahentic/get-content-summary';
+		$this->assertContains( $name, Ahentic_Abilities_Content::names() );
+		$this->assertTrue( Ahentic_Abilities_Content::is_readonly( $name ) );
+		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( $name ) );
+		$this->assertSame( 'ahentic/get-content-summary', Ahentic_Abilities_Content::GET_SUMMARY );
+	}
 }
