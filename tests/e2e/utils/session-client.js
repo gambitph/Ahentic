@@ -100,6 +100,30 @@ async function continueSession( requestUtils, sessionId ) {
 }
 
 /**
+ * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils
+ * @param {number|string}                                               sessionId
+ * @return {Promise<Object>} Diagnostics bundle.
+ */
+async function getDiagnostics( requestUtils, sessionId ) {
+	return requestUtils.rest( {
+		path: `/ahentic/v1/sessions/${ sessionId }/diagnostics`,
+	} )
+}
+
+/**
+ * Queue a WP_Error from the mocked AI filter (fail_run / transport paths).
+ *
+ * @param {string} [code]
+ * @param {string} [message]
+ * @return {Object} Seed payload for seedAiResponses.
+ */
+function mockAiError( code = 'prompt_network_error', message = 'E2E model request timed out.' ) {
+	return {
+		__wp_error: { code, message },
+	}
+}
+
+/**
  * Poll until `predicate(session)` is true. While status is `running`, nudge
  * via `/continue` so Playground runs that missed shutdown still advance
  * (same stall fallback the sidebar uses).
@@ -229,6 +253,7 @@ module.exports = {
 	DEFAULT_PAGE_CONTEXT,
 	createSession,
 	getSession,
+	getDiagnostics,
 	postMessage,
 	postApproval,
 	postBrowserResult,
@@ -236,6 +261,7 @@ module.exports = {
 	waitForSession,
 	startRun,
 	mockUseTools,
+	mockAiError,
 	sessionMessages,
 	toolEntriesFor,
 	mockReply,

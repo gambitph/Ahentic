@@ -409,6 +409,14 @@ function ahentic_e2e_ai_override( $override ) {
 	$next = array_shift( $queue );
 	update_option( AHENTIC_E2E_AI_QUEUE_OPTION, $queue, false );
 
+	// Specs may queue a transport-style failure without falling through to a real provider.
+	if ( is_array( $next ) && isset( $next['__wp_error'] ) && is_array( $next['__wp_error'] ) ) {
+		$err = $next['__wp_error'];
+		$code = isset( $err['code'] ) ? (string) $err['code'] : 'ahentic_e2e_ai_error';
+		$msg  = isset( $err['message'] ) ? (string) $err['message'] : 'E2E AI error';
+		return new WP_Error( $code, $msg );
+	}
+
 	return ahentic_e2e_normalize_ai_result( $next );
 }
 add_filter( 'pre_ahentic_ai_complete_chat', 'ahentic_e2e_ai_override' );

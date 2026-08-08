@@ -2,7 +2,8 @@
 /**
  * Job resume pure decisions: resume cues, sticky content_work, goal pick, forced-apply finish.
  *
- * Session-backed continue_run / fail_run wiring stays in e2e / orchestrator integration.
+ * Session-backed continue_run / fail_run wiring is covered in
+ * tests/e2e/specs/job-resume.spec.js (Session REST / continue seam).
  *
  * @package Ahentic
  */
