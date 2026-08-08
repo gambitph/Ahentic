@@ -208,14 +208,20 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 		 * Whether the step loop should idle after forced apply/verify tools.
 		 *
 		 * Content-work apply failures must return to think instead of final_reply.
+		 * Batch remainders and Subagent recipes must always return to think — they are
+		 * not Finish Gate apply/verify queues.
 		 *
-		 * @param bool $from_forced       This step ran Orchestrator-forced tools.
-		 * @param bool $any_tool_failed   At least one forced tool failed.
-		 * @param bool $has_content_work  Session is mid long-form content work.
+		 * @param bool   $from_forced       This step ran Orchestrator-forced tools.
+		 * @param bool   $any_tool_failed   At least one forced tool failed.
+		 * @param bool   $has_content_work  Session is mid long-form content work.
+		 * @param string $purpose           apply|batch|recipe (Repository FORCED_PURPOSE_*).
 		 * @return bool True → finish with stashed reply; false → keep looping (or not forced).
 		 */
-		public static function should_finish_after_forced_tools( $from_forced, $any_tool_failed, $has_content_work ) {
+		public static function should_finish_after_forced_tools( $from_forced, $any_tool_failed, $has_content_work, $purpose = 'apply' ) {
 			if ( ! $from_forced ) {
+				return false;
+			}
+			if ( 'apply' !== (string) $purpose ) {
 				return false;
 			}
 			if ( $any_tool_failed && $has_content_work ) {
@@ -385,6 +391,7 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 			}
 			if ( ! empty( $planned['clear_forced_tools'] ) ) {
 				Ahentic_Session_Repository::clear_forced_tools( $session_id );
+				Ahentic_Session_Repository::clear_subagent_recipe( $session_id );
 			}
 			if ( ! empty( $planned['clear_thought'] ) ) {
 				Ahentic_Session_Repository::clear_thought( $session_id );

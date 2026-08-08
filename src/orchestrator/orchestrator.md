@@ -5,7 +5,7 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 > **Canonical should:** [Agent runtime PRD](../../pro__premium_only/docs/prd/agent-runtime.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)  
 > This file is **how-it-works** (current implementation map). If it disagrees with the PRD/contract, the PRD/contract win — treat gaps as bugs.
 
-**Code:** `class-orchestrator.php`, `class-think-debug.php`, `class-plan.php`, `class-prompt-assembler.php`, `class-tool-runner.php`, `class-finish-gate.php`, `class-ai.php`, `class-queue.php`, `class-usage.php`
+**Code:** `class-orchestrator.php`, `class-think-debug.php`, `class-plan.php`, `class-prompt-assembler.php`, `class-tool-runner.php`, `class-finish-gate.php`, `class-subagent.php`, `class-ai.php`, `class-queue.php`, `class-usage.php`
 
 **Related:** [Control block](./control-block.md) · [Abilities](../abilities/abilities.md) · [Sidebar](../admin/js/sidebar/sidebar.md) · [Session](../session/session.md) · [Artifacts](../session/artifacts.md) · [REST](../admin/rest.md) · [Architecture](../../docs/architecture.md)
 
@@ -115,6 +115,13 @@ Each think goes through `Ahentic_Prompt_Assembler::for_llm()` (system + compacte
 - **Plan** — injected into the system prompt when present
 
 Tool JSON injected into the next think is capped (~8k chars) to avoid blowing context.
+
+### Subagent (cheap mode)
+
+Isolatable work may skip fat main thinks via `Ahentic_Subagent` ([future-subagent.md](../../pro__premium_only/docs/future-subagent.md)):
+
+- Deepen `forced_tools`: when the model already planned several **existing** abilities, run them without `for_llm()` between steps; HITL/browser pauses preserve batch remainder; `bind_recipe_input` before pause fills placeholders from earlier step payloads.
+- Does **not** invent follow-up abilities or domain chains.
 
 ---
 

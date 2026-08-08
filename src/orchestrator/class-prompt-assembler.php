@@ -163,6 +163,14 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				$user                    .= "\n\n" . $verify_note;
 			}
 
+			if ( class_exists( 'Ahentic_Finish_Gate' ) ) {
+				$finish_nudge = Ahentic_Finish_Gate::finish_block_nudge_for_prompt( $session_id );
+				if ( '' !== $finish_nudge ) {
+					$chars['plan_artifacts'] += strlen( $finish_nudge );
+					$user                    .= "\n\n" . $finish_nudge;
+				}
+			}
+
 			$pinned = self::pinned_run_context_for_prompt( $session_id );
 			if ( '' !== $pinned ) {
 				$chars['plan_artifacts'] += strlen( $pinned );
@@ -673,7 +681,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'ahentic/list-content to browse by type/status (prefer per_page 10–20, default 15, max 25 — use page:2+ or a tighter search/type when you need more; '
 						. 'do NOT re-call list-content in the same run if Ability results already include a usable list unless post_type/status/search changed); '
 						. 'ahentic/get-content to read one post (body + safe meta). '
-						. 'Internal linking: for blog posts, title + view_url from list-content is enough — do not get-content just to pick a link target. '
+						. 'Internal linking: use ahentic/search-content or ahentic/list-content to find targets (title + view_url is enough for blog posts); '
+						. 'apply links with ahentic-browser/update-block-attributes (final HTML <a href> anchors in ONE tools_planned). '
 						. 'For long non-posts (pages, etc.), prefer ahentic/get-content-summary before get-content; if summary is skipped (e.g. too_short), title + view_url is enough — never get-content solely to pick a link target. '
 						. 'When adding several internal links in the open editor: put every ahentic-browser/update-block-attributes in ONE tools_planned with final HTML (<a href>…</a> — never stub descriptions), then next=reply after they succeed — do not get-blocks or re-patch the same refs to verify. '
 						. 'Prefer ahentic/create-post + ahentic/update-post + ahentic/set-post-status when the block editor is NOT open (server-side drafts/publish). '
@@ -738,14 +747,13 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'While the block editor is open, prefer ahentic-browser/set-post-terms (term IDs) so the document panel stays in sync; taxonomy-only ahentic/update-post is also allowed. ';
 
 				case 'media':
-					return 'Prefer ahentic/list-media to browse the Media Library (search, mime_type like "image", parent_id, after/before, page/per_page) and ahentic/get-media {"id":…} to inspect one attachment — do not invent attachment ids. '
-						. 'Prefer ahentic/find-unused-media only for unused/hygiene reports (not general browse). '
-						. 'Before generating or placing post images, call ahentic/get-wordpress-guidance with topic web-image-fit (aspect ratio + framing); then generate-image → upload-media from_memory → ONE placement step — never default post images to tall or square. '
-						. 'To add/fix image alt text in the open editor: get-blocks (image-looking blocks return compact media attrs — use the real keys shown, e.g. url/alt/id or imageUrl/imageAlt) → '
-						. 'ahentic/describe-image with exactly one of attachment_id (numeric id attr) or url → then '
-						. 'ahentic-browser/update-block-attributes on that ref with the block\'s alt key (often alt, mediaAlt, or imageAlt) set to alt_text_suggestion. '
-						. 'Do not ask the user to describe the image when describe-image is available; do not guess alt from the page text alone. '
-						. 'To place a generated image in the open post: ahentic/generate-image → ahentic/upload-media {"from_memory":"<artifact_key>"} (allow HITL) → place exactly once: either ahentic-browser/insert-blocks with a single core/image {id,url,alt} (index 0 or before_ref of the first block) OR ahentic-browser/set-featured-image when the user asked for featured/thumbnail/cover (use ahentic/set-featured-image only when the block editor is not open for that post) — never both, never insert-blocks twice for the same image. Never from_memory on insert-blocks for image artifacts. ';
+					return 'Post images: put ahentic/generate-image, ahentic/upload-media (from_memory), and ONE place '
+						. '(ahentic/set-featured-image or ahentic-browser/set-featured-image / ahentic-browser/insert-blocks for inline) '
+						. 'in ONE tools_planned so steps can run without another full think between them — never both featured and inline. '
+						. 'Also: list-media / get-media / find-unused-media. '
+						. 'Call get-wordpress-guidance topic web-image-fit before post images; default 16:9 not tall/square. '
+						. 'Alt text: get-blocks compact media attrs → describe-image (attachment_id or url) → update-block-attributes with the block\'s alt key. '
+						. 'Never from_memory on insert-blocks for image artifacts. ';
 
 				case 'plugins':
 					return 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). '

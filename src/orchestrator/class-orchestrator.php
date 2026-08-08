@@ -305,17 +305,24 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return false;
 			}
 
-			$mode         = Ahentic_Session_Repository::get_mode( $session_id );
-			$forced_tools = Ahentic_Session_Repository::consume_forced_tools( $session_id );
-			$from_forced  = ! empty( $forced_tools );
+			$mode           = Ahentic_Session_Repository::get_mode( $session_id );
+			$forced_purpose = Ahentic_Session_Repository::get_forced_tools_purpose( $session_id );
+			$forced_tools   = Ahentic_Session_Repository::consume_forced_tools( $session_id );
+			$from_forced    = ! empty( $forced_tools );
 
 			if ( $from_forced ) {
 				Ahentic_Session_Repository::bump_step( $session_id );
-				$debug = array(
+				$is_apply_forced = Ahentic_Session_Repository::FORCED_PURPOSE_APPLY === $forced_purpose;
+				$debug           = array(
 					'next'          => 'use_tools',
-					'intention'     => __( 'Finishing pending apply/verify', 'ahentic' ),
-					'thinking'      => __( 'Running required apply or verification tools before the final reply.', 'ahentic' ),
+					'intention'     => $is_apply_forced
+						? __( 'Finishing pending apply/verify', 'ahentic' )
+						: __( 'Continuing queued tools', 'ahentic' ),
+					'thinking'      => $is_apply_forced
+						? __( 'Running required apply or verification tools before the final reply.', 'ahentic' )
+						: __( 'Running tools queued after a pause or Subagent Recipe.', 'ahentic' ),
 					'tools_planned' => $forced_tools,
+					'forced_purpose'=> $forced_purpose,
 				);
 				$result = array(
 					'text'  => '',
@@ -560,6 +567,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$ran_any = true;
 				if ( empty( $run['ok'] ) ) {
 					$any_failed = true;
+					if ( class_exists( 'Ahentic_Subagent' ) ) {
+						Ahentic_Subagent::abort_recipe( $session_id );
+					}
+				} elseif ( class_exists( 'Ahentic_Subagent' ) ) {
+					$payload = isset( $run['payload'] ) && is_array( $run['payload'] ) ? $run['payload'] : array( 'ok' => true );
+					Ahentic_Subagent::after_tool_success( $session_id, $name, $payload, $planned, $call_index );
 				}
 			}
 
@@ -567,22 +580,40 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return self::try_finish_with_reply( $session_id, $result, $debug );
 			}
 
-			// Forced apply/verify tools: finish with stashed reply only when policy allows
-			// (content-work apply failures return to think — #3).
+			if ( class_exists( 'Ahentic_Subagent' ) && ! $any_failed ) {
+				Ahentic_Subagent::finalize_recipe_if_idle( $session_id );
+			}
+
+			// Forced apply/verify tools: finish with stashed reply only when purpose is apply
+			// and policy allows (batch/recipe always return to think; content-work apply
+			// failures also return to think — #3).
 			if ( $from_forced ) {
 				$has_content_work = class_exists( 'Ahentic_Session_Artifacts' )
 					? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
 					: Ahentic_Session_Repository::get_content_work( $session_id );
-				if ( Ahentic_Job_Resume::should_finish_after_forced_tools( true, $any_failed, $has_content_work ) ) {
+				if ( Ahentic_Job_Resume::should_finish_after_forced_tools( true, $any_failed, $has_content_work, $forced_purpose ) ) {
 					return self::try_finish_with_reply( $session_id, $result, $debug );
 				}
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'forced_apply_retry',
-					'Forced apply failed during content work — continuing think',
-					array( 'any_failed' => true ),
-					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
-				);
+				if ( $any_failed && $has_content_work && Ahentic_Session_Repository::FORCED_PURPOSE_APPLY === $forced_purpose ) {
+					Ahentic_Session_Repository::append_trace(
+						$session_id,
+						'forced_apply_retry',
+						'Forced apply failed during content work — continuing think',
+						array( 'any_failed' => true ),
+						(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+					);
+				} else {
+					Ahentic_Session_Repository::append_trace(
+						$session_id,
+						'forced_tools_continue',
+						'Forced tools done — continuing think',
+						array(
+							'purpose'    => $forced_purpose,
+							'any_failed' => $any_failed,
+						),
+						(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+					);
+				}
 				return true;
 			}
 
@@ -593,7 +624,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				if ( ! empty( $unapplied ) && ! Ahentic_Finish_Gate::planned_includes_artifact_apply( $planned, $unapplied ) ) {
 					$apply_tools = Ahentic_Finish_Gate::build_forced_apply_tools( $session_id, $unapplied );
 					if ( ! empty( $apply_tools ) ) {
-						Ahentic_Session_Repository::set_forced_tools( $session_id, $apply_tools );
+						Ahentic_Session_Repository::set_forced_tools(
+							$session_id,
+							$apply_tools,
+							Ahentic_Session_Repository::FORCED_PURPOSE_APPLY
+						);
 						Ahentic_Session_Repository::append_trace(
 							$session_id,
 							'apply_required',
@@ -850,6 +885,23 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @return bool True when the run should continue (another step); false when finished.
 		 */
 		private static function try_finish_with_reply( $session_id, array $result, $debug = array() ) {
+			$block_reasons = class_exists( 'Ahentic_Finish_Gate' )
+				? Ahentic_Finish_Gate::reasons_blocking_finish( $session_id )
+				: array();
+			if ( ! empty( $block_reasons ) ) {
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'finish_blocked_pending_work',
+					'Finish blocked — required work still unfinished',
+					array( 'reasons' => $block_reasons ),
+					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+				);
+				Ahentic_Session_Repository::set_progress(
+					$session_id,
+					__( 'Continuing required edits…', 'ahentic' )
+				);
+				return true;
+			}
 			$decision = Ahentic_Finish_Gate::evaluate_reply( $session_id, $result, $debug );
 			if ( ! empty( $decision['continue'] ) ) {
 				return true;
@@ -1538,6 +1590,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			if ( 'deny' === $choice ) {
 				self::skip_pending_hitl_tool( $session_id, 'user_denied' );
+				if ( class_exists( 'Ahentic_Subagent' ) ) {
+					Ahentic_Subagent::abort_recipe( $session_id );
+				}
 				Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
 				Ahentic_Session_Repository::set_progress( $session_id, __( 'Skipping that action…', 'ahentic' ), $step );
 				Ahentic_Step_Queue::enqueue_step( $session_id );
@@ -1579,6 +1634,14 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			if ( 'paused_browser' === $run['outcome'] ) {
 				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
+			}
+
+			if ( ! empty( $run['ok'] ) && class_exists( 'Ahentic_Subagent' ) ) {
+				$payload = isset( $run['payload'] ) && is_array( $run['payload'] ) ? $run['payload'] : array( 'ok' => true );
+				Ahentic_Subagent::after_tool_success( $session_id, $name, $payload, array(), 0 );
+				Ahentic_Subagent::finalize_recipe_if_idle( $session_id );
+			} elseif ( empty( $run['ok'] ) && class_exists( 'Ahentic_Subagent' ) ) {
+				Ahentic_Subagent::abort_recipe( $session_id );
 			}
 
 			// Keep the approved tool's step label visible into the next think.
@@ -1653,6 +1716,19 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				),
 				$step
 			);
+
+			if ( $ok && class_exists( 'Ahentic_Subagent' ) ) {
+				Ahentic_Subagent::after_tool_success(
+					$session_id,
+					$name,
+					is_array( $tool_payload ) ? $tool_payload : array( 'ok' => true ),
+					array(),
+					0
+				);
+				Ahentic_Subagent::finalize_recipe_if_idle( $session_id );
+			} elseif ( ! $ok && class_exists( 'Ahentic_Subagent' ) ) {
+				Ahentic_Subagent::abort_recipe( $session_id );
+			}
 
 			$forced_remain = ! empty( Ahentic_Session_Repository::get_forced_tools( $session_id ) );
 			$has_content_work = class_exists( 'Ahentic_Session_Artifacts' )

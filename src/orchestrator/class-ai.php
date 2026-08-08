@@ -1038,7 +1038,7 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 				return true;
 			}
 			return (bool) preg_match(
-				'/^(i co(?:uld|n)\b|i will\b|i\'ll\b|let me\b|next i\b|checking\b|looking\b|searching\b|planning\b|now i\b|i need to\b|i should\b)/i',
+				'/^(i co(?:uld|n)\b|i will\b|i\'ll\b|i\'m\b|i am\b|let me\b|next i\b|checking\b|looking\b|searching\b|planning\b|now i\b|i need to\b|i should\b)/i',
 				$text
 			);
 		}

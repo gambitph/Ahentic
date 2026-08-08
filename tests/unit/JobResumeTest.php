@@ -236,6 +236,7 @@ class JobResumeTest extends TestCase {
 
 	/**
 	 * Forced apply failure during content work must not finish the run.
+	 * Batch/recipe forced queues must never auto-finish (generate-image recipe remainder).
 	 */
 	public function test_forced_tools_do_not_finish_on_content_work_failure() {
 		$this->assertFalse(
@@ -249,6 +250,17 @@ class JobResumeTest extends TestCase {
 		);
 		$this->assertFalse(
 			Ahentic_Job_Resume::should_finish_after_forced_tools( false, true, true )
+		);
+		// Regression: scout/batch remainder after browser pause must return to think.
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, true, 'batch' )
+		);
+		// Regression: generate-image Recipe must return to think after upload/set-featured.
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, false, 'recipe' )
+		);
+		$this->assertTrue(
+			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, false, 'apply' )
 		);
 	}
 

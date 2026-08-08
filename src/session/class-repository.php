@@ -42,7 +42,15 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_VERIFY_PENDING      = '_ahentic_verify_pending';
 		const META_VERIFY_ATTEMPTS     = '_ahentic_verify_attempts';
 		const META_PENDING_FINAL       = '_ahentic_pending_final';
-		const META_FORCED_TOOLS        = '_ahentic_forced_tools';
+		const META_FORCED_TOOLS         = '_ahentic_forced_tools';
+		const META_FORCED_TOOLS_PURPOSE = '_ahentic_forced_tools_purpose';
+		const META_SUBAGENT_RECIPE      = '_ahentic_subagent_recipe';
+		/** Forced tools from Finish Gate / apply_required — may finish after success. */
+		const FORCED_PURPOSE_APPLY = 'apply';
+		/** Remaining tools after browser/HITL pause — must return to think. */
+		const FORCED_PURPOSE_BATCH = 'batch';
+		/** Subagent Recipe chain — must return to think after the chain. */
+		const FORCED_PURPOSE_RECIPE = 'recipe';
 		const META_LLM_KEEPALIVE       = '_ahentic_llm_keepalive';
 		const META_CONTEXT_SUMMARY    = '_ahentic_context_summary';
 		const META_CONTEXT_USAGE      = '_ahentic_context_usage';
@@ -1556,10 +1564,26 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
-		 * @param int   $session_id Session ID.
-		 * @param array $tools      List of { name, input }.
+		 * Purpose of the current forced-tools queue (apply|batch|recipe).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string
 		 */
-		public static function set_forced_tools( $session_id, array $tools ) {
+		public static function get_forced_tools_purpose( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_FORCED_TOOLS_PURPOSE, true );
+			$raw = is_string( $raw ) ? $raw : '';
+			if ( self::FORCED_PURPOSE_BATCH === $raw || self::FORCED_PURPOSE_RECIPE === $raw ) {
+				return $raw;
+			}
+			return self::FORCED_PURPOSE_APPLY;
+		}
+
+		/**
+		 * @param int    $session_id Session ID.
+		 * @param array  $tools      List of { name, input }.
+		 * @param string $purpose    apply|batch|recipe — only apply may auto-finish the run.
+		 */
+		public static function set_forced_tools( $session_id, array $tools, $purpose = self::FORCED_PURPOSE_APPLY ) {
 			$out = array();
 			foreach ( $tools as $item ) {
 				if ( ! is_array( $item ) || empty( $item['name'] ) ) {
@@ -1574,11 +1598,16 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				self::clear_forced_tools( $session_id );
 				return;
 			}
+			$purpose = (string) $purpose;
+			if ( self::FORCED_PURPOSE_BATCH !== $purpose && self::FORCED_PURPOSE_RECIPE !== $purpose ) {
+				$purpose = self::FORCED_PURPOSE_APPLY;
+			}
 			update_post_meta(
 				$session_id,
 				self::META_FORCED_TOOLS,
 				wp_slash( wp_json_encode( $out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
 			);
+			update_post_meta( $session_id, self::META_FORCED_TOOLS_PURPOSE, $purpose );
 		}
 
 		/**
@@ -1598,6 +1627,41 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		 */
 		public static function clear_forced_tools( $session_id ) {
 			delete_post_meta( $session_id, self::META_FORCED_TOOLS );
+			delete_post_meta( $session_id, self::META_FORCED_TOOLS_PURPOSE );
+		}
+
+		/**
+		 * Active Subagent chain state (prior tool payloads for bind; no branded recipe ids).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array|null
+		 */
+		public static function get_subagent_recipe( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_SUBAGENT_RECIPE, true );
+			if ( empty( $raw ) ) {
+				return null;
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			return is_array( $decoded ) ? $decoded : null;
+		}
+
+		/**
+		 * @param int   $session_id Session ID.
+		 * @param array $state      Recipe state.
+		 */
+		public static function set_subagent_recipe( $session_id, array $state ) {
+			update_post_meta(
+				$session_id,
+				self::META_SUBAGENT_RECIPE,
+				wp_slash( wp_json_encode( $state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
+			);
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_subagent_recipe( $session_id ) {
+			delete_post_meta( $session_id, self::META_SUBAGENT_RECIPE );
 		}
 
 		/**
@@ -1894,6 +1958,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			self::clear_verify_attempts( $session_id );
 			self::clear_pending_final( $session_id );
 			self::clear_forced_tools( $session_id );
+			self::clear_subagent_recipe( $session_id );
 			self::clear_context_summary( $session_id );
 			self::set_llm_keepalive( $session_id, false );
 			self::clear_browser_paused_at( $session_id );

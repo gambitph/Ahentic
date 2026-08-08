@@ -57,6 +57,8 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 **Job resume module:** `Ahentic_Job_Resume` owns new-goal vs resume-same-job run-start ritual (Repository clears/sets, sticky `content_work`, active goal, Plan reopen via `Ahentic_Plan`) and whether forced apply tools may finish after a failure during content work. Primary interface: `begin_new_goal()`, `begin_resume()`, `should_finish_after_forced_tools()`, `should_try_finish_after_browser_resume()`. The Orchestrator must call these — do not reimplement Continuable / cue / clear sequences at call sites.
 
+**Subagent module:** `Ahentic_Subagent` owns temporary cheap mode over **existing** abilities: deepen `forced_tools` (purpose `apply|batch|recipe` — only `apply` may auto-finish), preserve batch remainder across HITL/browser, bind placeholders from earlier step payloads before pause/execute, optional chain summary when idle. It must **not** invent follow-up abilities or domain recipes (no generate→upload→place hardcoding). See [`future-subagent.md`](../../pro__premium_only/docs/future-subagent.md).
+
 **Think/debug module:** `Ahentic_Think_Debug` owns AHENTIC_DEBUG recovery and post-think disposition. Primary interface: `run_think()`, `apply_live_progress()`, `finalize_result_text()`, `should_finish_without_tools()`, `publish_thought_process()`, `queue_missing_ability()`. The Orchestrator must call these — do not reimplement debug retry or missing-ability policy at call sites. Single LLM phases remain `Ahentic_Orchestrator::run_llm_phase()` (used by Think/Debug and plan-retry).
 
 ## Browser preflight & recovery

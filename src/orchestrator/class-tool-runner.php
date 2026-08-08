@@ -95,9 +95,16 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 				}
 			}
 
+			// Bind recipe placeholders (e.g. attachment_id after upload) BEFORE HITL/browser
+			// pause — browser set-featured-image must not receive attachment_id 0 (that clears).
+			if ( class_exists( 'Ahentic_Subagent' ) ) {
+				$input = Ahentic_Subagent::bind_recipe_input( $session_id, $name, $input );
+			}
+
 			// Mutating abilities pause for human approval unless already allowed / skip_hitl.
 			// HITL must run before browser pause so save-post / convert-blocks can be approved first.
 			if ( $needs_hitl ) {
+				Ahentic_Subagent::preserve_batch_remainder( $session_id, $planned, $call_index, $step, 'hitl' );
 				return self::pause_hitl_or_reject( $session_id, $name, $input, $artifact_key, $step, $source, false );
 			}
 
@@ -120,6 +127,7 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 						&& ! $skip_hitl;
 					if ( $needs_hitl ) {
 						// Re-enter HITL path for the server fallback ability.
+						Ahentic_Subagent::preserve_batch_remainder( $session_id, $planned, $call_index, $step, 'hitl' );
 						return self::pause_hitl_or_reject( $session_id, $name, $input, $artifact_key, $step, $source, true );
 					}
 					// Fall through to PHP execute with rewritten ability.
@@ -241,6 +249,7 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 			return array(
 				'outcome' => 'continued',
 				'ok'      => $ok,
+				'payload' => is_array( $payload ) ? $payload : array(),
 			);
 		}
 
@@ -866,28 +875,33 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 				return;
 			}
 
-			$names       = array();
 			$all_browser = true;
 			foreach ( $remaining as $call ) {
 				$name  = isset( $call['name'] ) ? (string) $call['name'] : '';
 				$input = isset( $call['input'] ) && is_array( $call['input'] ) ? $call['input'] : array();
-				$names[] = $name;
 				if ( '' === $name || ! Ahentic_Abilities::requires_browser_runtime( $name, $input ) ) {
 					$all_browser = false;
+					break;
 				}
 			}
 
 			if ( ! $all_browser ) {
+				// Mixed remainder still queued via Subagent (HITL path already queues any remainder).
+				if ( class_exists( 'Ahentic_Subagent' ) ) {
+					Ahentic_Subagent::preserve_batch_remainder( $session_id, $planned, $index, $step, 'browser' );
+				}
 				return;
 			}
 
-			Ahentic_Session_Repository::set_forced_tools( $session_id, $remaining );
-			Ahentic_Session_Repository::append_trace(
+			if ( class_exists( 'Ahentic_Subagent' ) ) {
+				Ahentic_Subagent::preserve_batch_remainder( $session_id, $planned, $index, $step, 'browser' );
+				return;
+			}
+
+			Ahentic_Session_Repository::set_forced_tools(
 				$session_id,
-				'browser_batch_queued',
-				'Queued remaining browser tools to run after the pause',
-				array( 'tools' => $names ),
-				$step
+				$remaining,
+				Ahentic_Session_Repository::FORCED_PURPOSE_BATCH
 			);
 		}
 

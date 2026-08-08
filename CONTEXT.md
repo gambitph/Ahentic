@@ -12,7 +12,19 @@ _Avoid_: chat bot, copilot (as the product name), assistant-only
 
 **Agent (Premium)**:
 A saved, trigger-driven AI worker users create; runs headless on the same orchestrator with PHP abilities only.
-_Avoid_: bot, automation recipe (as the primary name), cron job
+_Avoid_: bot, automation recipe (as the primary name), cron job, Subagent (temporary handoff off the main think)
+
+**Subagent**:
+Temporary **cheap mode** off the main think: run **existing** Abilities with less (or no) full-session prompt between steps / in a short hop, then return to the main loop — cuts session token spend while preserving site effects.
+_Avoid_: Agent (Premium), Subagent-only Abilities, named Task kinds (place-image / link-scout style), worker (heartbeat copy)
+
+**Mini-job hop** (Subagent):
+Optional one slim think (reduced context) that may call the normal Ability catalog, then return to main. Not a menu of specialized jobs.
+_Avoid_: full for_llm think as the default for every glue step, nested long agent loop (v1 default is one slim think then tools)
+
+**Recipe** (Subagent):
+Ordered **existing** ability steps advanced via forced tools with **no** main LLM between steps (HITL/browser pauses still apply).
+_Avoid_: Plan (checklist), forced apply (content-artifact apply queue — related mechanism, different job), new Abilities invented only to start a recipe
 
 **Ask mode**:
 Session mode that may only use readonly abilities; answers and explores, does not mutate the site.

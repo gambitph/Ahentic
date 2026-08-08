@@ -199,4 +199,64 @@ class FinishGateTest extends TestCase {
 		);
 		$this->assertFalse( Ahentic_Finish_Gate::write_payload_looks_like_measure_failure( $payload ) );
 	}
+
+	/**
+	 * Featured-goal heuristic (finish block, not Subagent recipes).
+	 */
+	public function test_goal_needs_featured_image() {
+		$this->assertTrue( Ahentic_Finish_Gate::goal_needs_featured_image( 'Add internal links and a featured image' ) );
+		$this->assertFalse( Ahentic_Finish_Gate::goal_needs_featured_image( 'Only fix typos' ) );
+	}
+
+	/**
+	 * Featured placement counts only successful set with a positive attachment id.
+	 */
+	public function test_featured_placement_done_requires_positive_attachment() {
+		$cleared = array(
+			array(
+				'role'    => 'tool',
+				'content' => json_encode(
+					array(
+						'ok'             => true,
+						'featured_media' => 0,
+						'cleared'        => true,
+					)
+				),
+				'meta'    => array(
+					'ability' => 'ahentic-browser/set-featured-image',
+					'ok'      => true,
+				),
+			),
+		);
+		$this->assertFalse( Ahentic_Finish_Gate::featured_placement_done_in_entries( $cleared ) );
+
+		$generate_only = array(
+			array(
+				'role'    => 'tool',
+				'content' => json_encode( array( 'ok' => true, 'artifact_key' => 'image_x' ) ),
+				'meta'    => array(
+					'ability' => 'ahentic/generate-image',
+					'ok'      => true,
+				),
+			),
+		);
+		$this->assertFalse( Ahentic_Finish_Gate::featured_placement_done_in_entries( $generate_only ) );
+
+		$set = array(
+			array(
+				'role'    => 'tool',
+				'content' => json_encode(
+					array(
+						'ok'             => true,
+						'featured_media' => 99,
+					)
+				),
+				'meta'    => array(
+					'ability' => 'ahentic-browser/set-featured-image',
+					'ok'      => true,
+				),
+			),
+		);
+		$this->assertTrue( Ahentic_Finish_Gate::featured_placement_done_in_entries( $set ) );
+	}
 }

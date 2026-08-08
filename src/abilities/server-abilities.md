@@ -151,7 +151,7 @@ Stage with `ahentic/stage-artifact`, then `create-post` / `update-post` with `fr
 | --- | --- |
 | `ahentic-site` | Snapshot, health, options, http-fetch, admin context, debug log |
 | `ahentic-settings` | get-settings-context, list-settings, get-setting, update-theme-setting, update-global-styles, update-template-part, update-option |
-| `ahentic-content` | list/get/search/create/update/set-status |
+| `ahentic-content` | list/get/search/summary/create/update/set-status |
 | `ahentic-plugins` | list/search/install/activate/deactivate/uninstall |
 | `ahentic-media` | list-media, get-media, unused scan, describe/generate/upload, update/delete/replace, set-featured-image |
 | `ahentic-taxonomy` | list/get/create/update/delete term; post term helpers for create-post/update-post |
