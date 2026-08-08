@@ -302,7 +302,7 @@ export default function ContextUsageControl( {
 				) ) }
 			</ul>
 			<div className="ahentic-context-usage__session">
-				<div className="ahentic-context-usage__session-title">{ __( 'This session', 'ahentic' ) }</div>
+				<div className="ahentic-context-usage__session-title">{ __( 'Token usage this session', 'ahentic' ) }</div>
 				<div className="ahentic-context-usage__session-grid">
 					{ SESSION_META.map( row => (
 						<div key={ row.key } className="ahentic-context-usage__session-row">
