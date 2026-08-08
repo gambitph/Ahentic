@@ -105,10 +105,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				Ahentic_Session_Repository::set_page_context( $session_id, $page_context );
 			}
 
-			$is_resume_cue = Ahentic_Job_Resume::message_looks_like_resume_cue( $content );
-
-			// Composer "continue" while a job is Continue-recoverable → same path as the CTA.
-			if ( $is_resume_cue && Ahentic_Session_Repository::get_job_resumable( $session_id ) ) {
+			// Job Resume owns Continuable cue → resume vs new-goal ritual (clears / goal / content_work).
+			$start = Ahentic_Job_Resume::begin_new_goal( $session_id, $content );
+			if ( isset( $start['action'] ) && 'resume' === $start['action'] ) {
 				Ahentic_Session_Repository::append_entry(
 					$session_id,
 					array(
@@ -119,45 +118,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return self::resume_job( $session_id, 'composer_cue' );
 			}
 
-			Ahentic_Session_Repository::clear_error( $session_id );
-			Ahentic_Session_Repository::set_job_resumable( $session_id, false );
-			Ahentic_Session_Repository::clear_verify_pending( $session_id );
-			Ahentic_Session_Repository::clear_verify_attempts( $session_id );
-			Ahentic_Session_Repository::clear_pending_final( $session_id );
-			Ahentic_Session_Repository::clear_forced_tools( $session_id );
-			Ahentic_Session_Repository::clear_thought( $session_id );
-			Ahentic_Session_Repository::clear_browser_paused_at( $session_id );
-			Ahentic_Session_Repository::clear_context_summary( $session_id );
-			Ahentic_Session_Repository::set_llm_keepalive( $session_id, false );
-
-			// Intent gate: long-form / article jobs get content budgets + stricter verify
-			// even before any artifact is staged (PRD content-and-editor).
-			$session_has_content = class_exists( 'Ahentic_Session_Artifacts' )
-				? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
-				: Ahentic_Session_Repository::get_content_work( $session_id );
-			$content_intent      = Ahentic_Job_Resume::resolve_content_work_on_message(
-				self::message_looks_like_content_work( $content ),
-				$is_resume_cue,
-				$session_has_content
-			);
-			Ahentic_Session_Repository::set_content_work( $session_id, $content_intent );
-
-			update_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, 0 );
-			Ahentic_Session_Repository::consume_capability_requests( $session_id );
-
-			// Resume-with-job_resumable already returned above. Any message that reaches
-			// here starts a new run — clear Plan (Stop/Cancel stay terminal).
-			Ahentic_Session_Repository::clear_plan( $session_id );
-			if ( ! $is_resume_cue ) {
-				Ahentic_Session_Repository::set_active_goal( $session_id, $content );
-			}
-
-			// Mark running before append_entry so a concurrent poll cannot see the new
-			// user message while status is still idle (sidebar would drop busy chrome
-			// and stop polling / browser resume).
-			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
-			Ahentic_Session_Repository::set_progress( $session_id, __( 'Planning next steps…', 'ahentic' ) );
-
+			// Ritual already set status=running before append_entry so a concurrent poll
+			// cannot see the new user message while status is still idle.
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(
@@ -247,29 +209,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return $may_spend;
 			}
 
-			Ahentic_Session_Repository::clear_error( $session_id );
-			Ahentic_Session_Repository::set_job_resumable( $session_id, false );
-			Ahentic_Session_Repository::clear_verify_pending( $session_id );
-			Ahentic_Session_Repository::clear_verify_attempts( $session_id );
-			Ahentic_Session_Repository::clear_pending_final( $session_id );
-			Ahentic_Session_Repository::clear_forced_tools( $session_id );
-			Ahentic_Session_Repository::clear_thought( $session_id );
-			Ahentic_Session_Repository::clear_browser_paused_at( $session_id );
-			Ahentic_Session_Repository::set_llm_keepalive( $session_id, false );
-
-			// Keep content_work / Plan / Artifacts / active goal — reopen cancelled plan steps.
-			Ahentic_Plan::reopen_cancelled_steps( $session_id );
-			$session_has_content = class_exists( 'Ahentic_Session_Artifacts' )
-				? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
-				: Ahentic_Session_Repository::get_content_work( $session_id );
-			if ( $session_has_content ) {
-				Ahentic_Session_Repository::set_content_work( $session_id, true );
-			}
-
-			update_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, 0 );
-			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
-			Ahentic_Session_Repository::set_progress( $session_id, __( 'Planning next steps…', 'ahentic' ) );
-			Ahentic_Session_Repository::touch_heartbeat( $session_id );
+			$resumed = Ahentic_Job_Resume::begin_resume( $session_id );
 
 			$mode_now = Ahentic_Session_Repository::get_mode( $session_id );
 			Ahentic_Session_Repository::append_trace(
@@ -279,8 +219,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				array(
 					'mode'         => $mode_now,
 					'source'       => $source,
-					'content_work' => Ahentic_Session_Repository::get_content_work( $session_id ),
-					'goal'         => self::excerpt( Ahentic_Session_Repository::get_active_goal( $session_id ), 160 ),
+					'content_work' => ! empty( $resumed['content_work'] ),
+					'goal'         => self::excerpt(
+						isset( $resumed['active_goal'] ) ? (string) $resumed['active_goal'] : '',
+						160
+					),
 					'env'          => Ahentic_Session_Repository::environment_snapshot(),
 				)
 			);
@@ -1914,29 +1857,6 @@ Rules:
 				return Ahentic_AI::MAX_OUTPUT_TOKENS_CONTENT;
 			}
 			return class_exists( 'Ahentic_AI' ) ? Ahentic_AI::MAX_OUTPUT_TOKENS : 8000;
-		}
-
-		/**
-		 * Detect long-form / article writing intent from the user message (PRD intent gate).
-		 *
-		 * @param string $content User message.
-		 * @return bool
-		 */
-		private static function message_looks_like_content_work( $content ) {
-			$text = strtolower( trim( (string) $content ) );
-			if ( '' === $text ) {
-				return false;
-			}
-			if ( preg_match( '/\b(full article|entire (article|post|page)|long[- ]form|finish (the )?(article|post|draft)|complete (the )?(article|post|draft))\b/u', $text ) ) {
-				return true;
-			}
-			if ( preg_match( '/\b(finish|complete|write|draft|create|rewrite|expand|fill out)\b.{0,48}\b(article|post|blog|guide|essay|draft|content)\b/u', $text ) ) {
-				return true;
-			}
-			if ( preg_match( '/\b(article|post|blog|guide)\b.{0,32}\b(finish|complete|write|draft|create)\b/u', $text ) ) {
-				return true;
-			}
-			return false;
 		}
 
 		/**

@@ -1,9 +1,10 @@
 <?php
 /**
- * Job resume pure decisions: resume cues, sticky content_work, goal pick, forced-apply finish.
+ * Job Resume run-start / resume / forced-finish seam.
  *
- * Session-backed continue_run / fail_run wiring is covered in
- * tests/e2e/specs/job-resume.spec.js (Session REST / continue seam).
+ * Asserts Session-shaped bag outcomes from begin_new_goal / begin_resume and
+ * forced-tools finish policy. Session REST Continue wiring stays in
+ * tests/e2e/specs/job-resume.spec.js.
  *
  * @package Ahentic
  */
@@ -11,7 +12,7 @@
 use PHPUnit\Framework\TestCase;
 
 /**
- * Covers Ahentic_Job_Resume decision helpers (#3).
+ * Covers Ahentic_Job_Resume deepen (#4).
  */
 class JobResumeTest extends TestCase {
 
@@ -30,26 +31,178 @@ class JobResumeTest extends TestCase {
 		$this->assertTrue( Ahentic_Job_Resume::message_looks_like_resume_cue( 'please continue' ) );
 
 		$this->assertFalse( Ahentic_Job_Resume::message_looks_like_resume_cue( 'write a 1000 word article' ) );
-		$this->assertFalse( Ahentic_Job_Resume::message_looks_like_resume_cue( 'continue drafting the SEO guide with a new intro' ) );
+		$this->assertFalse(
+			Ahentic_Job_Resume::message_looks_like_resume_cue( 'continue drafting the SEO guide with a new intro' )
+		);
 		$this->assertFalse( Ahentic_Job_Resume::message_looks_like_resume_cue( '' ) );
 	}
 
 	/**
-	 * Resume cue must not turn content_work off when the session already has it.
+	 * Goals that mention “continue” mid-sentence still start fresh work (not resume cues).
 	 */
-	public function test_sticky_content_work_on_resume_cue() {
+	public function test_begin_new_goal_rejects_continue_inside_real_goal() {
+		$session = array(
+			'job_resumable' => true,
+			'content_work'  => true,
+			'active_goal'   => 'old article',
+		);
+		$planned = Ahentic_Job_Resume::begin_new_goal(
+			$session,
+			'continue drafting the SEO guide with a new intro'
+		);
+
+		$this->assertFalse(
+			Ahentic_Job_Resume::prefers_resume(
+				$session,
+				'continue drafting the SEO guide with a new intro'
+			)
+		);
+		$this->assertTrue( $planned['set_active_goal'] );
+		$this->assertSame(
+			'continue drafting the SEO guide with a new intro',
+			$planned['active_goal']
+		);
+		$this->assertTrue( $planned['clear_plan'] );
+		$this->assertFalse( $planned['reopen_plan'] );
+	}
+
+	/**
+	 * Content-work intent detection lives with resume policy.
+	 */
+	public function test_content_work_message_detection() {
 		$this->assertTrue(
-			Ahentic_Job_Resume::resolve_content_work_on_message( false, true, true )
+			Ahentic_Job_Resume::message_looks_like_content_work( 'write a 1000 word article about cats' )
 		);
 		$this->assertTrue(
-			Ahentic_Job_Resume::resolve_content_work_on_message( true, false, false )
+			Ahentic_Job_Resume::message_looks_like_content_work( 'draft a long-form guide' )
 		);
 		$this->assertFalse(
-			Ahentic_Job_Resume::resolve_content_work_on_message( false, true, false )
+			Ahentic_Job_Resume::message_looks_like_content_work( 'list my plugins' )
 		);
 		$this->assertFalse(
-			Ahentic_Job_Resume::resolve_content_work_on_message( false, false, true )
+			Ahentic_Job_Resume::message_looks_like_content_work( 'continue' )
 		);
+	}
+
+	/**
+	 * Continuable + resume cue prefers resume over new-goal ritual.
+	 */
+	public function test_prefers_resume_when_continuable_cue() {
+		$session = array(
+			'job_resumable' => true,
+			'content_work'  => true,
+			'active_goal'   => 'write a 1000 word article',
+		);
+		$this->assertTrue( Ahentic_Job_Resume::prefers_resume( $session, 'keep going' ) );
+		$this->assertFalse( Ahentic_Job_Resume::prefers_resume( $session, 'write a new page instead' ) );
+		$this->assertFalse(
+			Ahentic_Job_Resume::prefers_resume(
+				array(
+					'job_resumable' => false,
+					'content_work'  => true,
+					'active_goal'   => 'write a 1000 word article',
+				),
+				'continue'
+			)
+		);
+	}
+
+	/**
+	 * New goal clears Plan / Continuable and pins the real request.
+	 */
+	public function test_begin_new_goal_pins_goal_and_clears_plan() {
+		$session = array(
+			'job_resumable' => true,
+			'content_work'  => false,
+			'active_goal'   => 'old goal',
+		);
+		$planned = Ahentic_Job_Resume::begin_new_goal(
+			$session,
+			'write a 1000 word article based on previous posts'
+		);
+
+		$this->assertFalse( $planned['job_resumable'] );
+		$this->assertTrue( $planned['content_work'] );
+		$this->assertSame(
+			'write a 1000 word article based on previous posts',
+			$planned['active_goal']
+		);
+		$this->assertTrue( $planned['set_active_goal'] );
+		$this->assertTrue( $planned['clear_plan'] );
+		$this->assertFalse( $planned['reopen_plan'] );
+		$this->assertTrue( $planned['clear_context_summary'] );
+		$this->assertTrue( $planned['consume_capability_requests'] );
+		$this->assertFalse( $planned['touch_heartbeat'] );
+		$this->assertSame( 'running', $planned['status'] );
+		$this->assertSame( 0, $planned['step_count'] );
+		$this->assertTrue( $planned['clear_forced_tools'] );
+		$this->assertTrue( $planned['clear_verify'] );
+	}
+
+	/**
+	 * Resume cue without Continuable still clears Plan but keeps prior goal + sticky content_work.
+	 */
+	public function test_begin_new_goal_resume_cue_keeps_goal_and_content_work() {
+		$session = array(
+			'job_resumable' => false,
+			'content_work'  => true,
+			'active_goal'   => 'write a 1000 word article based on previous posts',
+		);
+		$planned = Ahentic_Job_Resume::begin_new_goal( $session, 'continue' );
+
+		$this->assertFalse( $planned['job_resumable'] );
+		$this->assertTrue( $planned['content_work'], 'Sticky content_work across resume cue' );
+		$this->assertSame(
+			'write a 1000 word article based on previous posts',
+			$planned['active_goal']
+		);
+		$this->assertFalse( $planned['set_active_goal'] );
+		$this->assertTrue( $planned['clear_plan'] );
+	}
+
+	/**
+	 * Genuine new goal turns content_work off when the message is not long-form.
+	 */
+	public function test_begin_new_goal_non_content_message_clears_content_work() {
+		$session = array(
+			'job_resumable' => false,
+			'content_work'  => true,
+			'active_goal'   => 'write a 1000 word article',
+		);
+		$planned = Ahentic_Job_Resume::begin_new_goal( $session, 'list my installed plugins' );
+
+		$this->assertFalse( $planned['content_work'] );
+		$this->assertSame( 'list my installed plugins', $planned['active_goal'] );
+		$this->assertTrue( $planned['set_active_goal'] );
+	}
+
+	/**
+	 * Continue ritual keeps goal / content_work, reopens Plan, does not clear context summary.
+	 */
+	public function test_begin_resume_keeps_job_and_reopens_plan() {
+		$session = array(
+			'job_resumable' => true,
+			'content_work'  => true,
+			'active_goal'   => 'write a 1000 word article based on previous posts',
+		);
+		$planned = Ahentic_Job_Resume::begin_resume( $session );
+
+		$this->assertFalse( $planned['job_resumable'] );
+		$this->assertTrue( $planned['content_work'] );
+		$this->assertSame(
+			'write a 1000 word article based on previous posts',
+			$planned['active_goal']
+		);
+		$this->assertFalse( $planned['set_active_goal'] );
+		$this->assertFalse( $planned['clear_plan'] );
+		$this->assertTrue( $planned['reopen_plan'] );
+		$this->assertFalse( $planned['clear_context_summary'] );
+		$this->assertFalse( $planned['consume_capability_requests'] );
+		$this->assertTrue( $planned['touch_heartbeat'] );
+		$this->assertSame( 'running', $planned['status'] );
+		$this->assertSame( 0, $planned['step_count'] );
+		$this->assertTrue( $planned['clear_forced_tools'] );
+		$this->assertTrue( $planned['clear_error'] );
 	}
 
 	/**
@@ -101,10 +254,6 @@ class JobResumeTest extends TestCase {
 
 	/**
 	 * Last update-block-attributes in a browser batch should try finish (no free think).
-	 *
-	 * Forced browser tools pause one-at-a-time; the final resume has an empty forced
-	 * queue so should_finish_after_forced_tools never runs — this closes that gap for
-	 * light attribute patches (internal links) when not mid content_work.
 	 */
 	public function test_try_finish_after_browser_attr_batch() {
 		$this->assertTrue(

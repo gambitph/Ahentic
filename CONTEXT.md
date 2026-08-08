@@ -40,6 +40,10 @@ _Avoid_: tool service, ability executor (as the product name)
 The module that decides whether a Session may idle after a reply: thin-body assessment on write payloads, forced apply of unapplied content Artifacts, verify repair think, and honest partial finish (ADR-0003).
 _Avoid_: verifier, completion service, read-after-write checker
 
+**Job Resume**:
+The module that owns **new goal** vs **resume same job** Session ritual (sticky active goal / `content_work`, Plan reopen, Continuable clears) and whether forced apply tools may finish after a content-work failure. Orchestrator entry points call it then enqueue — they do not re-sequence Repository clears by hand.
+_Avoid_: job service, resume API, continue helper (as the module name)
+
 **Session**:
 One conversation / run workspace stored as an `ahentic-session` post; holds entries, status, plan, pending tool, artifacts, page context, token spend, and soft context-budget usage (`contextUsage`).
 _Avoid_: chat thread (prefer session when meaning the persisted workspace), conversation ID alone
