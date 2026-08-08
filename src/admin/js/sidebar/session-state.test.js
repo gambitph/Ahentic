@@ -468,6 +468,60 @@ describe( 'mergeServerSessionIntoRecord plan settlement', () => {
 			'in_progress',
 		] )
 	} )
+
+	it( 'keeps open plan steps while a resumed run is active despite a prior error assistant turn', () => {
+		const next = mergeServerSessionIntoRecord(
+			{
+				id: 42,
+				status: 'running',
+				jobResumable: false,
+				messages: [
+					{
+						id: 'u1',
+						role: 'user',
+						content: 'write article',
+					},
+					{
+						id: 'a1',
+						role: 'assistant',
+						content: 'Sorry — I could not complete that request',
+						meta: { error: true },
+					},
+				],
+				plan: {
+					title: 'Research and draft the jeepney article',
+					steps: [
+						{
+							id: '1',
+							content: 'Review recent articles',
+							status: 'completed',
+						},
+						{
+							id: '2',
+							content: 'Draft and stage the article',
+							status: 'in_progress',
+						},
+						{
+							id: '3',
+							content: 'Apply to the open page',
+							status: 'pending',
+						},
+					],
+				},
+				trace: [],
+			},
+			createEmptySessionRecord(),
+			{},
+			mapEntries
+		)
+		expect( next.status ).toBe( 'running' )
+		expect( next.jobResumable ).toBe( false )
+		expect( next.plan.steps.map( s => s.status ) ).toEqual( [
+			'completed',
+			'in_progress',
+			'pending',
+		] )
+	} )
 } )
 
 describe( 'sessionFingerprint', () => {

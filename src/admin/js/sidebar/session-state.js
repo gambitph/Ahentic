@@ -404,11 +404,14 @@ export function mergeServerSessionIntoRecord( session, current, pendingById, map
 		: null
 
 	// Fail / cancel paths must not leave the checklist looking live — except when
-	// the server marked the job Continue-recoverable (keep Plan for resume).
+	// the server marked the job Continue-recoverable (keep Plan for resume), or
+	// the run is active again (Continue clears jobResumable while the prior error
+	// assistant turn often remains the latest until a final reply).
 	const jobResumable = Boolean( session.jobResumable )
 	if (
 		plan &&
 		! jobResumable &&
+		! isActiveRunStatus( status ) &&
 		( status === 'error' || status === 'cancelled' || sessionHasAssistantError( messages ) )
 	) {
 		plan = cancelIncompletePlanSteps( plan )
