@@ -298,7 +298,7 @@ if ( ! class_exists( 'Ahentic_Admin' ) ) {
 									value="<?php echo esc_attr( (string) $limit ); ?>"
 									placeholder="<?php echo esc_attr( (string) Ahentic_Usage::DEFAULT_DAILY_LIMIT ); ?>"
 									min="1"
-									step="1000"
+									step="1"
 									inputmode="numeric"
 									class="regular-text"
 									aria-describedby="ahentic-daily-limit-desc ahentic-daily-limit-error"
