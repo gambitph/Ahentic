@@ -794,6 +794,12 @@ export default function Sidebar() {
 			( activeHeartbeatAge !== null && activeHeartbeatAge >= HEARTBEAT_DEAD_MS ) ||
 			( activeHeartbeatAge === null && runElapsedMs >= HEARTBEAT_DEAD_MS )
 		)
+	const isJobResumable = Boolean( activeSession.jobResumable ) &&
+		! isBusy &&
+		! isViewerSession
+	const continueLiveness = isHeartbeatDead && ! isViewerSession
+		? 'stuck'
+		: ( isJobResumable ? 'resumable' : '' )
 	// Existing session tabs show a spinner until fetched; only while the sidebar is open.
 	const isSessionLoading = useMemo(
 		() => open && isSessionId( activeTabId ) && ! hydratedRef.current.has( activeTabId ),
@@ -1163,6 +1169,18 @@ export default function Sidebar() {
 		if ( ! claimRunner( sessionId ) ) {
 			return
 		}
+		setSessionsById( sessions => patchSessionRecord( sessions, sessionId, record => ( {
+			...record,
+			status: 'running',
+			pollWatch: true,
+			jobResumable: false,
+			progress: {
+				label: __( 'Planning next steps…', 'ahentic' ),
+				updatedAt: new Date().toISOString(),
+				heartbeatAt: new Date().toISOString(),
+				seenAt: Date.now(),
+			},
+		} ) ) )
 		try {
 			const session = await continueSession( sessionId )
 			if ( session ) {
@@ -1171,8 +1189,9 @@ export default function Sidebar() {
 		} catch ( error ) {
 			setSendError( error.message || __( 'Could not continue this run.', 'ahentic' ) )
 			setSendErrorCode( error.code || '' )
+			releaseRunner( sessionId )
 		}
-	}, [ activeTabId, applySession, isViewerSession, claimRunner ] )
+	}, [ activeTabId, applySession, isViewerSession, claimRunner, releaseRunner ] )
 
 	const stopSession = useCallback( async () => {
 		if ( ! isSessionId( activeTabId ) || stopping ) {
@@ -1434,7 +1453,7 @@ export default function Sidebar() {
 							approvingDecision={ activeApproving }
 							onApproval={ isViewerSession ? undefined : onApproval }
 							onSuggestedAction={ isViewerSession ? undefined : onSuggestedAction }
-							liveness={ isHeartbeatDead && ! isViewerSession ? 'stuck' : '' }
+							liveness={ continueLiveness }
 							onContinue={ isViewerSession ? undefined : continueStuckSession }
 							onCancelRun={ stopSession }
 						/>

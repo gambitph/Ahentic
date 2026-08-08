@@ -53,7 +53,9 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 **Prompt assembly module:** `Ahentic_Prompt_Assembler` owns system prompt text, history/tool compaction, and user-turn shaping. The Orchestrator must call `for_llm()` (or the assembler’s tested helpers) — do not reimplement prompt/payload assembly at call sites.
 
-**Plan module:** `Ahentic_Plan` owns the plan checklist. Primary interface: `sync_after_think()`, `ensure_after_think()`, `advance_after_tool()`, `complete_on_finish()`, `cancel_on_stop()`. The Orchestrator (and Finish Gate for advance) must call these — do not reimplement plan merge/normalize/FSM at call sites.
+**Plan module:** `Ahentic_Plan` owns the plan checklist. Primary interface: `sync_after_think()`, `ensure_after_think()`, `advance_after_tool()`, `complete_on_finish()`, `cancel_on_stop()`, `reopen_cancelled_steps()`. The Orchestrator (and Finish Gate for advance) must call these — do not reimplement plan merge/normalize/FSM at call sites.
+
+**Job resume module:** `Ahentic_Job_Resume` owns resume-cue detection, sticky `content_work` on resume messages, active-goal selection (skip resume-only lines), and whether forced apply tools may finish after a failure during content work. The Orchestrator must call these — do not reimplement resume policy at call sites.
 
 **Think/debug module:** `Ahentic_Think_Debug` owns AHENTIC_DEBUG recovery and post-think disposition. Primary interface: `run_think()`, `apply_live_progress()`, `finalize_result_text()`, `should_finish_without_tools()`, `publish_thought_process()`, `queue_missing_ability()`. The Orchestrator must call these — do not reimplement debug retry or missing-ability policy at call sites. Single LLM phases remain `Ahentic_Orchestrator::run_llm_phase()` (used by Think/Debug and plan-retry).
 
@@ -71,7 +73,9 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 - Steps may run after HTTP return (shutdown / Action Scheduler / cron).
 - Run lock prevents overlapping `process_step` on the same session.
-- `continue` REST exists as stall fallback (dead heartbeat / honest partial resume).
+- `continue` REST exists as stall fallback (dead heartbeat / honest partial resume) and mid-failure job resume when `jobResumable` is set.
+- Mid-job transport errors leave the Session Continue-recoverable: Plan / `content_work` / Artifacts / active goal retained; Sidebar Continue (or composer resume cue) calls resume without replacing the goal.
+- Forced apply tools that fail during content work must not idle as `final_reply` — return to think with the tool error in history.
 
 ## Liveness
 

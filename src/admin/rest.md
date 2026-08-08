@@ -132,6 +132,8 @@ Requires `status === awaiting_browser`. Mismatched `call_id` → `409`.
 | `tokensIn`, `tokensOut`, `tokensUsed`, `stepCount` | Usage |
 | `contextUsage` | Soft context budget fill + technical buckets ([usage gauge](../../pro__premium_only/docs/future-sidebar-usage.md)) |
 | `lastError`, `summaryStatus` | Errors / summary job |
+| `jobResumable` | Continue can resume mid-failure / honest partial |
+| `contentWork` | Long-form intent flag (budgets / verify) |
 | `createdAt`, `modifiedAt` | ISO timestamps |
 
 Sidebar merges this carefully to avoid clobbering optimistic UI — see [sidebar.md](./js/sidebar/sidebar.md).
@@ -148,7 +150,7 @@ Sidebar merges this carefully to avoid clobbering optimistic UI — see [sidebar
 | --- | --- |
 | `environment` | Plugin / build / WP / PHP versions, AI client path, memory + execution limits, cron constants, object cache, plugin count, locale |
 | `session` | Status, mode, last model used, run count, step count, token totals, last error, timestamps |
-| `state` | Pending tool, open write findings + repair attempts, forced tools, browser pause, heartbeat, progress, content-work flag |
+| `state` | Pending tool, open write findings + repair attempts, forced tools, browser pause, heartbeat, progress, content-work / job-resumable / active-goal |
 | `trace` | Every recorded event with full `data` |
 
 Each trace event carries `run` (which run produced it) and `ms` (epoch milliseconds), so a

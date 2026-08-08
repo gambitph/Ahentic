@@ -1113,19 +1113,13 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @return string
 		 */
 		private static function latest_user_goal_excerpt( $session_id ) {
+			$stored  = Ahentic_Session_Repository::get_active_goal( $session_id );
 			$entries = Ahentic_Session_Repository::get_entries( $session_id );
-			for ( $i = count( $entries ) - 1; $i >= 0; $i-- ) {
-				$entry = $entries[ $i ];
-				if ( ! is_array( $entry ) || 'user' !== ( isset( $entry['role'] ) ? $entry['role'] : '' ) ) {
-					continue;
-				}
-				$text = trim( (string) ( isset( $entry['content'] ) ? $entry['content'] : '' ) );
-				if ( '' === $text ) {
-					continue;
-				}
-				return self::excerpt( $text, 400 );
+			$goal    = Ahentic_Job_Resume::active_goal_from_entries( $entries, $stored );
+			if ( '' === $goal ) {
+				return '';
 			}
-			return '';
+			return self::excerpt( $goal, 400 );
 		}
 
 		/**

@@ -50,6 +50,8 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_EDITOR_REFS         = '_ahentic_editor_refs';
 		const META_BROWSER_PAUSED_AT   = '_ahentic_browser_paused_at';
 		const META_CONTENT_WORK        = '_ahentic_content_work';
+		const META_ACTIVE_GOAL         = '_ahentic_active_goal';
+		const META_JOB_RESUMABLE       = '_ahentic_job_resumable';
 
 		const STATUS_IDLE             = 'idle';
 		const STATUS_RUNNING          = 'running';
@@ -397,6 +399,8 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				'stepCount'    => (int) get_post_meta( $session_id, self::META_STEP_COUNT, true ),
 				'pendingTool'  => is_array( $pending ) ? $pending : null,
 				'lastError'    => (string) get_post_meta( $session_id, self::META_ERROR, true ),
+				'jobResumable' => self::get_job_resumable( $session_id ),
+				'contentWork'  => self::get_content_work( $session_id ),
 				'summaryStatus'=> (string) get_post_meta( $session_id, self::META_SUMMARY_STATUS, true ),
 				'createdAt'    => get_post_time( 'c', true, $post ),
 				'modifiedAt'   => get_post_modified_time( 'c', true, $post ),
@@ -876,6 +880,8 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 					'heartbeatAt'     => self::get_heartbeat( $session_id ),
 					'progress'        => self::get_progress( $session_id ),
 					'contentWork'     => self::get_content_work( $session_id ),
+					'jobResumable'    => self::get_job_resumable( $session_id ),
+					'activeGoal'      => self::get_active_goal( $session_id ),
 				),
 				'trace'       => $trace,
 			);
@@ -1810,6 +1816,60 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				return;
 			}
 			delete_post_meta( $session_id, self::META_CONTENT_WORK );
+		}
+
+		/**
+		 * Persisted active user goal for pinned run context (skips resume cues).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string
+		 */
+		public static function get_active_goal( $session_id ) {
+			$raw = get_post_meta( (int) $session_id, self::META_ACTIVE_GOAL, true );
+			return is_string( $raw ) ? trim( $raw ) : '';
+		}
+
+		/**
+		 * @param int    $session_id Session ID.
+		 * @param string $goal       Goal text.
+		 */
+		public static function set_active_goal( $session_id, $goal ) {
+			$session_id = (int) $session_id;
+			$goal       = trim( (string) $goal );
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			if ( '' === $goal ) {
+				delete_post_meta( $session_id, self::META_ACTIVE_GOAL );
+				return;
+			}
+			update_post_meta( $session_id, self::META_ACTIVE_GOAL, $goal );
+		}
+
+		/**
+		 * Whether Continue can resume this Session job after error / honest partial.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return bool
+		 */
+		public static function get_job_resumable( $session_id ) {
+			return '1' === (string) get_post_meta( (int) $session_id, self::META_JOB_RESUMABLE, true );
+		}
+
+		/**
+		 * @param int  $session_id Session ID.
+		 * @param bool $on         True when the job may be Continued.
+		 */
+		public static function set_job_resumable( $session_id, $on ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			if ( $on ) {
+				update_post_meta( $session_id, self::META_JOB_RESUMABLE, '1' );
+				return;
+			}
+			delete_post_meta( $session_id, self::META_JOB_RESUMABLE );
 		}
 
 		/**

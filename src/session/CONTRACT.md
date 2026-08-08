@@ -25,8 +25,9 @@ Supported statuses: `idle` | `running` | `awaiting_human` | `awaiting_browser` |
 ## Plan
 
 - Persist `_ahentic_plan` when Agent mode requires a plan (see Agent runtime PRD: ≥2 tools or any write).
-- Clear plan on each new user message.
+- Clear plan on each **new** user goal message (not on Continue / resume-only cues).
 - Keep artifacts across new messages by default so staged drafts remain usable.
+- Mid-failure / honest partial may set `jobResumable`; Continue resumes the same job (active goal, `content_work`, Plan, Artifacts) via `POST …/continue`.
 
 ## Page context
 

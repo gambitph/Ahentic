@@ -20,6 +20,7 @@
  * @property {number}      tokensOut    Cumulative output tokens.
  * @property {number}      tokensUsed   Cumulative total tokens.
  * @property {Object|null} contextUsage Soft context budget snapshot from REST.
+ * @property {boolean}     jobResumable Continue can resume this job after failure/partial.
  */
 /**
  * Empty per-session UI record.
@@ -41,6 +42,7 @@ export function createEmptySessionRecord() {
 		tokensOut: 0,
 		tokensUsed: 0,
 		contextUsage: null,
+		jobResumable: false,
 	}
 }
 
@@ -401,9 +403,14 @@ export function mergeServerSessionIntoRecord( session, current, pendingById, map
 		? session.plan
 		: null
 
-	// Fail / cancel paths must not leave the checklist looking live (server should
-	// settle steps; this covers race/poll and older sessions that predate that fix).
-	if ( plan && ( status === 'error' || status === 'cancelled' || sessionHasAssistantError( messages ) ) ) {
+	// Fail / cancel paths must not leave the checklist looking live — except when
+	// the server marked the job Continue-recoverable (keep Plan for resume).
+	const jobResumable = Boolean( session.jobResumable )
+	if (
+		plan &&
+		! jobResumable &&
+		( status === 'error' || status === 'cancelled' || sessionHasAssistantError( messages ) )
+	) {
 		plan = cancelIncompletePlanSteps( plan )
 	}
 
@@ -434,6 +441,7 @@ export function mergeServerSessionIntoRecord( session, current, pendingById, map
 		contextUsage: session.contextUsage && typeof session.contextUsage === 'object'
 			? session.contextUsage
 			: ( base.contextUsage || null ),
+		jobResumable,
 	}
 }
 

@@ -520,10 +520,11 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 				);
 				Ahentic_Session_Repository::clear_verify_pending( $session_id );
 				Ahentic_Session_Repository::clear_forced_tools( $session_id );
+				Ahentic_Session_Repository::set_job_resumable( $session_id, true );
 
 				$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
 				$msg     = __(
-					'I applied a draft, but the body still looks thin or like a placeholder. Send Continue and I’ll expand it.',
+					'I applied a draft, but the body still looks thin or like a placeholder. Use Continue and I’ll expand it.',
 					'ahentic'
 				);
 				if ( is_array( $stashed ) && ! empty( $stashed['text'] ) && ! self::reply_looks_like_process( (string) $stashed['text'] ) ) {

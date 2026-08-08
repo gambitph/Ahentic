@@ -4,7 +4,7 @@
  *
  * Deep module: may this Session show / advance a plan card?
  * Primary interface: sync_after_think(), ensure_after_think(), advance_after_tool(),
- * complete_on_finish(), cancel_on_stop().
+ * complete_on_finish(), cancel_on_stop(), reopen_cancelled_steps().
  * The Orchestrator must call these — do not reimplement plan FSM at call sites.
  */
 
@@ -18,7 +18,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 	 * Deep module: session plan checklist lifecycle.
 	 *
 	 * Primary interface: sync_after_think(), ensure_after_think(), advance_after_tool(),
-	 * complete_on_finish(), cancel_on_stop().
+	 * complete_on_finish(), cancel_on_stop(), reopen_cancelled_steps().
 	 * Pure helpers (normalize_from_debug, merge_with_existing, requires_for_think) are
 	 * part of the test surface; normalize_from_debug is also used for llm_thinking traces.
 	 */
@@ -326,6 +326,46 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 */
 		public static function cancel_on_stop( $session_id ) {
 			self::set_open_steps_status( $session_id, 'cancelled' );
+		}
+
+		/**
+		 * Re-open cancelled plan steps so Continue can finish the same checklist.
+		 *
+		 * Completed steps stay completed. Used by mid-failure job resume (#3).
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function reopen_cancelled_steps( $session_id ) {
+			$plan = Ahentic_Session_Repository::get_plan( $session_id );
+			if ( ! is_array( $plan ) || empty( $plan['steps'] ) || ! is_array( $plan['steps'] ) ) {
+				return;
+			}
+			$changed = false;
+			$steps   = array();
+			$opened  = false;
+			foreach ( $plan['steps'] as $step ) {
+				if ( ! is_array( $step ) ) {
+					continue;
+				}
+				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+				if ( 'cancelled' === $status ) {
+					$step['status'] = $opened ? 'pending' : 'in_progress';
+					$opened         = true;
+					$changed        = true;
+				} elseif ( 'in_progress' === $status ) {
+					$opened = true;
+				} elseif ( 'pending' === $status && ! $opened ) {
+					$step['status'] = 'in_progress';
+					$opened         = true;
+					$changed        = true;
+				}
+				$steps[] = $step;
+			}
+			if ( ! $changed ) {
+				return;
+			}
+			$plan['steps'] = $steps;
+			Ahentic_Session_Repository::set_plan( $session_id, $plan );
 		}
 
 		/**
