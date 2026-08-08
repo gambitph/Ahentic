@@ -31,7 +31,9 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		/** Cap each tool-result payload injected into the next think prompt. */
 		const MAX_TOOL_RESULT_CHARS = 8000;
 		/** Cap for the newest live-editor snapshot; superseded copies are collapsed so one full read fits. */
-		const MAX_TOOL_RESULT_CHARS_SNAPSHOT = 24000;
+		const MAX_TOOL_RESULT_CHARS_SNAPSHOT = 12000;
+		/** Cap for tool results that already moved into chat history (before the latest user turn). */
+		const MAX_TOOL_RESULT_CHARS_HISTORY = 1500;
 
 		/**
 		 * Soft per-prompt context budget (tokens). WP AI Client does not expose model windows yet.
@@ -672,9 +674,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @return array{history: array, user: string, clipped: array, superseded: int}
 		 */
 		public static function build_chat_payload( array $entries ) {
-			$latest_snapshot = self::latest_live_editor_snapshots( $entries );
-			$clipped         = array();
-			$superseded      = 0;
+			$latest_supersede  = self::latest_supersedable_tool_indexes( $entries );
+			$last_user_entry_i = self::last_user_entry_index( $entries );
+			$clipped           = array();
+			$superseded        = 0;
 
 			$normalized = array();
 			foreach ( $entries as $i => $entry ) {
@@ -691,16 +694,16 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						'content' => (string) $entry['content'],
 					);
 				} elseif ( 'tool' === $role ) {
-					$ability  = isset( $entry['meta']['ability'] ) ? (string) $entry['meta']['ability'] : 'tool';
-					$snapshot = isset( $latest_snapshot[ $ability ] );
+					$ability = isset( $entry['meta']['ability'] ) ? (string) $entry['meta']['ability'] : 'tool';
 
-					if ( $snapshot && $latest_snapshot[ $ability ] !== $i ) {
+					if ( isset( $latest_supersede[ $ability ] ) && $latest_supersede[ $ability ] !== $i ) {
 						$body = '[Superseded — a newer ' . $ability . ' result appears below.]';
 						++$superseded;
 					} else {
-						$raw_len = strlen( (string) $entry['content'] );
-						$cap     = $snapshot ? self::MAX_TOOL_RESULT_CHARS_SNAPSHOT : self::MAX_TOOL_RESULT_CHARS;
-						$body    = self::truncate_tool_result_for_prompt( (string) $entry['content'], $cap );
+						$raw_len     = strlen( (string) $entry['content'] );
+						$is_trailing = ( $last_user_entry_i < 0 ) || ( $i > $last_user_entry_i );
+						$cap         = self::tool_result_cap_for_prompt( $ability, $is_trailing );
+						$body        = self::truncate_tool_result_for_prompt( (string) $entry['content'], $cap );
 						if ( $raw_len > $cap ) {
 							// A clipped read-back makes the model re-read what it can never see,
 							// so record it: this was invisible and cost a full debugging round.
@@ -1154,12 +1157,36 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		}
 
 		/**
-		 * Abilities that read the current state of the open editor.
+		 * Abilities whose older results are collapsed to a stub when a newer result exists.
 		 *
-		 * These describe one document, so only the newest result is meaningful —
-		 * unlike id/query-scoped reads (get-content, list-content) where each
-		 * result answers a different question and must all be kept.
+		 * Live editor / page snapshots describe one screen, so only the newest is meaningful.
+		 * Explore/playbook/attr-patch results are also superseded — keeping every copy in trailing
+		 * + history was measured at multi-k tokens per think (list-content, get-wordpress-guidance,
+		 * repeated update-block-attributes).
 		 *
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function ability_is_prompt_supersedable( $name ) {
+			return in_array(
+				(string) $name,
+				array(
+					'ahentic-browser/get-blocks',
+					'ahentic-browser/get-editor-state',
+					'ahentic-browser/get-selection',
+					'ahentic-browser/get-current-page',
+					'ahentic-browser/get-visible-page',
+					'ahentic-browser/update-block-attributes',
+					'ahentic/get-wordpress-guidance',
+					'ahentic/list-content',
+					'ahentic/list-plugins',
+					'ahentic/list-media',
+				),
+				true
+			);
+		}
+
+		/**
 		 * @param string $name Ability name.
 		 * @return bool
 		 */
@@ -1176,12 +1203,35 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		}
 
 		/**
-		 * Entry index of the newest result per live-editor snapshot ability.
+		 * Char cap for a tool result in the assembled prompt.
+		 *
+		 * Trailing (since last user message) stays generous so the current step can see facts.
+		 * History is tightly capped — stale get-blocks / guidance were measured at 1.3–1.6k tokens each.
+		 *
+		 * @param string $ability     Ability name.
+		 * @param bool   $is_trailing Whether this result is after the latest user message.
+		 * @return int
+		 */
+		public static function tool_result_cap_for_prompt( $ability, $is_trailing ) {
+			if ( ! $is_trailing ) {
+				return self::MAX_TOOL_RESULT_CHARS_HISTORY;
+			}
+			if ( self::ability_is_live_editor_snapshot( $ability ) ) {
+				return self::MAX_TOOL_RESULT_CHARS_SNAPSHOT;
+			}
+			if ( 'ahentic/get-wordpress-guidance' === (string) $ability ) {
+				return min( self::MAX_TOOL_RESULT_CHARS, 3500 );
+			}
+			return self::MAX_TOOL_RESULT_CHARS;
+		}
+
+		/**
+		 * Entry index of the newest result per supersedable ability.
 		 *
 		 * @param array $entries Session entries.
-		 * @return array<string, int|string>
+		 * @return array<string, int>
 		 */
-		private static function latest_live_editor_snapshots( array $entries ) {
+		private static function latest_supersedable_tool_indexes( array $entries ) {
 			$latest = array();
 			foreach ( $entries as $i => $entry ) {
 				if ( 'tool' !== ( isset( $entry['role'] ) ? $entry['role'] : '' ) ) {
@@ -1191,6 +1241,47 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					continue;
 				}
 				$ability = isset( $entry['meta']['ability'] ) ? (string) $entry['meta']['ability'] : '';
+				if ( self::ability_is_prompt_supersedable( $ability ) ) {
+					$latest[ $ability ] = $i;
+				}
+			}
+			return $latest;
+		}
+
+		/**
+		 * @param array $entries Session entries.
+		 * @return int Index of last user entry, or -1.
+		 */
+		private static function last_user_entry_index( array $entries ) {
+			$last = -1;
+			foreach ( $entries as $i => $entry ) {
+				if ( ! is_array( $entry ) ) {
+					continue;
+				}
+				if ( ! empty( $entry['meta']['error'] ) ) {
+					continue;
+				}
+				if ( 'user' !== ( isset( $entry['role'] ) ? $entry['role'] : '' ) ) {
+					continue;
+				}
+				if ( ! empty( $entry['meta']['thought_process'] ) || ! empty( $entry['meta']['intermediate'] ) ) {
+					continue;
+				}
+				$last = $i;
+			}
+			return $last;
+		}
+
+		/**
+		 * Entry index of the newest result per live-editor snapshot ability.
+		 *
+		 * @param array $entries Session entries.
+		 * @return array<string, int|string>
+		 * @deprecated Use latest_supersedable_tool_indexes(); kept for any external callers.
+		 */
+		private static function latest_live_editor_snapshots( array $entries ) {
+			$latest = array();
+			foreach ( self::latest_supersedable_tool_indexes( $entries ) as $ability => $i ) {
 				if ( self::ability_is_live_editor_snapshot( $ability ) ) {
 					$latest[ $ability ] = $i;
 				}

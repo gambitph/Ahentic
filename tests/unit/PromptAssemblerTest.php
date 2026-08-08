@@ -76,6 +76,95 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertSame( 1, $built['superseded'] );
 	}
 
+	public function test_build_chat_payload_supersedes_guidance_and_attr_updates() {
+		$entries = array(
+			array(
+				'role'    => 'user',
+				'content' => 'Fix headings then image',
+			),
+			array(
+				'role'    => 'tool',
+				'content' => str_repeat( 'G', 2000 ),
+				'meta'    => array( 'ability' => 'ahentic/get-wordpress-guidance' ),
+			),
+			array(
+				'role'    => 'tool',
+				'content' => '{"ok":true,"old":true}',
+				'meta'    => array( 'ability' => 'ahentic-browser/update-block-attributes' ),
+			),
+			array(
+				'role'    => 'tool',
+				'content' => '{"ok":true,"new":true}',
+				'meta'    => array( 'ability' => 'ahentic-browser/update-block-attributes' ),
+			),
+			array(
+				'role'    => 'tool',
+				'content' => str_repeat( 'H', 2000 ),
+				'meta'    => array( 'ability' => 'ahentic/get-wordpress-guidance' ),
+			),
+		);
+
+		$built = Ahentic_Prompt_Assembler::build_chat_payload( $entries );
+
+		$this->assertSame( 2, $built['superseded'] );
+		$this->assertSame( 1, substr_count( $built['user'], str_repeat( 'H', 2000 ) ) );
+		$this->assertStringNotContainsString( str_repeat( 'G', 2000 ), $built['user'] );
+		$this->assertStringContainsString( '{"ok":true,"new":true}', $built['user'] );
+		$this->assertStringContainsString( 'Superseded — a newer ahentic-browser/update-block-attributes', $built['user'] );
+	}
+
+	public function test_build_chat_payload_tightens_history_tool_results() {
+		$fat = str_repeat( 'x', 5000 );
+		$entries = array(
+			array(
+				'role'    => 'user',
+				'content' => 'First ask',
+			),
+			array(
+				'role'    => 'tool',
+				'content' => $fat,
+				'meta'    => array( 'ability' => 'ahentic-browser/get-blocks' ),
+			),
+			array(
+				'role'    => 'user',
+				'content' => 'Follow-up',
+			),
+		);
+
+		$built = Ahentic_Prompt_Assembler::build_chat_payload( $entries );
+
+		$tool_turn = null;
+		foreach ( $built['history'] as $turn ) {
+			$content = isset( $turn['content'] ) ? (string) $turn['content'] : '';
+			if ( 0 === strpos( $content, '[Ability result: ahentic-browser/get-blocks]' ) ) {
+				$tool_turn = $content;
+				break;
+			}
+		}
+		$this->assertNotNull( $tool_turn );
+		$this->assertLessThanOrEqual(
+			Ahentic_Prompt_Assembler::MAX_TOOL_RESULT_CHARS_HISTORY + 80,
+			strlen( $tool_turn )
+		);
+		$this->assertStringContainsString( '…', $tool_turn );
+		$this->assertSame( 'Follow-up', $built['user'] );
+	}
+
+	public function test_tool_result_cap_for_prompt_history_vs_trailing() {
+		$this->assertSame(
+			Ahentic_Prompt_Assembler::MAX_TOOL_RESULT_CHARS_HISTORY,
+			Ahentic_Prompt_Assembler::tool_result_cap_for_prompt( 'ahentic-browser/get-blocks', false )
+		);
+		$this->assertSame(
+			Ahentic_Prompt_Assembler::MAX_TOOL_RESULT_CHARS_SNAPSHOT,
+			Ahentic_Prompt_Assembler::tool_result_cap_for_prompt( 'ahentic-browser/get-blocks', true )
+		);
+		$this->assertLessThanOrEqual(
+			3500,
+			Ahentic_Prompt_Assembler::tool_result_cap_for_prompt( 'ahentic/get-wordpress-guidance', true )
+		);
+	}
+
 	public function test_chars_to_tokens_rounds_up() {
 		$this->assertSame( 0, Ahentic_Prompt_Assembler::chars_to_tokens( 0 ) );
 		$this->assertSame( 1, Ahentic_Prompt_Assembler::chars_to_tokens( 1 ) );

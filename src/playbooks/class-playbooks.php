@@ -16,7 +16,8 @@ if ( ! class_exists( 'Ahentic_Playbooks' ) ) {
 		const GUIDANCE = 'ahentic/get-wordpress-guidance';
 
 		const MAX_MATCHES = 2;
-		const MAX_GUIDANCE_CHARS = 6000;
+		/** Soft cap for the compact guidance text block (principles/steps already inlined there). */
+		const MAX_GUIDANCE_CHARS = 2500;
 
 		/**
 		 * Ability names provided by this module.
@@ -400,6 +401,7 @@ if ( ! class_exists( 'Ahentic_Playbooks' ) ) {
 				$guidance = substr( $guidance, 0, self::MAX_GUIDANCE_CHARS - 1 ) . '…';
 			}
 
+			// Do not also ship principles/steps/anti_patterns arrays — format_guidance_text already inlines them.
 			return array(
 				'id'                => isset( $pb['id'] ) ? (string) $pb['id'] : '',
 				'title'             => isset( $pb['title'] ) ? (string) $pb['title'] : '',
@@ -408,9 +410,6 @@ if ( ! class_exists( 'Ahentic_Playbooks' ) ) {
 					? array_values( array_map( 'strval', $pb['related_abilities'] ) )
 					: array(),
 				'guidance'          => $guidance,
-				'principles'        => isset( $pb['principles'] ) && is_array( $pb['principles'] ) ? array_values( $pb['principles'] ) : array(),
-				'steps'             => isset( $pb['steps'] ) && is_array( $pb['steps'] ) ? array_values( $pb['steps'] ) : array(),
-				'anti_patterns'     => isset( $pb['anti_patterns'] ) && is_array( $pb['anti_patterns'] ) ? array_values( $pb['anti_patterns'] ) : array(),
 			);
 		}
 
