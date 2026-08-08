@@ -1222,6 +1222,11 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			if ( 'ahentic/get-wordpress-guidance' === (string) $ability ) {
 				return min( self::MAX_TOOL_RESULT_CHARS, 3500 );
 			}
+			// List cards are now slim, but a full page of results can still blow past
+			// what a link-picking step needs in trailing context.
+			if ( 'ahentic/list-content' === (string) $ability ) {
+				return min( self::MAX_TOOL_RESULT_CHARS, 3500 );
+			}
 			return self::MAX_TOOL_RESULT_CHARS;
 		}
 

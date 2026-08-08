@@ -163,6 +163,38 @@ class PromptAssemblerTest extends TestCase {
 			3500,
 			Ahentic_Prompt_Assembler::tool_result_cap_for_prompt( 'ahentic/get-wordpress-guidance', true )
 		);
+		$this->assertLessThanOrEqual(
+			3500,
+			Ahentic_Prompt_Assembler::tool_result_cap_for_prompt( 'ahentic/list-content', true )
+		);
+		$this->assertSame(
+			Ahentic_Prompt_Assembler::MAX_TOOL_RESULT_CHARS_HISTORY,
+			Ahentic_Prompt_Assembler::tool_result_cap_for_prompt( 'ahentic/list-content', false )
+		);
+	}
+
+	public function test_build_chat_payload_caps_trailing_list_content() {
+		$fat = str_repeat( 'L', 6000 );
+		$entries = array(
+			array(
+				'role'    => 'user',
+				'content' => 'Add internal links',
+			),
+			array(
+				'role'    => 'tool',
+				'content' => $fat,
+				'meta'    => array( 'ability' => 'ahentic/list-content' ),
+			),
+		);
+
+		$built = Ahentic_Prompt_Assembler::build_chat_payload( $entries );
+
+		$this->assertNotEmpty( $built['clipped'] );
+		$this->assertSame( 'ahentic/list-content', $built['clipped'][0]['ability'] );
+		$this->assertSame( 3500, $built['clipped'][0]['cap'] );
+		$this->assertStringContainsString( '[Ability result: ahentic/list-content]', $built['user'] );
+		$this->assertStringContainsString( '…', $built['user'] );
+		$this->assertStringNotContainsString( str_repeat( 'L', 4000 ), $built['user'] );
 	}
 
 	public function test_chars_to_tokens_rounds_up() {

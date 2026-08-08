@@ -405,7 +405,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::LIST,
 				array(
 					'label'               => __( 'List content', 'ahentic' ),
-					'description'         => __( 'Lists posts or pages with titles, status, dates, and edit/view links.', 'ahentic' ),
+					'description'         => __( 'Lists posts or pages with id, title, type, status, and view URL (use get-content for full details).', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -2053,28 +2053,31 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		/**
 		 * Compact post card for list/search.
 		 *
-		 * @param \WP_Post $post    Post.
+		 * List cards stay link-oriented (id/title/type/status/view_url). Detailed
+		 * cards (get-content / mutations) include edit URL, dates, and hierarchy.
+		 *
+		 * @param \WP_Post $post     Post.
 		 * @param bool     $detailed Extra fields.
 		 * @return array
 		 */
 		private static function summarize_post( WP_Post $post, $detailed = false ) {
-			$edit = get_edit_post_link( $post->ID, 'raw' );
 			$view = get_permalink( $post->ID );
 
 			$item = array(
-				'id'         => (int) $post->ID,
-				'title'      => get_the_title( $post ),
-				'type'       => $post->post_type,
-				'status'     => $post->post_status,
-				'slug'       => $post->post_name,
-				'date'       => $post->post_date_gmt ? $post->post_date_gmt . 'Z' : $post->post_date,
-				'modified'   => $post->post_modified_gmt ? $post->post_modified_gmt . 'Z' : $post->post_modified,
-				'edit_url'   => $edit ? $edit : '',
-				'view_url'   => $view ? $view : '',
-				'author_id'  => (int) $post->post_author,
+				'id'       => (int) $post->ID,
+				'title'    => get_the_title( $post ),
+				'type'     => $post->post_type,
+				'status'   => $post->post_status,
+				'view_url' => $view ? $view : '',
 			);
 
 			if ( $detailed ) {
+				$edit = get_edit_post_link( $post->ID, 'raw' );
+				$item['slug']          = $post->post_name;
+				$item['date']          = $post->post_date_gmt ? $post->post_date_gmt . 'Z' : $post->post_date;
+				$item['modified']      = $post->post_modified_gmt ? $post->post_modified_gmt . 'Z' : $post->post_modified;
+				$item['edit_url']      = $edit ? $edit : '';
+				$item['author_id']     = (int) $post->post_author;
 				$item['guid']          = $post->guid;
 				$item['comment_count'] = (int) $post->comment_count;
 				$item['parent']        = (int) $post->post_parent;
