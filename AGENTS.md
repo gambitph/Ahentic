@@ -28,6 +28,10 @@ GitHub Issues on this repo (`gambitph/Ahentic`) via the `gh` CLI. See `docs/agen
 
 Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
 
+### Concept walkthroughs
+
+Orient on one concept / feature / subsystem (HTML + chat; optional durable copy under `docs/walkthroughs/`). See `docs/agents/explain-concept.md` and the `explain-codebase-concept` skill.
+
 ### Testing
 
 Playwright for UI / e2e (WordPress-aligned). See `docs/agents/testing.md`.
