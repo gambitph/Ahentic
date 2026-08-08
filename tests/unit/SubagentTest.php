@@ -72,6 +72,29 @@ class SubagentTest extends TestCase {
 		$this->assertSame( 'Hero', $inline['blocks'][0]['attributes']['alt'] );
 	}
 
+	public function test_bind_recipe_input_from_upload_fills_attachment_id() {
+		$state = array(
+			'steps' => array(
+				array(
+					'ability' => 'ahentic/upload-media',
+					'ok'      => true,
+					'payload' => array(
+						'attachment_id' => 1330,
+						'url'           => 'https://example.com/f.png',
+					),
+				),
+			),
+		);
+
+		// Log regression: model planned set-featured with from_upload, not attachment_id.
+		$out = Ahentic_Subagent::bind_recipe_input_from_state(
+			$state,
+			array( 'from_upload' => 'featured_image' )
+		);
+		$this->assertSame( 1330, $out['attachment_id'] );
+		$this->assertArrayNotHasKey( 'from_upload', $out );
+	}
+
 	/**
 	 * Without a prior upload step, bind must not invent an id — leaving 0 would clear featured.
 	 */

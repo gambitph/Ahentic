@@ -149,7 +149,9 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 		 * Fills attachment_id / image block attrs from the latest chain step that
 		 * produced an attachment_id when:
 		 * - input requests `_recipe_bind=attachment_from_prior_upload`, or
-		 * - attachment_id is present and is 0 (placeholder) while a prior upload exists.
+		 * - attachment_id is present and is 0 (placeholder) while a prior upload exists, or
+		 * - model used `from_upload` as a memory-key stand-in (not a schema field — rewritten
+		 *   to attachment_id before browser/HITL).
 		 *
 		 * @param array $state Recipe/chain state with steps[].
 		 * @param array $input Tool input.
@@ -159,6 +161,12 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 			$explicit = ! empty( $input['_recipe_bind'] ) && 'attachment_from_prior_upload' === (string) $input['_recipe_bind'];
 			if ( ! empty( $input['_recipe_bind'] ) ) {
 				unset( $input['_recipe_bind'] );
+			}
+
+			$from_upload = '';
+			if ( ! empty( $input['from_upload'] ) ) {
+				$from_upload = trim( (string) $input['from_upload'] );
+				unset( $input['from_upload'] );
 			}
 
 			$attachment_id = 0;
@@ -181,10 +189,14 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 				}
 			}
 			if ( $attachment_id <= 0 ) {
+				if ( '' !== $from_upload ) {
+					$input['from_upload'] = $from_upload;
+				}
 				return $input;
 			}
 
 			$needs_fill = $explicit
+				|| '' !== $from_upload
 				|| ( array_key_exists( 'attachment_id', $input ) && 0 === (int) $input['attachment_id'] )
 				|| (
 					isset( $input['blocks'][0]['attributes'] ) && is_array( $input['blocks'][0]['attributes'] )
@@ -196,9 +208,8 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 				return $input;
 			}
 
-			if ( array_key_exists( 'attachment_id', $input ) ) {
-				$input['attachment_id'] = $attachment_id;
-			}
+			// Always set attachment_id when filling (including when only from_upload was present).
+			$input['attachment_id'] = $attachment_id;
 			if ( isset( $input['blocks'][0]['attributes'] ) && is_array( $input['blocks'][0]['attributes'] ) ) {
 				$input['blocks'][0]['attributes']['id']  = $attachment_id;
 				$input['blocks'][0]['attributes']['url'] = $url;

@@ -677,7 +677,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'Detailed routing for plugins, theme/settings, users, menus, and http-fetch is included only when that screen is open — otherwise use ability names from the available list + get-wordpress-guidance. ';
 
 				case 'content':
-					return 'Prefer ahentic/search-content to find posts/pages by phrase (title, body, or meta); '
+					return 'Prefer ahentic/search-content with {"query":"…"} to find posts/pages by phrase (title, body, or meta); '
 						. 'ahentic/list-content to browse by type/status (prefer per_page 10–20, default 15, max 25 — use page:2+ or a tighter search/type when you need more; '
 						. 'do NOT re-call list-content in the same run if Ability results already include a usable list unless post_type/status/search changed); '
 						. 'ahentic/get-content to read one post (body + safe meta). '
@@ -748,7 +748,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 
 				case 'media':
 					return 'Post images: put ahentic/generate-image, ahentic/upload-media (from_memory), and ONE place '
-						. '(ahentic/set-featured-image or ahentic-browser/set-featured-image / ahentic-browser/insert-blocks for inline) '
+						. '(ahentic/set-featured-image or ahentic-browser/set-featured-image with attachment_id — use 0 as placeholder after upload, or from_upload with the image artifact key; inline: ahentic-browser/insert-blocks) '
 						. 'in ONE tools_planned so steps can run without another full think between them — never both featured and inline. '
 						. 'Also: list-media / get-media / find-unused-media. '
 						. 'Call get-wordpress-guidance topic web-image-fit before post images; default 16:9 not tall/square. '

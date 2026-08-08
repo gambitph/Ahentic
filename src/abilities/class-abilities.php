@@ -387,6 +387,10 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::STAGE === $name ) {
 				$input = Ahentic_Session_Artifacts::coerce_stage_input( $input );
 			}
+			// Models often emit search instead of query for search-content.
+			if ( class_exists( 'Ahentic_Abilities_Content' ) && Ahentic_Abilities_Content::SEARCH === $name ) {
+				$input = Ahentic_Abilities_Content::coerce_search_input( $input );
+			}
 
 			if ( function_exists( 'wp_get_ability' ) ) {
 				$ability = wp_get_ability( $name );

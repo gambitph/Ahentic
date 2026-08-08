@@ -523,19 +523,27 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 						'type'       => 'object',
 						'required'   => array( 'query' ),
 						'properties' => array(
-							'query'        => array(
+							'query'         => array(
 								'type'        => 'string',
-								'description' => __( 'Phrase to search for.', 'ahentic' ),
+								'description' => __( 'Phrase to search for. Alias: search (coerced to query before run).', 'ahentic' ),
 							),
-							'post_type'    => array(
+							'search'        => array(
+								'type'        => 'string',
+								'description' => __( 'Alias for query. Prefer query; Ahentic copies search → query when query is empty.', 'ahentic' ),
+							),
+							'post_type'     => array(
 								'description' => __( 'Post type or list of types.', 'ahentic' ),
 							),
-							'status'       => array(
+							'status'        => array(
 								'description' => __( 'Post status or list.', 'ahentic' ),
 							),
-							'limit'        => array( 'type' => 'integer' ),
-							'search_meta'  => array( 'type' => 'boolean' ),
-							'snippet_chars'=> array( 'type' => 'integer' ),
+							'limit'         => array( 'type' => 'integer' ),
+							'per_page'      => array(
+								'type'        => 'integer',
+								'description' => __( 'Alias for limit (same as list-content).', 'ahentic' ),
+							),
+							'search_meta'   => array( 'type' => 'boolean' ),
+							'snippet_chars' => array( 'type' => 'integer' ),
 						),
 					),
 					'output_schema'       => array( 'type' => 'object' ),
@@ -1550,13 +1558,37 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		}
 
 		/**
+		 * Coerce model aliases before Abilities schema validate.
+		 *
+		 * - search → query when query empty
+		 * - per_page → limit when limit unset
+		 *
+		 * @param array $input Raw input.
+		 * @return array
+		 */
+		public static function coerce_search_input( array $input ) {
+			$query = isset( $input['query'] ) ? trim( (string) $input['query'] ) : '';
+			if ( '' === $query && isset( $input['search'] ) ) {
+				$input['query'] = trim( (string) $input['search'] );
+			}
+			unset( $input['search'] );
+
+			if ( ! isset( $input['limit'] ) && isset( $input['per_page'] ) ) {
+				$input['limit'] = (int) $input['per_page'];
+			}
+			unset( $input['per_page'] );
+
+			return $input;
+		}
+
+		/**
 		 * Search title/content/(optional) meta.
 		 *
 		 * @param mixed $input Input.
 		 * @return array|\WP_Error
 		 */
 		public static function execute_search_content( $input = array() ) {
-			$input = is_array( $input ) ? $input : array();
+			$input = self::coerce_search_input( is_array( $input ) ? $input : array() );
 			$query = isset( $input['query'] ) ? trim( (string) $input['query'] ) : '';
 			if ( '' === $query ) {
 				return new WP_Error( 'ahentic_missing_query', __( 'A search query is required.', 'ahentic' ) );
