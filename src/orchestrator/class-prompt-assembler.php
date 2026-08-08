@@ -115,20 +115,22 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 */
 		private static function assemble_prompt( $session_id, $mode, $user_suffix = '', $extra_turn = null, $persist_compact = true ) {
 			$sys_parts = self::system_prompt_parts( $mode, $session_id );
-			$system    = $sys_parts['core'] . $sys_parts['abilities'] . $sys_parts['plan'];
+			$system    = self::compose_system_prompt( $sys_parts );
 
 			$entries = class_exists( 'Ahentic_Session_Repository' )
 				? Ahentic_Session_Repository::get_entries( $session_id )
 				: array();
 			$built   = self::build_chat_payload( is_array( $entries ) ? $entries : array() );
-			$overhead_chars = strlen( $sys_parts['core'] ) + strlen( $sys_parts['abilities'] ) + strlen( $sys_parts['plan'] );
+			$overhead_chars = strlen( $system );
 			$built   = self::apply_context_compaction( $session_id, $built, $persist_compact, $overhead_chars );
 			$history = $built['history'];
 			$user    = $built['user'];
 
-			$chars = array(
+			$routing_len = isset( $sys_parts['routing'] ) ? strlen( (string) $sys_parts['routing'] ) : 0;
+			$chars       = array(
 				'system_prompt'      => strlen( $sys_parts['core'] ),
-				'ability_schemas'    => strlen( $sys_parts['abilities'] ),
+				// Mode/index/HITL + variable routing packs (usage gauge label stays ability_schemas).
+				'ability_schemas'    => strlen( $sys_parts['abilities'] ) + $routing_len,
 				'chat_turns'         => 0,
 				'tool_results'       => 0,
 				'page_context'       => 0,
@@ -211,16 +213,31 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @return string
 		 */
 		public static function system_prompt( $mode, $session_id = 0 ) {
-			$parts = self::system_prompt_parts( $mode, $session_id );
-			return $parts['core'] . $parts['abilities'] . $parts['plan'];
+			return self::compose_system_prompt( self::system_prompt_parts( $mode, $session_id ) );
 		}
 
 		/**
-		 * Split system prompt into measurable buckets (core / abilities / plan).
+		 * Concatenate system parts in cache-friendly order: stable core → mode/HITL → variable packs → plan.
+		 *
+		 * @param array{core?: string, abilities?: string, routing?: string, plan?: string} $parts Parts.
+		 * @return string
+		 */
+		public static function compose_system_prompt( array $parts ) {
+			return ( isset( $parts['core'] ) ? (string) $parts['core'] : '' )
+				. ( isset( $parts['abilities'] ) ? (string) $parts['abilities'] : '' )
+				. ( isset( $parts['routing'] ) ? (string) $parts['routing'] : '' )
+				. ( isset( $parts['plan'] ) ? (string) $parts['plan'] : '' );
+		}
+
+		/**
+		 * Split system prompt into measurable buckets (stable core / abilities / routing / plan).
+		 *
+		 * Order is intentional for future provider prompt caching: identical prefix bytes across
+		 * steps when mode + ability index are unchanged; packs and plan are the variable suffix.
 		 *
 		 * @param string $mode       Mode.
 		 * @param int    $session_id Session ID.
-		 * @return array{core: string, abilities: string, plan: string}
+		 * @return array{core: string, abilities: string, routing: string, plan: string}
 		 */
 		public static function system_prompt_parts( $mode, $session_id = 0 ) {
 			$site_name  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
@@ -230,100 +247,77 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			$admin_map  = Ahentic_Abilities::format_admin_links_for_prompt();
 
 			$page_context = array();
+			$entries      = array();
 			if ( $session_id && class_exists( 'Ahentic_Session_Repository' ) ) {
 				$ctx = Ahentic_Session_Repository::get_page_context( $session_id );
 				if ( is_array( $ctx ) ) {
 					$page_context = $ctx;
 				}
+				$raw = Ahentic_Session_Repository::get_entries( $session_id );
+				if ( is_array( $raw ) ) {
+					$entries = $raw;
+				}
 			}
 			$has_content_work = $session_id
 				&& class_exists( 'Ahentic_Session_Artifacts' )
 				&& Ahentic_Session_Artifacts::session_has_content_work( $session_id );
-			$routing_packs = self::select_tool_routing_packs( $page_context, (bool) $has_content_work );
-			$guidance      = self::tool_routing_guidance_for_packs( $routing_packs );
+			$recent_abilities = self::recent_ability_names_from_entries( $entries );
+			$routing_packs    = self::select_tool_routing_packs(
+				$page_context,
+				(bool) $has_content_work,
+				$recent_abilities
+			);
+			$routing = self::tool_routing_guidance_for_packs( $routing_packs );
 
+			// Stable prefix (site + protocol + admin map) — keep byte-stable across steps when possible.
 			$core = 'You are Ahentic, an AI workspace agent for WordPress. '
 				. 'You help the user understand and improve their WordPress site. '
 				. "Current site (hint only): {$site_name} ({$site_url}). "
-				. 'Be concise, practical, and specific to WordPress when possible. '
-				. 'Do not invent that you changed the site unless a tool confirmed it. '
-				. 'When you need verified site data, call tools — do not guess plugin lists or stack details.';
+				. 'Be concise and WordPress-specific. '
+				. 'Do not invent site changes unless a tool confirmed them. '
+				. 'When you need verified site data, call tools — do not guess plugins or stack details.'
+				. "\n\n"
+				. 'When pointing the user to wp-admin, ALWAYS use a Markdown link with a full URL from the map below '
+				. 'or from tool results (admin_links / edit URLs). Example: [Settings → General](https://example.com/wp-admin/options-general.php). '
+				. 'Do not nest bold inside link brackets; do not invent /wp-admin/ paths.'
+				. "\n\nAdmin link map:\n"
+				. $admin_map
+				. "\n\n"
+				. 'Before your user-facing reply, output exactly one debug block (hidden from the user):' . "\n"
+				. '<<<AHENTIC_DEBUG' . "\n"
+				. '{"intention":"Short live status","thinking":"1-3 sentences","plan":{"title":"…","steps":[{"id":"1","content":"…","status":"in_progress"}]},"tools_planned":[{"name":"ahentic/…","input":{}}],"ability_needed":"ahentic/…","next":"reply|ask_user|use_tools|missing_ability"}' . "\n"
+				. 'AHENTIC_DEBUG>>>' . "\n"
+				. 'intention: short present-tense UI status (~10 words). '
+				. 'thinking: 1–3 sentences shown in chat (never empty). '
+				. 'tools_planned: ability name strings or {"name","input"} objects. '
+				. 'ability_needed: required when next is missing_ability. '
+				. 'plan: Agent mode MUST include plan.steps when intending 2+ tools OR any write; one readonly tool may omit; omit for simple Ask. '
+				. 'Coarse user-facing steps; exactly one in_progress; on later thinks re-send the FULL plan (keep completed ids). '
+				. 'Plan is silent UI metadata — not a substitute for thinking/chat. '
+				. 'Close with AHENTIC_DEBUG>>> then a short user-visible reply (even when next is use_tools). Never mention the debug block.';
 
 			if ( 'ask' === $mode ) {
-				$abilities = ' Mode: Ask — you run the same multi-step loop as Agent, but ONLY with read-only tools '
-					. '(lookups and searches; no install/activate/update/delete or other site changes). '
-					. 'When you need site facts, set next="use_tools" and list tools in tools_planned. After tool results appear '
-					. 'in the next message, think again and either call more readonly tools or set next="reply" / "ask_user" / "missing_ability". '
-					. "Available readonly abilities right now: {$tools_list} "
-					. $guidance
-					. 'If the user asks you to change the site (install/activate/deactivate/uninstall plugins, edit content, update settings, etc.): '
-					. 'do NOT call write tools. Set next="reply" (or "ask_user" if you need a real choice), explain that Ask mode is read-only, '
-					. 'tell them to switch the composer mode to Agent to make changes, and give manual steps with admin links if useful. '
-					. 'If a tool result has error ability_ask_readonly, follow that pattern. '
-					. 'If they need a write ability that does not exist in any mode yet, set next="missing_ability" with ability_needed '
-					. '(e.g. "ahentic/update-site-title") and explain the gap with a short workaround. '
-					. 'Never mention X, Twitter, hashtags, @handles, request cards, or any sidebar UI for requesting features. '
-					. 'If a tool result has error ability_unavailable, explain you cannot do it yet and any workaround.';
+				$abilities = ' Mode: Ask — same multi-step loop as Agent, but ONLY read-only tools (no site changes). '
+					. 'Need facts → next="use_tools"; after results → more readonly tools or next="reply"|"ask_user"|"missing_ability". '
+					. "Available readonly abilities: {$tools_list} "
+					. 'If the user asks to change the site: do NOT call write tools; next="reply" or "ask_user", explain Ask is read-only, '
+					. 'tell them to switch to Agent, and give manual steps with admin links if useful. '
+					. 'ability_ask_readonly → same pattern. Missing write ability → next="missing_ability" + ability_needed + short workaround. '
+					. 'Never mention X/Twitter/hashtags/@handles/request cards/sidebar feature-request UI. '
+					. 'ability_unavailable → explain the gap and any workaround.';
 			} else {
-				$abilities = ' Mode: Agent — you run a multi-step loop. When you need site facts, set next="use_tools" '
-					. 'and list tools in tools_planned. After tool results appear in the next message, think again '
-					. 'and either call more tools or set next="reply" / "ask_user" / "missing_ability". '
-					. "Available abilities right now: {$tools_list} "
-					. $guidance
-					. 'HITL replaces ask_user for mutating abilities: when the concrete next step is a write that pauses for human approval '
-					. '(plugins install/activate/deactivate/uninstall, create/update/set-post-status, terms, settings/options, users, menus, '
-					. 'ahentic-browser/save-post, ahentic-browser/convert-blocks, or any other Allow/Skip ability), '
-					. 'do NOT set next="ask_user" or ask “shall I …?” in chat. '
-					. 'Instead set next="use_tools" and put that ability in tools_planned immediately — the product shows Allow/Skip; that IS the confirmation. '
-					. 'In the short user-facing reply, say what you are about to do and that they can approve below; '
-					. 'never claim success until a tool result confirms it. Use ask_user only for real choices the tools cannot decide '
-					. '(e.g. which of two plugins to pick when both are fine). '
-					. 'If a tool result has error user_denied or skipped=true: the user skipped that action (or redirected with a new message). '
-					. 'Do NOT retry the same ability/input. Adapt: try a different approach toward their goal (e.g. core blocks instead of a form plugin), '
-					. 'or ask_user with one clear choice if you truly cannot proceed without them. Follow any hint and any newer user message. '
-					. 'Chain install → activate: after a successful ahentic/install-plugin tool result with active=false, if the user wanted the plugin working '
-					. '(install / set up / turn on / “help me find one”), immediately set next="use_tools" with ahentic/activate-plugin using the same slug or plugin_file — '
-					. 'do not stop at “installed but not active; activate from Plugins.” Only skip chaining when the user clearly asked to install without activating. '
-					. 'IMPORTANT — when the user asks you to create/update/delete/change something and you do not have a matching '
-					. 'available ability, do NOT only give manual instructions with next="reply". Instead either: '
-					. '(A) set next="use_tools" and put the needed ability name in tools_planned even if it is not in the available list '
-					. '(the orchestrator will mark it unavailable), or '
-					. '(B) set next="missing_ability" and ability_needed to that ability slug (e.g. "ahentic/update-site-title" or "ahentic/delete-posts"). '
-					. 'In your user-facing reply: explain you cannot do it yet and give a short workaround with admin links if useful. '
-					. 'Never mention X, Twitter, hashtags, @handles, tweet URLs, request cards, or sidebar UI — the product UI handles feature requests separately. '
-					. 'If a tool result has error ability_unavailable, follow the same reply pattern.';
+				$abilities = ' Mode: Agent — multi-step loop. Need facts → next="use_tools"; after results → more tools or next="reply"|"ask_user"|"missing_ability". '
+					. "Available abilities: {$tools_list} "
+					. 'HITL: for writes that pause for Allow/Skip (plugins, create/update/set-post-status, terms, settings, users, menus, '
+					. 'ahentic-browser/save-post, convert-blocks, etc.), do NOT ask_user / “shall I…?” — next="use_tools" with that ability; '
+					. 'Allow/Skip IS confirmation. Say what you will do; never claim success until a tool result confirms it. '
+					. 'ask_user only for real choices tools cannot decide. '
+					. 'user_denied / skipped=true: do NOT retry the same ability/input; adapt or ask_user once if blocked. '
+					. 'No matching ability for a requested change: (A) next="use_tools" with the needed name anyway (orchestrator marks unavailable), '
+					. 'or (B) next="missing_ability" + ability_needed; explain + short workaround with admin links. '
+					. 'Never mention X/Twitter/hashtags/@handles/request cards/sidebar feature-request UI. '
+					. 'ability_unavailable → same reply pattern.';
 			}
-
-			$core .= "\n\n"
-				. 'When you tell the user to open a wp-admin screen, settings page, plugins list, editor, or any other area of their site, '
-				. 'ALWAYS include a clickable Markdown link using a full URL from the admin link map below (or from a tool result such as admin_links / edit URLs). '
-				. 'Format: [Settings → General](https://example.com/wp-admin/options-general.php). '
-				. 'Do not nest bold markers inside the link brackets (wrong: [**Settings → General**](url); right: [Settings → General](url) or **[Settings → General](url)**). '
-				. 'Do not only write path breadcrumbs like "Settings → General" without a link. '
-				. 'Never invent /wp-admin/ paths — use the map or tool-provided URLs.'
-				. "\n\nAdmin link map (use these URLs):\n"
-				. $admin_map;
-
-			$core .= "\n\n"
-				. 'Before your user-facing reply, output exactly one debug block (the user will not see it) in this form:' . "\n"
-				. '<<<AHENTIC_DEBUG' . "\n"
-				. '{"intention":"Checking installed plugins","thinking":"1-3 sentences","plan":{"title":"Install SEO plugin","steps":[{"id":"1","content":"See what SEO plugins are installed","status":"in_progress"},{"id":"2","content":"Search for a suitable SEO plugin","status":"pending"},{"id":"3","content":"Install and activate","status":"pending"}]},"tools_planned":[{"name":"ahentic/list-plugins","input":{}}],"ability_needed":"ahentic/update-site-title","next":"reply|ask_user|use_tools|missing_ability"}' . "\n"
-				. 'AHENTIC_DEBUG>>>' . "\n"
-				. 'intention must be a short present-tense status the UI can show live (e.g. "Checking installed plugins", '
-				. '"Searching the media library", "Summarizing findings") — not a private note. Keep it under ~10 words. '
-				. 'thinking is shown to the user in the sidebar chat on every step — write 1–3 clear sentences of your thought '
-				. 'process and findings (what you know, what you will check or just learned from tools). Do not leave thinking empty. '
-				. 'tools_planned may be strings (ability names) or objects {"name":"ahentic/…","input":{}}. '
-				. 'ability_needed is optional except when next is missing_ability (string or list of ability slugs). '
-				. 'plan is orchestrator state (not a tool). In Agent mode you MUST include a non-empty plan.steps list when you '
-				. 'intend 2+ tools in tools_planned OR any write (non-readonly) ability. A single readonly tool may omit plan. '
-				. 'Omit plan for simple Ask answers. When you include plan, use coarse user-facing steps (not every tool name), '
-				. 'keep exactly one status "in_progress", and on later thinks ALWAYS re-send the FULL plan including already '
-				. 'completed/cancelled steps (same ids) — never drop finished steps from the list; only update their status. '
-				. 'The plan checklist is silent UI metadata — it must NOT replace thinking or chat narration. '
-				. 'Closing marker: AHENTIC_DEBUG followed by exactly three > characters. '
-				. 'After the closing marker, write a short normal reply the user can read (even when next is use_tools — e.g. what you are about to check or what you just learned). '
-				. 'Never mention the debug block.';
 
 			$plan = '';
 			if ( $session_id ) {
@@ -340,6 +334,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			return array(
 				'core'      => $core,
 				'abilities' => $abilities,
+				'routing'   => $routing,
 				'plan'      => $plan,
 			);
 		}
@@ -378,29 +373,78 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		}
 
 		/**
+		 * Ability names from trailing tool results since the latest user message (for sticky packs).
+		 *
+		 * @param array $entries Session entries.
+		 * @param int   $limit   Max names to return (most recent last).
+		 * @return string[]
+		 */
+		public static function recent_ability_names_from_entries( array $entries, $limit = 12 ) {
+			$last_user = -1;
+			foreach ( $entries as $i => $entry ) {
+				if ( isset( $entry['role'] ) && 'user' === $entry['role'] ) {
+					$last_user = (int) $i;
+				}
+			}
+			$names = array();
+			foreach ( $entries as $i => $entry ) {
+				if ( (int) $i <= $last_user ) {
+					continue;
+				}
+				if ( ! isset( $entry['role'] ) || 'tool' !== $entry['role'] ) {
+					continue;
+				}
+				$ability = isset( $entry['meta']['ability'] ) ? (string) $entry['meta']['ability'] : '';
+				if ( '' !== $ability ) {
+					$names[] = $ability;
+				}
+			}
+			$limit = max( 1, (int) $limit );
+			if ( count( $names ) > $limit ) {
+				$names = array_slice( $names, -1 * $limit );
+			}
+			return array_values( $names );
+		}
+
+		/**
 		 * Choose which tool-routing packs to embed for this think.
 		 *
-		 * @param array $page_context      Session page context (may be empty).
-		 * @param bool  $has_content_work  Whether the session is mid long-form content work.
+		 * Floor from page context + content_work; recent abilities may sticky-add packs.
+		 * Empty page context bootstraps content (discovery) but not editor/media essays.
+		 *
+		 * @param array    $page_context      Session page context (may be empty).
+		 * @param bool     $has_content_work  Whether the session is mid long-form content work.
+		 * @param string[] $recent_abilities  Trailing tool ability names this run (optional).
 		 * @return string[] Pack ids.
 		 */
-		public static function select_tool_routing_packs( array $page_context, $has_content_work = false ) {
-			$packs = array( 'core', 'content' );
+		public static function select_tool_routing_packs( array $page_context, $has_content_work = false, array $recent_abilities = array() ) {
+			$packs = array( 'core' );
 			$url   = isset( $page_context['url'] ) ? (string) $page_context['url'] : '';
 			$in_editor = ! empty( $page_context['is_block_editor'] )
 				|| self::url_looks_like_block_editor( $url );
+			$on_content_screen = self::url_looks_like_content_screen( $url );
+			$sticky            = self::packs_suggested_by_recent_abilities( $recent_abilities );
 
-			// Unknown tab: keep editor routing available so content jobs still work.
-			if ( $in_editor || empty( $page_context ) || $has_content_work ) {
-				$packs[] = 'editor';
+			// Content essays: editor / posts screens / content work / unknown tab / sticky.
+			if ( $in_editor || $on_content_screen || $has_content_work || empty( $page_context ) || in_array( 'content', $sticky, true ) ) {
+				$packs[] = 'content';
 			}
 
-			// Media guidance is useful for content/editor jobs; skip on unrelated screens.
-			if ( $in_editor || $has_content_work || empty( $page_context ) || self::url_matches_any( $url, array( 'upload.php', 'media-new.php' ) ) ) {
+			// Editor: not on empty context alone — need editor signal, content work, or sticky tools.
+			if ( $in_editor || $has_content_work || in_array( 'editor', $sticky, true ) ) {
+				$packs[] = 'editor';
+			}
+			// Media: editor screen / content work / media screen / sticky media abilities — not merely sticky editor.
+			if (
+				$in_editor
+				|| $has_content_work
+				|| in_array( 'media', $sticky, true )
+				|| self::url_matches_any( $url, array( 'upload.php', 'media-new.php' ) )
+			) {
 				$packs[] = 'media';
 			}
 
-			if ( self::url_matches_any( $url, array( 'plugins.php', 'plugin-install.php', 'plugin-editor.php' ) ) ) {
+			if ( self::url_matches_any( $url, array( 'plugins.php', 'plugin-install.php', 'plugin-editor.php' ) ) || in_array( 'plugins', $sticky, true ) ) {
 				$packs[] = 'plugins';
 			}
 			if ( self::url_matches_any(
@@ -418,20 +462,94 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					'options.php',
 					'widgets.php',
 				)
-			) ) {
+			) || in_array( 'settings', $sticky, true ) ) {
 				$packs[] = 'settings';
 			}
-			if ( self::url_matches_any( $url, array( 'users.php', 'user-new.php', 'profile.php', 'user-edit.php' ) ) ) {
+			if ( self::url_matches_any( $url, array( 'users.php', 'user-new.php', 'profile.php', 'user-edit.php' ) ) || in_array( 'users', $sticky, true ) ) {
 				$packs[] = 'users';
 			}
-			if ( self::url_matches_any( $url, array( 'nav-menus.php' ) ) ) {
+			if ( self::url_matches_any( $url, array( 'nav-menus.php' ) ) || in_array( 'menus', $sticky, true ) ) {
 				$packs[] = 'menus';
 			}
-			if ( self::url_matches_any( $url, array( 'site-health.php', 'tools.php' ) ) ) {
+			if ( self::url_matches_any( $url, array( 'site-health.php', 'tools.php' ) ) || in_array( 'http', $sticky, true ) ) {
 				$packs[] = 'http';
 			}
 
 			return array_values( array_unique( $packs ) );
+		}
+
+		/**
+		 * Map recent ability names → pack ids to sticky-include.
+		 *
+		 * Membership is derived from each ability module’s `names()` catalog when loaded —
+		 * do not hand-sync a second ability list here.
+		 *
+		 * @param string[] $ability_names Ability names.
+		 * @return string[] Pack ids.
+		 */
+		public static function packs_suggested_by_recent_abilities( array $ability_names ) {
+			$map   = self::ability_name_to_routing_pack_map();
+			$packs = array();
+			foreach ( $ability_names as $name ) {
+				$name = (string) $name;
+				if ( '' === $name ) {
+					continue;
+				}
+				if ( isset( $map[ $name ] ) ) {
+					$packs[] = $map[ $name ];
+					continue;
+				}
+				// Namespace fallback when modules are not loaded (narrow unit tests).
+				if ( 0 === strpos( $name, 'ahentic-browser/' ) ) {
+					$packs[] = 'editor';
+				}
+			}
+			return array_values( array_unique( $packs ) );
+		}
+
+		/**
+		 * Ability name → routing pack, built from module catalogs (single source of truth).
+		 *
+		 * @return array<string, string> Ability name => pack id.
+		 */
+		private static function ability_name_to_routing_pack_map() {
+			static $map = null;
+			if ( null !== $map ) {
+				return $map;
+			}
+			$map    = array();
+			$groups = array(
+				'content'  => array( 'Ahentic_Abilities_Content', 'Ahentic_Abilities_Taxonomy', 'Ahentic_Session_Artifacts' ),
+				'editor'   => array( 'Ahentic_Abilities_Browser' ),
+				'media'    => array( 'Ahentic_Abilities_Media' ),
+				'plugins'  => array( 'Ahentic_Abilities_Plugins' ),
+				'settings' => array( 'Ahentic_Abilities_Settings' ),
+				'users'    => array( 'Ahentic_Abilities_Users' ),
+				'menus'    => array( 'Ahentic_Abilities_Menus' ),
+			);
+			foreach ( $groups as $pack => $classes ) {
+				foreach ( $classes as $class ) {
+					if ( ! class_exists( $class ) || ! is_callable( array( $class, 'names' ) ) ) {
+						continue;
+					}
+					foreach ( (array) call_user_func( array( $class, 'names' ) ) as $ability ) {
+						$ability = (string) $ability;
+						if ( '' !== $ability ) {
+							$map[ $ability ] = $pack;
+						}
+					}
+				}
+			}
+			// Site module mixes http with snapshot/health — only sticky the http pack for fetch/debug.
+			if ( class_exists( 'Ahentic_Abilities_Site' ) ) {
+				if ( defined( 'Ahentic_Abilities_Site::HTTP_FETCH' ) ) {
+					$map[ Ahentic_Abilities_Site::HTTP_FETCH ] = 'http';
+				}
+				if ( defined( 'Ahentic_Abilities_Site::DEBUG_LOG' ) ) {
+					$map[ Ahentic_Abilities_Site::DEBUG_LOG ] = 'http';
+				}
+			}
+			return $map;
 		}
 
 		/**
@@ -443,9 +561,32 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			if ( '' === $url ) {
 				return false;
 			}
-			return (false !== strpos( $url, 'post.php' ))
-				|| (false !== strpos( $url, 'post-new.php' ))
-				|| (false !== strpos( $url, 'site-editor.php' ));
+			return ( false !== strpos( $url, 'post.php' ) )
+				|| ( false !== strpos( $url, 'post-new.php' ) )
+				|| ( false !== strpos( $url, 'site-editor.php' ) );
+		}
+
+		/**
+		 * Posts/pages list and related content admin screens (not necessarily the block editor).
+		 *
+		 * @param string $url Page URL.
+		 * @return bool
+		 */
+		private static function url_looks_like_content_screen( $url ) {
+			$url = (string) $url;
+			if ( '' === $url ) {
+				return false;
+			}
+			return self::url_matches_any(
+				$url,
+				array(
+					'edit.php',
+					'post.php',
+					'post-new.php',
+					'site-editor.php',
+					'revision.php',
+				)
+			);
 		}
 
 		/**
@@ -605,7 +746,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'To place a generated image in the open post: ahentic/generate-image → ahentic/upload-media {"from_memory":"<artifact_key>"} (allow HITL) → place exactly once: either ahentic-browser/insert-blocks with a single core/image {id,url,alt} (index 0 or before_ref of the first block) OR ahentic-browser/set-featured-image when the user asked for featured/thumbnail/cover (use ahentic/set-featured-image only when the block editor is not open for that post) — never both, never insert-blocks twice for the same image. Never from_memory on insert-blocks for image artifacts. ';
 
 				case 'plugins':
-					return 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). ';
+					return 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). '
+						. 'Chain install → activate: after a successful ahentic/install-plugin result with active=false, if the user wanted the plugin working '
+						. '(install / set up / turn on / “help me find one”), immediately next="use_tools" with ahentic/activate-plugin using the same slug or plugin_file — '
+						. 'do not stop at “installed but not active.” Only skip chaining when they clearly asked to install without activating. ';
 
 				case 'settings':
 					return 'For theme Customizer / appearance settings: call ahentic/get-settings-context first (block vs classic + surfaces). '

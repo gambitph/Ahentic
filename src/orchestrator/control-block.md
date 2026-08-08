@@ -94,9 +94,13 @@ Rules enforced in prompt + merge logic:
 
 ## What the model sees each think
 
-Assembled approximately as:
+Assembled approximately as (cache-friendly order — stable prefix, then variable suffix):
 
-1. **System prompt** — role, available abilities for mode, routing rules, admin link map, optional current plan
+1. **System prompt**
+   - **core** — identity, admin link map, `AHENTIC_DEBUG` wire rules (stable across steps when site/mode unchanged)
+   - **abilities** — Ask/Agent mode + HITL + compact ability name index
+   - **routing** — tool-routing packs selected by PHP from page context, `has_content_work`, and recent trailing abilities (not model-declared)
+   - **plan** — current plan checklist + long-form content-work CRITICAL when applicable
 2. **History** — prior user/assistant turns (capped)
 3. **Latest user message** plus:
    - Active **page context** (URL / editor / post id)

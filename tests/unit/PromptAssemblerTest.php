@@ -11,6 +11,9 @@ class PromptAssemblerTest extends TestCase {
 
 	public static function setUpBeforeClass(): void {
 		require_once dirname( __DIR__, 2 ) . '/src/orchestrator/class-prompt-assembler.php';
+		// Catalogs for sticky pack derivation (same ABSPATH bootstrap as other unit tests).
+		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-content.php';
+		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-browser.php';
 	}
 
 	public function test_excerpt_truncates_with_ellipsis() {
@@ -267,7 +270,8 @@ class PromptAssemblerTest extends TestCase {
 			),
 			false
 		);
-		$this->assertSame( array( 'core', 'content' ), $dashboard );
+		// Dashboard: core only — content/editor essays are not always-on.
+		$this->assertSame( array( 'core' ), $dashboard );
 		$this->assertNotContains( 'menus', $dashboard );
 		$this->assertNotContains( 'users', $dashboard );
 
@@ -279,7 +283,81 @@ class PromptAssemblerTest extends TestCase {
 			false
 		);
 		$this->assertContains( 'plugins', $plugins );
+		$this->assertContains( 'core', $plugins );
 		$this->assertNotContains( 'editor', $plugins );
+		$this->assertNotContains( 'content', $plugins );
+	}
+
+	public function test_empty_page_context_bootstraps_content_not_editor_media() {
+		$packs = Ahentic_Prompt_Assembler::select_tool_routing_packs( array(), false );
+		$this->assertSame( array( 'core', 'content' ), $packs );
+		$this->assertNotContains( 'editor', $packs );
+		$this->assertNotContains( 'media', $packs );
+	}
+
+	public function test_posts_list_screen_adds_content_pack() {
+		$packs = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => false,
+				'url'             => 'https://example.com/wp-admin/edit.php',
+			),
+			false
+		);
+		$this->assertContains( 'core', $packs );
+		$this->assertContains( 'content', $packs );
+		$this->assertNotContains( 'editor', $packs );
+	}
+
+	public function test_recent_abilities_sticky_editor_and_content_packs() {
+		$packs = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => false,
+				'url'             => 'https://example.com/wp-admin/index.php',
+			),
+			false,
+			array( 'ahentic/list-content', 'ahentic-browser/set-blocks' )
+		);
+		$this->assertContains( 'content', $packs );
+		$this->assertContains( 'editor', $packs );
+		// Sticky editor alone must not force media (media needs media abilities / editor screen / content work).
+		$this->assertNotContains( 'media', $packs );
+	}
+
+	public function test_compose_system_prompt_orders_stable_prefix_then_variable_suffix() {
+		$out = Ahentic_Prompt_Assembler::compose_system_prompt(
+			array(
+				'core'      => '[CORE]',
+				'abilities' => '[ABILITIES]',
+				'routing'   => '[ROUTING]',
+				'plan'      => '[PLAN]',
+			)
+		);
+		$this->assertSame( '[CORE][ABILITIES][ROUTING][PLAN]', $out );
+		// PHPUnit assertLessThan( $expected, $actual ): actual < expected.
+		$this->assertLessThan( strpos( $out, '[PLAN]' ), strpos( $out, '[ROUTING]' ) );
+		$this->assertLessThan( strpos( $out, '[ROUTING]' ), strpos( $out, '[ABILITIES]' ) );
+	}
+
+	public function test_recent_ability_names_from_entries_reads_trailing_tools() {
+		$names = Ahentic_Prompt_Assembler::recent_ability_names_from_entries(
+			array(
+				array(
+					'role'    => 'user',
+					'content' => 'Link posts',
+				),
+				array(
+					'role'    => 'tool',
+					'content' => '{}',
+					'meta'    => array( 'ability' => 'ahentic/list-content' ),
+				),
+				array(
+					'role'    => 'tool',
+					'content' => '{}',
+					'meta'    => array( 'ability' => 'ahentic-browser/get-blocks' ),
+				),
+			)
+		);
+		$this->assertSame( array( 'ahentic/list-content', 'ahentic-browser/get-blocks' ), $names );
 	}
 
 	public function test_format_abilities_index_groups_namespaces() {
