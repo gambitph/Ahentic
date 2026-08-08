@@ -1062,6 +1062,15 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
+		 * Reset the run step counter (new goal / Continue resume).
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function reset_step_count( $session_id ) {
+			update_post_meta( (int) $session_id, self::META_STEP_COUNT, 0 );
+		}
+
+		/**
 		 * Set pending tool payload.
 		 *
 		 * @param int        $session_id Session ID.

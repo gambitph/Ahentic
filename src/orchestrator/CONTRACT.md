@@ -55,7 +55,7 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 **Plan module:** `Ahentic_Plan` owns the plan checklist. Primary interface: `sync_after_think()`, `ensure_after_think()`, `advance_after_tool()`, `complete_on_finish()`, `cancel_on_stop()`, `reopen_cancelled_steps()`. The Orchestrator (and Finish Gate for advance) must call these — do not reimplement plan merge/normalize/FSM at call sites.
 
-**Job resume module:** `Ahentic_Job_Resume` owns resume-cue detection, sticky `content_work` on resume messages, active-goal selection (skip resume-only lines), and whether forced apply tools may finish after a failure during content work. The Orchestrator must call these — do not reimplement resume policy at call sites.
+**Job resume module:** `Ahentic_Job_Resume` owns new-goal vs resume-same-job run-start ritual (Repository clears/sets, sticky `content_work`, active goal, Plan reopen via `Ahentic_Plan`) and whether forced apply tools may finish after a failure during content work. Primary interface: `begin_new_goal()`, `begin_resume()`, `should_finish_after_forced_tools()`, `should_try_finish_after_browser_resume()`. The Orchestrator must call these — do not reimplement Continuable / cue / clear sequences at call sites.
 
 **Think/debug module:** `Ahentic_Think_Debug` owns AHENTIC_DEBUG recovery and post-think disposition. Primary interface: `run_think()`, `apply_live_progress()`, `finalize_result_text()`, `should_finish_without_tools()`, `publish_thought_process()`, `queue_missing_ability()`. The Orchestrator must call these — do not reimplement debug retry or missing-ability policy at call sites. Single LLM phases remain `Ahentic_Orchestrator::run_llm_phase()` (used by Think/Debug and plan-retry).
 

@@ -17,7 +17,8 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 | --- | --- |
 | `Ahentic_Orchestrator` | Agent loop: think → tools → continue / finish |
 | `Ahentic_Think_Debug` | Think with debug recovery (`run_think` / disposition / thought publish) |
-| `Ahentic_Plan` | Plan card lifecycle (`sync_after_think` / `ensure_after_think` / advance / complete / cancel) |
+| `Ahentic_Plan` | Plan card lifecycle (`sync_after_think` / `ensure_after_think` / advance / complete / cancel / reopen) |
+| `Ahentic_Job_Resume` | New goal vs resume same job (`begin_new_goal` / `begin_resume`) + forced-apply finish policy |
 | `Ahentic_Tool_Runner` | One Ability through HITL / browser / execute (owns pipeline helpers; shared by step loop + approval resume) |
 | `Ahentic_Finish_Gate` | Thin-body assess + decide-before-idle (forced apply / verify repair / partial finish) |
 | `Ahentic_AI` | Thin wrapper around Core AI Client / `wordpress/php-ai-client` |
@@ -122,7 +123,7 @@ Tool JSON injected into the next think is capped (~8k chars) to avoid blowing co
 - Preferred: `schedule_interactive_run` closes the HTTP response on `shutdown`, then `process_step`.
 - Backup: Action Scheduler (`as_enqueue_async_action`) or `wp_schedule_single_event`.
 - Stall fallback: `POST /sessions/{id}/continue` (Local / no cron). Also resumes mid-failure / honest-partial jobs when `jobResumable` is set (`resume_job`). Composer resume cues (“continue”) take the same path while a job is recoverable.
-- **Job resume:** `Ahentic_Job_Resume` owns resume-cue / sticky `content_work` / active-goal / forced-apply-finish decisions. Failures leave Plan + Artifacts + active goal; forced apply failures during content work return to think instead of `final_reply`.
+- **Job Resume:** `Ahentic_Job_Resume` owns run-start ritual (`begin_new_goal` / `begin_resume`) and forced-apply-finish decisions. Failures leave Plan + Artifacts + active goal Continuable; forced apply failures during content work return to think instead of `final_reply`.
 - Run lock (`_ahentic_run_lock`) prevents overlapping steps on the same session.
 - **LLM liveness:** while `complete_chat` runs, keepalive ticks + optional WP HTTP curl progress bump `heartbeatAt` (and refresh the run lock). Sidebar polls nudge cron so ticks can fire in other requests.
 - **Context compaction:** when history is large **or** estimated next-prompt fill ≥ 85% of the soft **200k** budget, older turns become an extractive rolling summary; pinned goal + plan (+ artifact pointers) stay on the user prompt. Fill + technical buckets are exposed as `contextUsage` on session REST for the composer ring ([usage gauge](../../pro__premium_only/docs/future-sidebar-usage.md)).
