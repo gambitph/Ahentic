@@ -61,6 +61,9 @@ Constants: `Ahentic_Session_Repository::STATUS_*`.
 | `_ahentic_capability_requests` | Missing-ability request queue |
 | `_ahentic_last_error` | Last error message |
 | `_ahentic_auto_title` | Whether title was auto-set from first message |
+| `_ahentic_content_work` | Long-form / article intent (budgets + verify) |
+| `_ahentic_active_goal` | Pinned user goal (skips resume-only chat lines) |
+| `_ahentic_job_resumable` | Continue can resume this job after error / honest partial |
 | `_ahentic_summary_*` / `_ahentic_knowledge_*` | Post-run summary / knowledge classification |
 
 Repository API: `Ahentic_Session_Repository::{get,set}_*` helpers. Prefer those over raw `update_post_meta` from new code.

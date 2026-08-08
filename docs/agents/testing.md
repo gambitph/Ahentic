@@ -120,6 +120,7 @@ per-ability specs are too granular to maintain.
 | Spec | Covers |
 | --- | --- |
 | `orchestrator-pipeline.spec.js` | Characterization of the tool pipeline (readonly tools, HITL allow/deny/allow_session, browser pause/resume, Ask-mode write block) — safety net for ToolRunner / HITL-policy architecture work |
+| `job-resume.spec.js` | Mid-failure Continue / composer resume / forced-apply retry / new-message after failure (Session REST seam for #3) |
 | `hitl-and-undo.spec.js` | Browser HITL card wiring + non-preallowable HITL, settings snapshot, `undo-last-actions` |
 | `content-and-plugins.spec.js` | Content/plugin/site abilities + `list-post-types`, `analyze-plugins`, `list-themes`, `replace-in-content`, revisions |
 | `settings-abilities.spec.js` | Settings discovery + theme/global-styles/template-part/option writes and their undo paths |

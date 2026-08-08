@@ -94,7 +94,7 @@ async function installAiPlugin() {
  * @param {string}      [props.approvingDecision] HITL decision in flight (hides card, shows live status).
  * @param {Function}    props.onApproval
  * @param {Function}    props.onSuggestedAction
- * @param {string}      [props.liveness]          '' | 'stuck'
+ * @param {string}      [props.liveness]          '' | 'stuck' | 'resumable'
  * @param {Function}    [props.onContinue]
  * @param {Function}    [props.onCancelRun]
  */
@@ -582,54 +582,63 @@ export default function TabContent( {
 					</div>
 				) : null }
 
-				{ busy && ( progressLabel || liveness === 'stuck' ) && ( sessionStatus !== 'awaiting_human' || Boolean( approvingDecision ) ) ? (
-					<div
-						className={ classnames(
-							'ahentic-live-status',
-							liveness === 'stuck' && 'is-stuck'
-						) }
-						role="status"
-						aria-live="polite"
-					>
-						<span className="ahentic-live-status__text">
-							{ liveness === 'stuck'
-								? __( 'This run may be stuck', 'ahentic' )
-								: progressLabel }
-						</span>
-						{ liveness === 'stuck' && progressLabel ? (
-							<span className="ahentic-live-status__hint">
-								{ progressLabel }
+				{ ( ( busy && ( progressLabel || liveness === 'stuck' ) && ( sessionStatus !== 'awaiting_human' || Boolean( approvingDecision ) ) ) ||
+					( ! busy && liveness === 'resumable' && typeof onContinue === 'function' ) ) ? (
+						<div
+							className={ classnames(
+								'ahentic-live-status',
+								liveness === 'stuck' && 'is-stuck',
+								liveness === 'resumable' && 'is-resumable'
+							) }
+							role="status"
+							aria-live="polite"
+						>
+							<span className="ahentic-live-status__text">
+								{ liveness === 'stuck'
+									? __( 'This run may be stuck', 'ahentic' )
+									: liveness === 'resumable'
+										? __( 'This job can be continued', 'ahentic' )
+										: progressLabel }
 							</span>
-						) : null }
-						{ liveness !== 'stuck' && progressHint ? (
-							<span className="ahentic-live-status__hint">
-								{ progressHint }
-							</span>
-						) : null }
-						{ liveness === 'stuck' ? (
-							<div className="ahentic-live-status__actions">
-								{ typeof onContinue === 'function' ? (
-									<button
-										type="button"
-										className="ahentic-live-status__continue"
-										onClick={ () => onContinue() }
-									>
-										{ __( 'Continue', 'ahentic' ) }
-									</button>
-								) : null }
-								{ typeof onCancelRun === 'function' ? (
-									<button
-										type="button"
-										className="ahentic-live-status__cancel"
-										onClick={ () => onCancelRun() }
-									>
-										{ __( 'Cancel', 'ahentic' ) }
-									</button>
-								) : null }
-							</div>
-						) : null }
-					</div>
-				) : null }
+							{ liveness === 'stuck' && progressLabel ? (
+								<span className="ahentic-live-status__hint">
+									{ progressLabel }
+								</span>
+							) : null }
+							{ liveness === 'resumable' ? (
+								<span className="ahentic-live-status__hint">
+									{ __( 'Resume the same goal, plan, and drafts without retyping.', 'ahentic' ) }
+								</span>
+							) : null }
+							{ liveness !== 'stuck' && liveness !== 'resumable' && progressHint ? (
+								<span className="ahentic-live-status__hint">
+									{ progressHint }
+								</span>
+							) : null }
+							{ liveness === 'stuck' || liveness === 'resumable' ? (
+								<div className="ahentic-live-status__actions">
+									{ typeof onContinue === 'function' ? (
+										<button
+											type="button"
+											className="ahentic-live-status__continue"
+											onClick={ () => onContinue() }
+										>
+											{ __( 'Continue', 'ahentic' ) }
+										</button>
+									) : null }
+									{ liveness === 'stuck' && typeof onCancelRun === 'function' ? (
+										<button
+											type="button"
+											className="ahentic-live-status__cancel"
+											onClick={ () => onCancelRun() }
+										>
+											{ __( 'Cancel', 'ahentic' ) }
+										</button>
+									) : null }
+								</div>
+							) : null }
+						</div>
+					) : null }
 			</div>
 		</div>
 	)

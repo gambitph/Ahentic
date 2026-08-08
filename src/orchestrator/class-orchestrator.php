@@ -105,7 +105,22 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				Ahentic_Session_Repository::set_page_context( $session_id, $page_context );
 			}
 
+			$is_resume_cue = Ahentic_Job_Resume::message_looks_like_resume_cue( $content );
+
+			// Composer "continue" while a job is Continue-recoverable → same path as the CTA.
+			if ( $is_resume_cue && Ahentic_Session_Repository::get_job_resumable( $session_id ) ) {
+				Ahentic_Session_Repository::append_entry(
+					$session_id,
+					array(
+						'role'    => 'user',
+						'content' => $content,
+					)
+				);
+				return self::resume_job( $session_id, 'composer_cue' );
+			}
+
 			Ahentic_Session_Repository::clear_error( $session_id );
+			Ahentic_Session_Repository::set_job_resumable( $session_id, false );
 			Ahentic_Session_Repository::clear_verify_pending( $session_id );
 			Ahentic_Session_Repository::clear_verify_attempts( $session_id );
 			Ahentic_Session_Repository::clear_pending_final( $session_id );
@@ -117,12 +132,26 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			// Intent gate: long-form / article jobs get content budgets + stricter verify
 			// even before any artifact is staged (PRD content-and-editor).
-			$content_intent = self::message_looks_like_content_work( $content );
+			$session_has_content = class_exists( 'Ahentic_Session_Artifacts' )
+				? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
+				: Ahentic_Session_Repository::get_content_work( $session_id );
+			$content_intent      = Ahentic_Job_Resume::resolve_content_work_on_message(
+				self::message_looks_like_content_work( $content ),
+				$is_resume_cue,
+				$session_has_content
+			);
 			Ahentic_Session_Repository::set_content_work( $session_id, $content_intent );
 
 			update_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, 0 );
 			Ahentic_Session_Repository::consume_capability_requests( $session_id );
+
+			// Resume-with-job_resumable already returned above. Any message that reaches
+			// here starts a new run — clear Plan (Stop/Cancel stay terminal).
 			Ahentic_Session_Repository::clear_plan( $session_id );
+			if ( ! $is_resume_cue ) {
+				Ahentic_Session_Repository::set_active_goal( $session_id, $content );
+			}
+
 			// Mark running before append_entry so a concurrent poll cannot see the new
 			// user message while status is still idle (sidebar would drop busy chrome
 			// and stop polling / browser resume).
@@ -161,7 +190,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		}
 
 		/**
-		 * Continue a stalled run (Local / no cron fallback).
+		 * Continue a stalled run (Local / no cron fallback) or resume a recoverable job.
 		 *
 		 * @param int $session_id Session ID.
 		 * @return array|\WP_Error
@@ -178,11 +207,87 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 			}
 
-			if ( Ahentic_Session_Repository::STATUS_RUNNING !== $status ) {
+			if ( Ahentic_Session_Repository::STATUS_RUNNING === $status ) {
+				self::process_step( $session_id );
 				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 			}
 
-			self::process_step( $session_id );
+			// Idle / error after mid-job failure or honest partial — same job, not a new message.
+			if ( Ahentic_Session_Repository::get_job_resumable( $session_id ) ) {
+				return self::resume_job( $session_id, 'continue_api' );
+			}
+
+			return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
+		}
+
+		/**
+		 * Resume a Continue-recoverable Session job without replacing the active goal.
+		 *
+		 * @param int    $session_id Session ID.
+		 * @param string $source     continue_api|composer_cue.
+		 * @return array|\WP_Error
+		 */
+		public static function resume_job( $session_id, $source = 'continue_api' ) {
+			$post = Ahentic_Session_Repository::get_post( $session_id );
+			if ( is_wp_error( $post ) ) {
+				return $post;
+			}
+
+			$status = Ahentic_Session_Repository::get_status( $session_id );
+			if ( in_array( $status, array( Ahentic_Session_Repository::STATUS_RUNNING, Ahentic_Session_Repository::STATUS_AWAITING_BROWSER ), true ) ) {
+				return new WP_Error(
+					'ahentic_session_busy',
+					__( 'This session is still working. Wait for it to finish or cancel it.', 'ahentic' ),
+					array( 'status' => 409 )
+				);
+			}
+
+			$may_spend = Ahentic_Usage::assert_may_spend();
+			if ( is_wp_error( $may_spend ) ) {
+				return $may_spend;
+			}
+
+			Ahentic_Session_Repository::clear_error( $session_id );
+			Ahentic_Session_Repository::set_job_resumable( $session_id, false );
+			Ahentic_Session_Repository::clear_verify_pending( $session_id );
+			Ahentic_Session_Repository::clear_verify_attempts( $session_id );
+			Ahentic_Session_Repository::clear_pending_final( $session_id );
+			Ahentic_Session_Repository::clear_forced_tools( $session_id );
+			Ahentic_Session_Repository::clear_thought( $session_id );
+			Ahentic_Session_Repository::clear_browser_paused_at( $session_id );
+			Ahentic_Session_Repository::set_llm_keepalive( $session_id, false );
+
+			// Keep content_work / Plan / Artifacts / active goal — reopen cancelled plan steps.
+			Ahentic_Plan::reopen_cancelled_steps( $session_id );
+			$session_has_content = class_exists( 'Ahentic_Session_Artifacts' )
+				? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
+				: Ahentic_Session_Repository::get_content_work( $session_id );
+			if ( $session_has_content ) {
+				Ahentic_Session_Repository::set_content_work( $session_id, true );
+			}
+
+			update_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, 0 );
+			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
+			Ahentic_Session_Repository::set_progress( $session_id, __( 'Planning next steps…', 'ahentic' ) );
+			Ahentic_Session_Repository::touch_heartbeat( $session_id );
+
+			$mode_now = Ahentic_Session_Repository::get_mode( $session_id );
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'run_resume',
+				sprintf( 'Job resumed (%s)', $source ),
+				array(
+					'mode'         => $mode_now,
+					'source'       => $source,
+					'content_work' => Ahentic_Session_Repository::get_content_work( $session_id ),
+					'goal'         => self::excerpt( Ahentic_Session_Repository::get_active_goal( $session_id ), 160 ),
+					'env'          => Ahentic_Session_Repository::environment_snapshot(),
+				)
+			);
+
+			Ahentic_Step_Queue::enqueue_step( $session_id );
+			Ahentic_Step_Queue::schedule_interactive_run( $session_id );
+
 			return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 		}
 
@@ -246,11 +351,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$steps     = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 			$max_steps = self::max_steps_for_session( $session_id );
 			if ( $steps >= $max_steps ) {
+				Ahentic_Session_Repository::set_job_resumable( $session_id, true );
 				self::fail_run(
 					$session_id,
 					new WP_Error(
 						'ahentic_max_steps',
-						__( 'This run hit the step limit before finishing. Artifacts are kept — send Continue or another message to resume (e.g. finish applying the draft).', 'ahentic' )
+						__( 'This run hit the step limit before finishing. Artifacts are kept — use Continue to resume (e.g. finish applying the draft).', 'ahentic' )
 					)
 				);
 				return false;
@@ -387,7 +493,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				);
 			}
 
-			$ran_any = false;
+			$ran_any     = false;
+			$any_failed  = false;
 			foreach ( $planned as $call_index => $call ) {
 				if ( Ahentic_Session_Repository::STATUS_RUNNING !== Ahentic_Session_Repository::get_status( $session_id ) ) {
 					return false;
@@ -484,7 +591,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 						),
 						$step
 					);
-					$ran_any = true;
+					$ran_any    = true;
+					$any_failed = true;
 					continue;
 				}
 
@@ -507,15 +615,32 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				}
 
 				$ran_any = true;
+				if ( empty( $run['ok'] ) ) {
+					$any_failed = true;
+				}
 			}
 
 			if ( ! $ran_any ) {
 				return self::try_finish_with_reply( $session_id, $result, $debug );
 			}
 
-			// Forced apply/verify tools: try to finish with the stashed reply instead of another free think.
+			// Forced apply/verify tools: finish with stashed reply only when policy allows
+			// (content-work apply failures return to think — #3).
 			if ( $from_forced ) {
-				return self::try_finish_with_reply( $session_id, $result, $debug );
+				$has_content_work = class_exists( 'Ahentic_Session_Artifacts' )
+					? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
+					: Ahentic_Session_Repository::get_content_work( $session_id );
+				if ( Ahentic_Job_Resume::should_finish_after_forced_tools( true, $any_failed, $has_content_work ) ) {
+					return self::try_finish_with_reply( $session_id, $result, $debug );
+				}
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'forced_apply_retry',
+					'Forced apply failed during content work — continuing think',
+					array( 'any_failed' => true ),
+					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+				);
+				return true;
 			}
 
 			// After staging a ready draft without applying it in this batch, skip the next free
@@ -1024,17 +1149,19 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$error->get_error_message(),
 				array( 'code' => $error->get_error_code() )
 			);
-			// Same as Stop / token-limit: open checklist steps must not stay in_progress.
-			if ( class_exists( 'Ahentic_Plan' ) ) {
-				Ahentic_Plan::cancel_on_stop( $session_id );
-			}
+			// Keep Plan / content_work / Artifacts / active goal for Continue (#3).
+			// User Stop still cancels via cancel(); do not cancel_on_stop here.
+			Ahentic_Session_Repository::set_job_resumable( $session_id, true );
 			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_ERROR );
 			Ahentic_Session_Repository::mark_idle( $session_id );
 			Ahentic_Session_Repository::append_trace(
 				$session_id,
 				'run_idle',
-				'Run idle after error',
-				array( 'reason' => 'error' )
+				'Run idle after error (job resumable)',
+				array(
+					'reason'        => 'error',
+					'job_resumable' => true,
+				)
 			);
 		}
 
@@ -1050,13 +1177,13 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			if ( self::error_looks_like_timeout( $detail ) ) {
 				return sprintf(
 					/* translators: %s: error message */
-					__( 'Sorry — the model request timed out (%s). The run stopped; send another message to continue.', 'ahentic' ),
+					__( 'Sorry — the model request timed out (%s). The run stopped; use Continue to resume the same job.', 'ahentic' ),
 					$detail
 				);
 			}
 			return sprintf(
 				/* translators: %s: error message */
-				__( 'Sorry — I could not complete that request (%s). Check that WordPress AI / a model connector is configured.', 'ahentic' ),
+				__( 'Sorry — I could not complete that request (%s). Use Continue to resume, or check that WordPress AI / a model connector is configured.', 'ahentic' ),
 				$detail
 			);
 		}
@@ -1242,6 +1369,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_CANCELLED );
 			Ahentic_Step_Queue::release_run( $session_id );
 			Ahentic_Plan::cancel_on_stop( $session_id );
+			Ahentic_Session_Repository::set_job_resumable( $session_id, false );
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(
@@ -1582,6 +1710,34 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				),
 				$step
 			);
+
+			$forced_remain = ! empty( Ahentic_Session_Repository::get_forced_tools( $session_id ) );
+			$has_content_work = class_exists( 'Ahentic_Session_Artifacts' )
+				? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
+				: Ahentic_Session_Repository::get_content_work( $session_id );
+			if ( Ahentic_Job_Resume::should_try_finish_after_browser_resume( $name, $ok, $forced_remain, $has_content_work ) ) {
+				$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
+				$result  = array(
+					'text'  => ( is_array( $stashed ) && ! empty( $stashed['text'] ) ) ? (string) $stashed['text'] : '',
+					'model' => ( is_array( $stashed ) && ! empty( $stashed['model'] ) ) ? (string) $stashed['model'] : '',
+				);
+				$debug = ( is_array( $stashed ) && ! empty( $stashed['debug'] ) && is_array( $stashed['debug'] ) )
+					? $stashed['debug']
+					: array( 'next' => 'reply' );
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'browser_attr_batch_finish',
+					'Attribute patch batch complete — finishing without another think',
+					array(
+						'ability' => $name,
+						'ok'      => $ok,
+					),
+					$step
+				);
+				if ( ! self::try_finish_with_reply( $session_id, $result, $debug ) ) {
+					return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
+				}
+			}
 
 			Ahentic_Step_Queue::enqueue_step( $session_id );
 			Ahentic_Step_Queue::schedule_interactive_run( $session_id );

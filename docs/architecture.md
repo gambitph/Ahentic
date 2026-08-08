@@ -5,7 +5,8 @@ High-level map of Ahentic for engineers.
 **Canonical product should:** [`pro__premium_only/docs/prd/README.md`](../pro__premium_only/docs/prd/README.md)  
 **Glossary:** [`CONTEXT.md`](../CONTEXT.md) · **ADRs:** [`docs/adr/`](./adr/)  
 **Subsystem contracts:** `src/**/CONTRACT.md`  
-**How-it-works:** colocated `src/**/*.md` (implementation map — must not invent product law)
+**How-it-works:** colocated `src/**/*.md` (implementation map — must not invent product law)  
+**Concept walkthroughs (pedagogical):** [`docs/walkthroughs/`](./walkthroughs/) — beginner cross-stack tours; not product law (see [`docs/agents/explain-concept.md`](./agents/explain-concept.md))
 
 ---
 

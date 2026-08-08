@@ -675,6 +675,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'ahentic/get-content to read one post (body + safe meta). '
 						. 'Internal linking: for blog posts, title + view_url from list-content is enough — do not get-content just to pick a link target. '
 						. 'For long non-posts (pages, etc.), prefer ahentic/get-content-summary before get-content; if summary is skipped (e.g. too_short), title + view_url is enough — never get-content solely to pick a link target. '
+						. 'When adding several internal links in the open editor: put every ahentic-browser/update-block-attributes in ONE tools_planned with final HTML (<a href>…</a> — never stub descriptions), then next=reply after they succeed — do not get-blocks or re-patch the same refs to verify. '
 						. 'Prefer ahentic/create-post + ahentic/update-post + ahentic/set-post-status when the block editor is NOT open (server-side drafts/publish). '
 						. 'Prefer ahentic/update-post (Agent mode, editor not open) to change content/title/excerpt/slug/meta (does not change publish status); '
 						. 'ahentic/set-post-status to publish/schedule/trash (HITL). '
@@ -725,6 +726,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'copy those refs EXACTLY from the latest get-blocks / get-selection result. Never invent refs and never send Gutenberg clientId UUID hashes. '
 						. 'If a tool returns missing refs / block_not_found, re-call get-blocks (or get-selection) and use the fresh refs — do not guess. '
 						. 'To re-read specific blocks for an edit, call get-blocks with {"refs":["b7","b18"]} (returns ONLY those blocks, with attributes) — do not omit refs and re-fetch the whole document. '
+						. 'Light multi-block edits (internal links, alt text): batch all update-block-attributes in one tools_planned with final HTML, then reply — do not loop get-blocks → patch → get-blocks on the same refs. '
 						. 'Core block cookbook (common attrs): '
 						. 'core/heading → content (HTML), level (1–6; for posts/pages prefer 2+ — title field is the H1); '
 						. 'core/paragraph → content (HTML); '
@@ -1113,19 +1115,13 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @return string
 		 */
 		private static function latest_user_goal_excerpt( $session_id ) {
+			$stored  = Ahentic_Session_Repository::get_active_goal( $session_id );
 			$entries = Ahentic_Session_Repository::get_entries( $session_id );
-			for ( $i = count( $entries ) - 1; $i >= 0; $i-- ) {
-				$entry = $entries[ $i ];
-				if ( ! is_array( $entry ) || 'user' !== ( isset( $entry['role'] ) ? $entry['role'] : '' ) ) {
-					continue;
-				}
-				$text = trim( (string) ( isset( $entry['content'] ) ? $entry['content'] : '' ) );
-				if ( '' === $text ) {
-					continue;
-				}
-				return self::excerpt( $text, 400 );
+			$goal    = Ahentic_Job_Resume::active_goal_from_entries( $entries, $stored );
+			if ( '' === $goal ) {
+				return '';
 			}
-			return '';
+			return self::excerpt( $goal, 400 );
 		}
 
 		/**

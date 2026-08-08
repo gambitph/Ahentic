@@ -36,6 +36,7 @@ describe( 'session-state record map', () => {
 			tokensOut: 0,
 			tokensUsed: 0,
 			contextUsage: null,
+			jobResumable: false,
 		} )
 	} )
 
@@ -418,6 +419,53 @@ describe( 'mergeServerSessionIntoRecord plan settlement', () => {
 			'completed',
 			'cancelled',
 			'cancelled',
+		] )
+	} )
+
+	it( 'keeps open plan steps when the job is Continue-recoverable', () => {
+		const next = mergeServerSessionIntoRecord(
+			{
+				id: 42,
+				status: 'idle',
+				jobResumable: true,
+				messages: [
+					{
+						id: 'u1',
+						role: 'user',
+						content: 'write article',
+					},
+					{
+						id: 'a1',
+						role: 'assistant',
+						content: 'timed out',
+						meta: { error: true },
+					},
+				],
+				plan: {
+					title: 'Article',
+					steps: [
+						{
+							id: '1',
+							content: 'Research',
+							status: 'completed',
+						},
+						{
+							id: '2',
+							content: 'Draft',
+							status: 'in_progress',
+						},
+					],
+				},
+				trace: [],
+			},
+			createEmptySessionRecord(),
+			{},
+			mapEntries
+		)
+		expect( next.jobResumable ).toBe( true )
+		expect( next.plan.steps.map( s => s.status ) ).toEqual( [
+			'completed',
+			'in_progress',
 		] )
 	} )
 } )

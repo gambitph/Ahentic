@@ -1644,6 +1644,12 @@ a.ahentic-empty__ai-install:hover {
 	color: var(--ah-fg);
 }
 
+.ahentic-live-status.is-resumable .ahentic-live-status__text {
+	animation: none;
+	opacity: 1;
+	color: var(--ah-fg);
+}
+
 .ahentic-live-status__hint {
 	flex: 1 1 100%;
 	font-size: 12px;

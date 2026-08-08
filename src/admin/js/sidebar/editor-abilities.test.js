@@ -9,6 +9,7 @@ import {
 	plainTextCharsFromHtml,
 	prepareBlocksPayload,
 	resolveTargetClientIds,
+	updateBlockAttributes,
 } from './editor-abilities'
 import { resetBlockRefs, syncFromBlocks } from './block-ref-registry'
 
@@ -225,6 +226,72 @@ describe( 'blockTextChars (set-blocks text_chars / Finish Gate)', () => {
 				},
 			] )
 		).toBe( 0 )
+	} )
+} )
+
+describe( 'updateBlockAttributes placeholder guard', () => {
+	beforeEach( () => {
+		resetBlockRefs()
+		global.window = global.window || {}
+	} )
+
+	afterEach( () => {
+		delete global.window.wp
+	} )
+
+	it( 'rejects meta-instruction content before applying attributes', () => {
+		const blocksById = {
+			cid_a: {
+				clientId: 'cid_a',
+				name: 'core/paragraph',
+				attributes: {
+					content: 'Metro Manila commuters face a different challenge every day.',
+				},
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_a ]
+		syncFromBlocks( root, 1 )
+
+		let applied = null
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							updateBlockAttributes: ( clientId, attributes ) => {
+								applied = { clientId, attributes }
+							},
+						}
+					}
+					return {}
+				},
+			},
+		}
+
+		const result = updateBlockAttributes( {
+			ref: 'b1',
+			attributes: {
+				content: 'HTML paragraph with a natural internal link to the Metro Manila commute planning article',
+			},
+		} )
+
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'placeholder_content' )
+		expect( applied ).toBeNull()
 	} )
 } )
 

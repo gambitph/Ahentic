@@ -21,6 +21,18 @@
 			"pattern": "\\b(block structure|gutenberg (article )?blocks|expanded guide)\\b",
 			"flags": "iu",
 			"maxLength": 120
+		},
+		{
+			"id": "meta_html_paragraph_stub",
+			"pattern": "^(HTML|markdown)\\s+(paragraph|content|markup)\\s+with\\b",
+			"flags": "iu",
+			"maxLength": 220
+		},
+		{
+			"id": "deferred_payload",
+			"pattern": "\\b(complete|full|entire|approximately).{0,80}\\b(article|content|blocks?)\\b.{0,100}\\bwill be provided\\b",
+			"flags": "iu",
+			"maxLength": 220
 		}
 	],
 	"samples": {
@@ -33,13 +45,21 @@
 			"TODO write this",
 			"lorem ipsum dolor sit amet",
 			"Use gutenberg blocks for this",
-			"This is the block structure."
+			"This is the block structure.",
+			"HTML paragraph with a natural internal link to the general Metro Manila commuting methods article",
+			"HTML paragraph with a natural internal link to the Metro Manila commute planning article",
+			"HTML paragraph with a natural internal link to the article about why some people prefer commuting in Metro Manila",
+			"A complete approximately 1,000-word article in real WordPress block objects will be provided."
 		],
 		"real": [
 			"WordPress makes it easy to publish beautiful posts.",
 			"Here is a longer paragraph that describes a real product feature in enough detail that it is clearly not a stub.",
 			"<p>Hello <strong>world</strong> — welcome to the site.</p>",
-			"Install the plugin, then open Settings → General to configure your site title."
+			"Install the plugin, then open Settings → General to configure your site title.",
+			"Add an internal link in this paragraph so readers can jump to the budget guide.",
+			"HTML and CSS are tools you can learn gradually while building real WordPress sites.",
+			"Metro Manila commuters face a different challenge every day. A route that works well on Monday may feel exhausting by Friday, while the cheapest option is not always the most practical.",
+			"Further details will be provided in the next section for subscribers."
 		]
 	}
 }
