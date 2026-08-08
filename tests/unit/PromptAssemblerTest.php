@@ -128,4 +128,92 @@ class PromptAssemblerTest extends TestCase {
 		);
 		$this->assertSame( 170000, $threshold );
 	}
+
+	public function test_select_tool_routing_packs_gates_by_page_context() {
+		$editor = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => true,
+				'url'             => 'https://example.com/wp-admin/post.php?post=1&action=edit',
+			),
+			false
+		);
+		$this->assertSame( array( 'core', 'content', 'editor', 'media' ), $editor );
+
+		$dashboard = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => false,
+				'url'             => 'https://example.com/wp-admin/index.php',
+			),
+			false
+		);
+		$this->assertSame( array( 'core', 'content' ), $dashboard );
+		$this->assertNotContains( 'menus', $dashboard );
+		$this->assertNotContains( 'users', $dashboard );
+
+		$plugins = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => false,
+				'url'             => 'https://example.com/wp-admin/plugins.php',
+			),
+			false
+		);
+		$this->assertContains( 'plugins', $plugins );
+		$this->assertNotContains( 'editor', $plugins );
+	}
+
+	public function test_format_abilities_index_groups_namespaces() {
+		$out = Ahentic_Prompt_Assembler::format_abilities_index(
+			array(
+				'ahentic/list-content',
+				'ahentic/get-content',
+				'ahentic-browser/set-blocks',
+			)
+		);
+		$this->assertStringContainsString( 'ahentic/* (list-content, get-content)', $out );
+		$this->assertStringContainsString( 'ahentic-browser/* (set-blocks)', $out );
+	}
+
+	public function test_tool_routing_guidance_for_packs_is_smaller_than_full() {
+		$editor = Ahentic_Prompt_Assembler::tool_routing_guidance_for_packs(
+			array( 'core', 'content', 'editor', 'media' )
+		);
+		$full = Ahentic_Prompt_Assembler::tool_routing_guidance_for_packs(
+			array( 'core', 'content', 'editor', 'media', 'plugins', 'settings', 'users', 'menus', 'http' )
+		);
+		$this->assertLessThan( strlen( $full ), strlen( $editor ) );
+		$this->assertStringNotContainsString( 'Prefer ahentic/list-menus', $editor );
+		$this->assertStringContainsString( 'CRITICAL — content routing by page context', $editor );
+	}
+
+	public function test_editor_routing_guidance_stays_under_token_budget() {
+		// Regression guard from measured post-fix baseline (~2846 tokens for editor packs).
+		// Fail if ungated prose creeps back into the default content/editor path.
+		$packs = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => true,
+				'url'             => 'https://example.com/wp-admin/post.php?post=1&action=edit',
+			),
+			false
+		);
+		$guidance = Ahentic_Prompt_Assembler::tool_routing_guidance_for_packs( $packs );
+		$tokens   = Ahentic_Prompt_Assembler::chars_to_tokens( strlen( $guidance ) );
+
+		$this->assertSame( array( 'core', 'content', 'editor', 'media' ), $packs );
+		$this->assertLessThanOrEqual( 3200, $tokens );
+		$this->assertStringNotContainsString( 'Prefer ahentic/list-users', $guidance );
+		$this->assertStringNotContainsString( 'Prefer ahentic/list-menus', $guidance );
+		$this->assertStringNotContainsString( 'Prefer ahentic/list-plugins', $guidance );
+	}
+
+	public function test_content_work_adds_editor_pack_off_editor_screen() {
+		$packs = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => false,
+				'url'             => 'https://example.com/wp-admin/index.php',
+			),
+			true
+		);
+		$this->assertContains( 'editor', $packs );
+		$this->assertContains( 'media', $packs );
+	}
 }

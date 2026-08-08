@@ -224,9 +224,21 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			$site_name  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 			$site_url   = home_url( '/' );
 			$available  = Ahentic_Abilities::available_for_mode( $mode );
-			$tools_list = implode( ', ', $available );
+			$tools_list = self::format_abilities_index( $available );
 			$admin_map  = Ahentic_Abilities::format_admin_links_for_prompt();
-			$guidance   = self::tool_routing_guidance();
+
+			$page_context = array();
+			if ( $session_id && class_exists( 'Ahentic_Session_Repository' ) ) {
+				$ctx = Ahentic_Session_Repository::get_page_context( $session_id );
+				if ( is_array( $ctx ) ) {
+					$page_context = $ctx;
+				}
+			}
+			$has_content_work = $session_id
+				&& class_exists( 'Ahentic_Session_Artifacts' )
+				&& Ahentic_Session_Artifacts::session_has_content_work( $session_id );
+			$routing_packs = self::select_tool_routing_packs( $page_context, (bool) $has_content_work );
+			$guidance      = self::tool_routing_guidance_for_packs( $routing_packs );
 
 			$core = 'You are Ahentic, an AI workspace agent for WordPress. '
 				. 'You help the user understand and improve their WordPress site. '
@@ -240,7 +252,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					. '(lookups and searches; no install/activate/update/delete or other site changes). '
 					. 'When you need site facts, set next="use_tools" and list tools in tools_planned. After tool results appear '
 					. 'in the next message, think again and either call more readonly tools or set next="reply" / "ask_user" / "missing_ability". '
-					. "Available readonly abilities right now: {$tools_list}. "
+					. "Available readonly abilities right now: {$tools_list} "
 					. $guidance
 					. 'If the user asks you to change the site (install/activate/deactivate/uninstall plugins, edit content, update settings, etc.): '
 					. 'do NOT call write tools. Set next="reply" (or "ask_user" if you need a real choice), explain that Ask mode is read-only, '
@@ -254,27 +266,14 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				$abilities = ' Mode: Agent — you run a multi-step loop. When you need site facts, set next="use_tools" '
 					. 'and list tools in tools_planned. After tool results appear in the next message, think again '
 					. 'and either call more tools or set next="reply" / "ask_user" / "missing_ability". '
-					. "Available abilities right now: {$tools_list}. "
+					. "Available abilities right now: {$tools_list} "
 					. $guidance
-					. 'On classic themes, change Customizer settings with ahentic/update-theme-setting '
-					. '(changes:[{id,value,path?,replace?}]; HITL; merge nested values by path; whole-object replace needs replace:true; dry_run:true to preview). '
-					. 'Never invent setting ids — only ids from list-settings / get-setting. Code-bearing settings (Additional CSS / code editors) are refused (Code Snippets Premium). '
-					. 'On block themes, change theme.json user-layer colors/typography/spacing with ahentic/update-global-styles '
-					. '({styles?,settings?,dry_run?}; HITL; merges into the user layer; strips styles.css / block css keys). '
-					. 'For header/footer HTML on block themes use ahentic/update-template-part (template_part_id theme//slug + blocks/content; HITL non-preallowable; creates a DB override decoupled from theme file updates). '
-					. 'When the Site Editor has that part open, use ahentic-browser block tools + save-post instead. '
-					. 'Change registered or vetted WordPress options with ahentic/update-option ({key,value,dry_run?}; HITL; '
-					. 'hard-denies siteurl/home/default_role/users_can_register/admin_email; refuses unregistered unschematized keys). '
-					. 'HITL replaces ask_user for mutating abilities: when the concrete next step is ahentic/install-plugin, ahentic/activate-plugin, '
-					. 'ahentic/deactivate-plugin, ahentic/uninstall-plugin, ahentic/create-post, ahentic/update-post, ahentic/set-post-status, '
-					. 'ahentic/create-term, ahentic/update-term, ahentic/delete-term, '
-					. 'ahentic/update-theme-setting, ahentic/update-global-styles, ahentic/update-template-part, ahentic/update-option, '
-					. 'ahentic/create-user, ahentic/update-user, ahentic/delete-user, '
-					. 'ahentic/update-menu, '
-					. 'ahentic-browser/save-post, ahentic-browser/convert-blocks '
-					. '(or any other ability that pauses for human approval), do NOT set next="ask_user" or ask “shall I install/activate/deactivate/uninstall/update it?” in chat. '
+					. 'HITL replaces ask_user for mutating abilities: when the concrete next step is a write that pauses for human approval '
+					. '(plugins install/activate/deactivate/uninstall, create/update/set-post-status, terms, settings/options, users, menus, '
+					. 'ahentic-browser/save-post, ahentic-browser/convert-blocks, or any other Allow/Skip ability), '
+					. 'do NOT set next="ask_user" or ask “shall I …?” in chat. '
 					. 'Instead set next="use_tools" and put that ability in tools_planned immediately — the product shows Allow/Skip; that IS the confirmation. '
-					. 'In the short user-facing reply, say what you are about to do (e.g. install or uninstall a plugin, or update a post/term) and that they can approve below; '
+					. 'In the short user-facing reply, say what you are about to do and that they can approve below; '
 					. 'never claim success until a tool result confirms it. Use ask_user only for real choices the tools cannot decide '
 					. '(e.g. which of two plugins to pick when both are fine). '
 					. 'If a tool result has error user_denied or skipped=true: the user skipped that action (or redirected with a new message). '
@@ -344,113 +343,292 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		}
 
 		/**
-		 * Shared tool-routing guidance embedded in the system prompt (ability schemas bucket).
+		 * Compact available abilities for the system prompt (short names, grouped by namespace).
+		 *
+		 * @param string[] $available Ability names.
+		 * @return string
+		 */
+		public static function format_abilities_index( array $available ) {
+			$server  = array();
+			$browser = array();
+			$other   = array();
+			foreach ( $available as $name ) {
+				$name = (string) $name;
+				if ( 0 === strpos( $name, 'ahentic-browser/' ) ) {
+					$browser[] = substr( $name, strlen( 'ahentic-browser/' ) );
+				} elseif ( 0 === strpos( $name, 'ahentic/' ) ) {
+					$server[] = substr( $name, strlen( 'ahentic/' ) );
+				} else {
+					$other[] = $name;
+				}
+			}
+			$parts = array();
+			if ( $server ) {
+				$parts[] = 'ahentic/* (' . implode( ', ', $server ) . ')';
+			}
+			if ( $browser ) {
+				$parts[] = 'ahentic-browser/* (' . implode( ', ', $browser ) . ')';
+			}
+			if ( $other ) {
+				$parts[] = implode( ', ', $other );
+			}
+			return $parts ? ( implode( '; ', $parts ) . '.' ) : '(none).';
+		}
+
+		/**
+		 * Choose which tool-routing packs to embed for this think.
+		 *
+		 * @param array $page_context      Session page context (may be empty).
+		 * @param bool  $has_content_work  Whether the session is mid long-form content work.
+		 * @return string[] Pack ids.
+		 */
+		public static function select_tool_routing_packs( array $page_context, $has_content_work = false ) {
+			$packs = array( 'core', 'content' );
+			$url   = isset( $page_context['url'] ) ? (string) $page_context['url'] : '';
+			$in_editor = ! empty( $page_context['is_block_editor'] )
+				|| self::url_looks_like_block_editor( $url );
+
+			// Unknown tab: keep editor routing available so content jobs still work.
+			if ( $in_editor || empty( $page_context ) || $has_content_work ) {
+				$packs[] = 'editor';
+			}
+
+			// Media guidance is useful for content/editor jobs; skip on unrelated screens.
+			if ( $in_editor || $has_content_work || empty( $page_context ) || self::url_matches_any( $url, array( 'upload.php', 'media-new.php' ) ) ) {
+				$packs[] = 'media';
+			}
+
+			if ( self::url_matches_any( $url, array( 'plugins.php', 'plugin-install.php', 'plugin-editor.php' ) ) ) {
+				$packs[] = 'plugins';
+			}
+			if ( self::url_matches_any(
+				$url,
+				array(
+					'customize.php',
+					'themes.php',
+					'site-editor.php',
+					'options-general.php',
+					'options-writing.php',
+					'options-reading.php',
+					'options-discussion.php',
+					'options-media.php',
+					'options-permalink.php',
+					'options.php',
+					'widgets.php',
+				)
+			) ) {
+				$packs[] = 'settings';
+			}
+			if ( self::url_matches_any( $url, array( 'users.php', 'user-new.php', 'profile.php', 'user-edit.php' ) ) ) {
+				$packs[] = 'users';
+			}
+			if ( self::url_matches_any( $url, array( 'nav-menus.php' ) ) ) {
+				$packs[] = 'menus';
+			}
+			if ( self::url_matches_any( $url, array( 'site-health.php', 'tools.php' ) ) ) {
+				$packs[] = 'http';
+			}
+
+			return array_values( array_unique( $packs ) );
+		}
+
+		/**
+		 * @param string $url Page URL.
+		 * @return bool
+		 */
+		private static function url_looks_like_block_editor( $url ) {
+			$url = (string) $url;
+			if ( '' === $url ) {
+				return false;
+			}
+			return (false !== strpos( $url, 'post.php' ))
+				|| (false !== strpos( $url, 'post-new.php' ))
+				|| (false !== strpos( $url, 'site-editor.php' ));
+		}
+
+		/**
+		 * @param string   $url   Page URL.
+		 * @param string[] $needles Path fragments.
+		 * @return bool
+		 */
+		private static function url_matches_any( $url, array $needles ) {
+			$url = (string) $url;
+			if ( '' === $url ) {
+				return false;
+			}
+			foreach ( $needles as $needle ) {
+				if ( false !== strpos( $url, (string) $needle ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Assemble tool-routing guidance from selected packs.
+		 *
+		 * @param string[] $packs Pack ids.
+		 * @return string
+		 */
+		public static function tool_routing_guidance_for_packs( array $packs ) {
+			$out = '';
+			foreach ( $packs as $id ) {
+				$chunk = self::tool_routing_pack( (string) $id );
+				if ( '' !== $chunk ) {
+					$out .= $chunk;
+				}
+			}
+			return $out;
+		}
+
+		/**
+		 * Full (ungated) tool-routing guidance — used when all packs are appropriate.
 		 *
 		 * @return string
 		 */
 		private static function tool_routing_guidance() {
-			return 'Prefer ahentic/get-site-snapshot when you need the site name, theme, environment, active plugins, or admin_links. '
-				. 'Prefer ahentic/get-site-health for Site Health counts/issues; ahentic/get-option for allowlisted options (blog_public, blogdescription/tagline, permalink_structure, show_on_front, etc.). '
-				. 'For theme Customizer / appearance settings: call ahentic/get-settings-context first (block vs classic + surfaces). '
-				. 'On classic themes use ahentic/list-settings with a required query, section, or prefix filter (never unfiltered), then ahentic/get-setting for values (large values summarize unless raw:true). '
-				. 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). '
-				. 'When unsure about WordPress best practice — plugins vs custom code/theme edits, SEO plugin choice, cleanup, pre-launch gaps, or editor vs server content edits — '
-				. 'call ahentic/get-wordpress-guidance before inventing a risky approach. '
-				. 'Pass {"topic":"plugin-hygiene"} (ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, editor-leave-canvas, editor-wrap-blocks, web-image-fit, post-title-headings) '
-				. 'or {"query":"add google analytics"}; omit both to list the catalog. Follow the returned guidance, then use site tools for facts. '
-				. 'Tool priority: prefer server (ahentic/*) abilities when they can fully do the job. '
-				. 'Use ahentic-browser/* only when you need the live open tab, block editor APIs, or the user’s browser session — or when no server ability exists. '
-				. 'Never use the browser to simulate a server ability (e.g. do not click Install when ahentic/install-plugin exists). '
-				. 'Prefer ahentic/get-admin-context or ahentic-browser/get-current-page for screen identity (“which page am I on?”, white screen / broken admin URL). '
-				. 'Prefer ahentic-browser/get-visible-page when the user asks what is on the screen, to explain the UI, notices, buttons, or form fields currently visible. '
-				. 'To fill open-screen form inputs when no server write exists, use ahentic-browser/fill-fields after get-visible-page (HITL; does not submit — user clicks Save/Update). '
-				. 'Fill password fields only when the user explicitly asked. '
-				. 'Never invent a click/type/submit browser ability; prefer ahentic/* writes and editor-store tools for block canvas / document fields. '
-				. 'Active browser page context is attached to each turn when available (URL + is_block_editor / post_id / post_type / editor_title). '
-				. 'Trust the LATEST attached page context over earlier assumptions about where the user is; only re-call get-current-page / get-editor-state if you need a fresh read. '
-				. 'CRITICAL — content routing by page context: '
-				. 'If is_block_editor=true, make content/title/structure changes with ahentic-browser/* '
-				. '(update-post-document for title/excerpt/slug, set-blocks, insert-blocks, replace-blocks, delete-blocks, move-blocks, update-block-attributes, get-selection / get-blocks as needed) '
-				. 'so edits appear live in the open canvas. Do NOT use ahentic/update-post for body, title, excerpt, or slug on that open document while the editor is open. '
-				. 'Use ahentic/create-post only to create a NEW post/page that is not the open document, or when the block editor is not open. '
-				. 'After create-post, if a later turn’s page context shows the user in the block editor (any document), continue content work with browser tools. '
-				. 'If the block editor is not open, prefer server content abilities (create-post / update-post / set-post-status) as appropriate. '
-				. 'If page context is missing is_block_editor but the URL looks like post.php / post-new.php / site-editor, call get-editor-state before create-post. '
-				. 'Do NOT call ahentic-browser/save-post after editor edits unless the user explicitly asks to save, publish, update the live site, or persist changes — '
-				. 'Gutenberg already keeps unsaved edits in the canvas; stop after inserting/updating blocks and let the user save. '
-				. 'CRITICAL — real block objects only: insert/replace/set-blocks must pass an array of {name, attributes, innerBlocks} '
-				. '(JavaScript createBlock shape). Never pass plain-text descriptions, bracket stubs like [full article], or “block structure” shorthand '
-				. 'unless the user explicitly asked for placeholders. For a full article rewrite prefer ahentic-browser/set-blocks (replaces the whole document). '
-				. 'To remove blocks use ahentic-browser/delete-blocks (refs or selection) — do not pass an empty tree to replace-blocks/set-blocks. '
-				. 'To reorder or reparent within the canvas use move-blocks with before_ref/after_ref (preferred) or index+root_ref. '
-				. 'To move content OUT of the body (featured image, excerpt, title/slug, etc.) write the destination ability then usually delete-blocks the source — that is not move-blocks. '
-				. 'For long articles, prefer ahentic/stage-artifact then set-blocks/create-post with {"from_memory":"article_draft"} '
-				. '(or chunked insert-blocks/replace-blocks one section per step) — do not re-paste a huge draft from chat into tools_planned. '
-				. 'Use get-block-type ONLY for non-core (third-party) blocks or after an attribute update fails with unknown keys — never as a first step for core/heading, core/paragraph, core/button, etc. '
-				. 'get-block-type input is {name:"core/heading"} (block name), not a block ref. '
-				. 'Rich-text attributes (content/text/caption/citation): pass HTML strings; get-blocks returns them as HTML (and may include a plain preview). '
-				. 'CRITICAL — block refs: get-blocks / get-selection return short refs (b1, b2, …). When calling tools that take ref / refs / after_ref / before_ref / root_ref, '
-				. 'copy those refs EXACTLY from the latest get-blocks / get-selection result. Never invent refs and never send Gutenberg clientId UUID hashes. '
-				. 'If a tool returns missing refs / block_not_found, re-call get-blocks (or get-selection) and use the fresh refs — do not guess. '
-				. 'CRITICAL — never re-check your own writes: tool results are authoritative. After a successful create-post / update-post / '
-				. 'set-blocks / insert-blocks / replace-blocks / delete-blocks / move-blocks (or any other mutate), do NOT call get-content, get-blocks, or any other readonly '
-				. 'ability to confirm it landed — the write result already reports what was persisted (content_text_chars / text_chars / '
-				. 'inserted_count / before). Go straight to next="reply". '
-				. 'If a write result contains "thin": true, the body is too small for the long-form work requested — keep writing '
-				. '(expand or restage it) instead of replying. Staging (stage-artifact) is not done — still apply with from_memory. '
-				. 'A page snapshot (get-visible-page / get-current-page) shows the page as rendered when it last loaded, so it can never '
-				. 'confirm a change made after that — never use it to verify a write, a plugin activation, or a setting. If a stale notice is '
-				. 'still on screen, say so and tell the user to reload rather than re-reading the screen. '
-				. 'If a tool returns error placeholder_content / ahentic_placeholder_content / ahentic_use_browser_editor, fix the approach '
-				. '(real block objects and/or browser tools) — do not claim the article was written. '
-				. 'Core block cookbook (common attrs): '
-				. 'core/heading → content (HTML), level (1–6; for posts/pages prefer 2+ — title field is the H1); '
-				. 'core/paragraph → content (HTML); '
-				. 'core/button → text (HTML label), url; '
-				. 'core/image → url, alt, id, caption (HTML); '
-				. 'core/list + core/list-item → list-item content (HTML); '
-				. 'core/html → content (raw HTML escape hatch). '
-				. 'To add/fix image alt text in the open editor: get-blocks (image-looking blocks return compact media attrs — use the real keys shown, e.g. url/alt/id or imageUrl/imageAlt) → '
-				. 'ahentic/describe-image with exactly one of attachment_id (numeric id attr) or url → then '
-				. 'ahentic-browser/update-block-attributes on that ref with the block\'s alt key (often alt, mediaAlt, or imageAlt) set to alt_text_suggestion. '
-				. 'Do not ask the user to describe the image when describe-image is available; do not guess alt from the page text alone. '
-				. 'When the block editor is open, a fuller cheatsheet is attached with page context. '
-				. 'Prefer ahentic/create-post + ahentic/update-post + ahentic/set-post-status when the block editor is NOT open (server-side drafts/publish). '
-				. 'When a long draft is ready, stage it with ahentic/stage-artifact (key e.g. article_draft, kind blocks|html|post_content, '
-				. 'payload: for blocks use {"blocks":[{name,attributes,innerBlocks},…]} — never put the body under content/blocks at the top level; '
-				. 'while first writing a draft, chunk with mode=append + complete=false, then complete=true; '
-				. 'when revising an already-ready artifact or rewriting the whole article, use mode=replace or a new key — never append onto a finished draft), '
-				. 'then apply with set-blocks / create-post / update-post using {"from_memory":"article_draft"} — do not invent keys; list-artifacts shows what is staged. '
-				. 'Prefer ahentic/http-fetch to GET a URL. For public pages omit as_user. For wp-admin / logged-in same-site pages pass {"url":"…","as_user":true} — that runs in the user’s browser with their session. Judge soft white screens by success_marker/body, not status alone. '
-				. 'Prefer ahentic/get-debug-log for PHP fatals when WP_DEBUG_LOG is available. '
-				. 'Prefer ahentic/search-content to find posts/pages by phrase (title, body, or meta); '
-				. 'ahentic/list-content to browse by type/status; ahentic/get-content to read one post (body + safe meta). '
-				. 'Prefer ahentic/update-post (Agent mode, editor not open) to change content/title/excerpt/slug/meta (does not change publish status); '
-				. 'ahentic/set-post-status to publish/schedule/trash (HITL). '
-				. 'For custom fields / WooCommerce prices: first ahentic/get-content with {"id":…,"include_meta":true}, then update using the exact meta keys under meta '
-				. '(WooCommerce simple products typically use _regular_price and _price). Never invent top-level fields like "price". '
-				. 'Always pass tools_planned as objects with input when a tool needs args (e.g. {"name":"ahentic/get-content","input":{"id":123}}), not bare ability name strings. '
-				. 'Prefer ahentic/list-media to browse the Media Library (search, mime_type like "image", parent_id, after/before, page/per_page) and ahentic/get-media {"id":…} to inspect one attachment — do not invent attachment ids. '
-				. 'Prefer ahentic/find-unused-media only for unused/hygiene reports (not general browse). '
-				. 'Before generating or placing post images, call ahentic/get-wordpress-guidance with topic web-image-fit (aspect ratio + framing); then generate-image → upload-media from_memory → ONE placement step — never default post images to tall or square. '
-				. 'CRITICAL — post title is the H1: when drafting or rewriting posts/pages, put the article title in the post title field '
-				. '(ahentic-browser/update-post-document while the editor is open; create-post / update-post title when not). '
-				. 'Body headings start at core/heading level 2 — do not insert a level-1 heading that duplicates the title. '
-				. 'Call ahentic/get-wordpress-guidance with topic post-title-headings when unsure. '
-				. 'To place a generated image in the open post: ahentic/generate-image → ahentic/upload-media {"from_memory":"<artifact_key>"} (allow HITL) → place exactly once: either ahentic-browser/insert-blocks with a single core/image {id,url,alt} (index 0 or before_ref of the first block) OR ahentic-browser/set-featured-image when the user asked for featured/thumbnail/cover (use ahentic/set-featured-image only when the block editor is not open for that post) — never both, never insert-blocks twice for the same image. Never from_memory on insert-blocks for image artifacts. '
-				. 'Prefer ahentic/list-terms / ahentic/get-term to browse or load a category/tag/custom taxonomy term; '
-				. 'ahentic/create-term to create a new term (never invent create via update-term); '
-				. 'ahentic/update-term only for an existing term (taxonomy + term_id or term, then name/slug/description/parent/meta); '
-				. 'ahentic/delete-term only when count is 0 (reassign posts first). '
-				. 'Prefer ahentic/list-users to browse accounts (email only when permitted); '
-				. 'ahentic/create-user / ahentic/update-user / ahentic/delete-user for account changes '
-				. '(HITL non-preallowable every time; no self-edit; roles must be below the operator’s ceiling; delete requires reassign_to). '
-				. 'Prefer ahentic/list-menus / ahentic/list-menu-items / ahentic/get-menu for classic Appearance → Menus; '
-				. 'ahentic/update-menu to create-or-replace the item tree and/or theme locations (HITL; never create-post on nav_menu_item). '
-				. 'Assign terms on posts with create-post / update-post categories, tags, or tax_input (replace-per-taxonomy: present key = full set, omit = unchanged; missing names → create-term first). '
-				. 'While the block editor is open, prefer ahentic-browser/set-post-terms (term IDs) so the document panel stays in sync; taxonomy-only ahentic/update-post is also allowed. '
-				. 'Use edit_url / view_url / media_library_url / plugins_url from those results when linking the user. '
-				. 'Do not claim you ran a tool that is not in the available list. ';
+			return self::tool_routing_guidance_for_packs(
+				array( 'core', 'content', 'editor', 'media', 'plugins', 'settings', 'users', 'menus', 'http' )
+			);
+		}
+
+		/**
+		 * One routing pack body.
+		 *
+		 * @param string $id Pack id.
+		 * @return string
+		 */
+		private static function tool_routing_pack( $id ) {
+			switch ( (string) $id ) {
+				case 'core':
+					return 'Prefer ahentic/get-site-snapshot when you need the site name, theme, environment, active plugins, or admin_links. '
+						. 'Prefer ahentic/get-site-health for Site Health counts/issues; ahentic/get-option for allowlisted options (blog_public, blogdescription/tagline, permalink_structure, show_on_front, etc.). '
+						. 'When unsure about WordPress best practice — plugins vs custom code/theme edits, SEO plugin choice, cleanup, pre-launch gaps, or editor vs server content edits — '
+						. 'call ahentic/get-wordpress-guidance before inventing a risky approach. '
+						. 'Pass {"topic":"plugin-hygiene"} (ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, editor-leave-canvas, editor-wrap-blocks, web-image-fit, post-title-headings) '
+						. 'or {"query":"add google analytics"}; omit both to list the catalog. Follow the returned guidance, then use site tools for facts. '
+						. 'Tool priority: prefer server (ahentic/*) abilities when they can fully do the job. '
+						. 'Use ahentic-browser/* only when you need the live open tab, block editor APIs, or the user’s browser session — or when no server ability exists. '
+						. 'Never use the browser to simulate a server ability (e.g. do not click Install when ahentic/install-plugin exists). '
+						. 'Prefer ahentic/get-admin-context or ahentic-browser/get-current-page for screen identity (“which page am I on?”, white screen / broken admin URL). '
+						. 'Prefer ahentic-browser/get-visible-page when the user asks what is on the screen, to explain the UI, notices, buttons, or form fields currently visible. '
+						. 'To fill open-screen form inputs when no server write exists, use ahentic-browser/fill-fields after get-visible-page (HITL; does not submit — user clicks Save/Update). '
+						. 'Fill password fields only when the user explicitly asked. '
+						. 'Never invent a click/type/submit browser ability; prefer ahentic/* writes and editor-store tools for block canvas / document fields. '
+						. 'Active browser page context is attached to each turn when available (URL + is_block_editor / post_id / post_type / editor_title). '
+						. 'Trust the LATEST attached page context over earlier assumptions about where the user is; only re-call get-current-page / get-editor-state if you need a fresh read. '
+						. 'CRITICAL — never re-check your own writes: tool results are authoritative. After a successful mutate, do NOT call get-content, get-blocks, or any other readonly '
+						. 'ability to confirm it landed — the write result already reports what was persisted. Go straight to next="reply". '
+						. 'A page snapshot (get-visible-page / get-current-page) can never confirm a change made after it loaded — never use it to verify a write. '
+						. 'Always pass tools_planned as objects with input when a tool needs args (e.g. {"name":"ahentic/get-content","input":{"id":123}}), not bare ability name strings. '
+						. 'Use edit_url / view_url / media_library_url / plugins_url from tool results when linking the user. '
+						. 'Do not claim you ran a tool that is not in the available list. '
+						. 'Detailed routing for plugins, theme/settings, users, menus, and http-fetch is included only when that screen is open — otherwise use ability names from the available list + get-wordpress-guidance. ';
+
+				case 'content':
+					return 'Prefer ahentic/search-content to find posts/pages by phrase (title, body, or meta); '
+						. 'ahentic/list-content to browse by type/status; ahentic/get-content to read one post (body + safe meta). '
+						. 'Prefer ahentic/create-post + ahentic/update-post + ahentic/set-post-status when the block editor is NOT open (server-side drafts/publish). '
+						. 'Prefer ahentic/update-post (Agent mode, editor not open) to change content/title/excerpt/slug/meta (does not change publish status); '
+						. 'ahentic/set-post-status to publish/schedule/trash (HITL). '
+						. 'For custom fields / WooCommerce prices: first ahentic/get-content with {"id":…,"include_meta":true}, then update using the exact meta keys under meta '
+						. '(WooCommerce simple products typically use _regular_price and _price). Never invent top-level fields like "price". '
+						. 'When a long draft is ready, stage it with ahentic/stage-artifact (key e.g. article_draft, kind blocks|html|post_content, '
+						. 'payload: for blocks use {"blocks":[{name,attributes,innerBlocks},…]} — never put the body under content/blocks at the top level; '
+						. 'while first writing a draft, chunk with mode=append + complete=false, then complete=true; '
+						. 'when revising an already-ready artifact or rewriting the whole article, use mode=replace or a new key — never append onto a finished draft), '
+						. 'then apply with set-blocks / create-post / update-post using {"from_memory":"article_draft"} — do not invent keys; list-artifacts shows what is staged. '
+						. 'If a write result contains "thin": true, the body is too small for the long-form work requested — keep writing '
+						. '(expand or restage it) instead of replying. Staging (stage-artifact) is not done — still apply with from_memory. '
+						. 'If a tool returns error placeholder_content / ahentic_placeholder_content / ahentic_use_browser_editor, fix the approach '
+						. '(real block objects and/or browser tools) — do not claim the article was written. '
+						. 'CRITICAL — post title is the H1: when drafting or rewriting posts/pages, put the article title in the post title field '
+						. '(ahentic-browser/update-post-document while the editor is open; create-post / update-post title when not). '
+						. 'Body headings start at core/heading level 2 — do not insert a level-1 heading that duplicates the title. '
+						. 'Call ahentic/get-wordpress-guidance with topic post-title-headings when unsure. '
+						. 'Prefer ahentic/list-terms / ahentic/get-term to browse or load a category/tag/custom taxonomy term; '
+						. 'ahentic/create-term to create a new term (never invent create via update-term); '
+						. 'ahentic/update-term only for an existing term (taxonomy + term_id or term, then name/slug/description/parent/meta); '
+						. 'ahentic/delete-term only when count is 0 (reassign posts first). '
+						. 'Assign terms on posts with create-post / update-post categories, tags, or tax_input (replace-per-taxonomy: present key = full set, omit = unchanged; missing names → create-term first). ';
+
+				case 'editor':
+					return 'CRITICAL — content routing by page context: '
+						. 'If is_block_editor=true, make content/title/structure changes with ahentic-browser/* '
+						. '(update-post-document for title/excerpt/slug, set-blocks, insert-blocks, replace-blocks, delete-blocks, move-blocks, update-block-attributes, get-selection / get-blocks as needed) '
+						. 'so edits appear live in the open canvas. Do NOT use ahentic/update-post for body, title, excerpt, or slug on that open document while the editor is open. '
+						. 'Use ahentic/create-post only to create a NEW post/page that is not the open document, or when the block editor is not open. '
+						. 'After create-post, if a later turn’s page context shows the user in the block editor (any document), continue content work with browser tools. '
+						. 'If the block editor is not open, prefer server content abilities (create-post / update-post / set-post-status) as appropriate. '
+						. 'If page context is missing is_block_editor but the URL looks like post.php / post-new.php / site-editor, call get-editor-state before create-post. '
+						. 'Do NOT call ahentic-browser/save-post after editor edits unless the user explicitly asks to save, publish, update the live site, or persist changes — '
+						. 'Gutenberg already keeps unsaved edits in the canvas; stop after inserting/updating blocks and let the user save. '
+						. 'CRITICAL — real block objects only: insert/replace/set-blocks must pass an array of {name, attributes, innerBlocks} '
+						. '(JavaScript createBlock shape). Never pass plain-text descriptions, bracket stubs like [full article], or “block structure” shorthand '
+						. 'unless the user explicitly asked for placeholders. For a full article rewrite prefer ahentic-browser/set-blocks (replaces the whole document). '
+						. 'To remove blocks use ahentic-browser/delete-blocks (refs or selection) — do not pass an empty tree to replace-blocks/set-blocks. '
+						. 'To reorder or reparent within the canvas use move-blocks with before_ref/after_ref (preferred) or index+root_ref. '
+						. 'To move content OUT of the body (featured image, excerpt, title/slug, etc.) write the destination ability then usually delete-blocks the source — that is not move-blocks. '
+						. 'For long articles, prefer ahentic/stage-artifact then set-blocks/create-post with {"from_memory":"article_draft"} '
+						. '(or chunked insert-blocks/replace-blocks one section per step) — do not re-paste a huge draft from chat into tools_planned. '
+						. 'Use get-block-type ONLY for non-core (third-party) blocks or after an attribute update fails with unknown keys — never as a first step for core/heading, core/paragraph, core/button, etc. '
+						. 'get-block-type input is {name:"core/heading"} (block name), not a block ref. '
+						. 'Rich-text attributes (content/text/caption/citation): pass HTML strings; get-blocks returns them as HTML (and may include a plain preview). '
+						. 'CRITICAL — block refs: get-blocks / get-selection return short refs (b1, b2, …). When calling tools that take ref / refs / after_ref / before_ref / root_ref, '
+						. 'copy those refs EXACTLY from the latest get-blocks / get-selection result. Never invent refs and never send Gutenberg clientId UUID hashes. '
+						. 'If a tool returns missing refs / block_not_found, re-call get-blocks (or get-selection) and use the fresh refs — do not guess. '
+						. 'Core block cookbook (common attrs): '
+						. 'core/heading → content (HTML), level (1–6; for posts/pages prefer 2+ — title field is the H1); '
+						. 'core/paragraph → content (HTML); '
+						. 'core/button → text (HTML label), url; '
+						. 'core/image → url, alt, id, caption (HTML); '
+						. 'core/list + core/list-item → list-item content (HTML); '
+						. 'core/html → content (raw HTML escape hatch). '
+						. 'When the block editor is open, a fuller cheatsheet is attached with page context. '
+						. 'While the block editor is open, prefer ahentic-browser/set-post-terms (term IDs) so the document panel stays in sync; taxonomy-only ahentic/update-post is also allowed. ';
+
+				case 'media':
+					return 'Prefer ahentic/list-media to browse the Media Library (search, mime_type like "image", parent_id, after/before, page/per_page) and ahentic/get-media {"id":…} to inspect one attachment — do not invent attachment ids. '
+						. 'Prefer ahentic/find-unused-media only for unused/hygiene reports (not general browse). '
+						. 'Before generating or placing post images, call ahentic/get-wordpress-guidance with topic web-image-fit (aspect ratio + framing); then generate-image → upload-media from_memory → ONE placement step — never default post images to tall or square. '
+						. 'To add/fix image alt text in the open editor: get-blocks (image-looking blocks return compact media attrs — use the real keys shown, e.g. url/alt/id or imageUrl/imageAlt) → '
+						. 'ahentic/describe-image with exactly one of attachment_id (numeric id attr) or url → then '
+						. 'ahentic-browser/update-block-attributes on that ref with the block\'s alt key (often alt, mediaAlt, or imageAlt) set to alt_text_suggestion. '
+						. 'Do not ask the user to describe the image when describe-image is available; do not guess alt from the page text alone. '
+						. 'To place a generated image in the open post: ahentic/generate-image → ahentic/upload-media {"from_memory":"<artifact_key>"} (allow HITL) → place exactly once: either ahentic-browser/insert-blocks with a single core/image {id,url,alt} (index 0 or before_ref of the first block) OR ahentic-browser/set-featured-image when the user asked for featured/thumbnail/cover (use ahentic/set-featured-image only when the block editor is not open for that post) — never both, never insert-blocks twice for the same image. Never from_memory on insert-blocks for image artifacts. ';
+
+				case 'plugins':
+					return 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). ';
+
+				case 'settings':
+					return 'For theme Customizer / appearance settings: call ahentic/get-settings-context first (block vs classic + surfaces). '
+						. 'On classic themes use ahentic/list-settings with a required query, section, or prefix filter (never unfiltered), then ahentic/get-setting for values (large values summarize unless raw:true). '
+						. 'On classic themes, change Customizer settings with ahentic/update-theme-setting '
+						. '(changes:[{id,value,path?,replace?}]; HITL; merge nested values by path; whole-object replace needs replace:true; dry_run:true to preview). '
+						. 'Never invent setting ids — only ids from list-settings / get-setting. Code-bearing settings (Additional CSS / code editors) are refused (Code Snippets Premium). '
+						. 'On block themes, change theme.json user-layer colors/typography/spacing with ahentic/update-global-styles '
+						. '({styles?,settings?,dry_run?}; HITL; merges into the user layer; strips styles.css / block css keys). '
+						. 'For header/footer HTML on block themes use ahentic/update-template-part (template_part_id theme//slug + blocks/content; HITL non-preallowable; creates a DB override decoupled from theme file updates). '
+						. 'When the Site Editor has that part open, use ahentic-browser block tools + save-post instead. '
+						. 'Change registered or vetted WordPress options with ahentic/update-option ({key,value,dry_run?}; HITL; '
+						. 'hard-denies siteurl/home/default_role/users_can_register/admin_email; refuses unregistered unschematized keys). ';
+
+				case 'users':
+					return 'Prefer ahentic/list-users to browse accounts (email only when permitted); '
+						. 'ahentic/create-user / ahentic/update-user / ahentic/delete-user for account changes '
+						. '(HITL non-preallowable every time; no self-edit; roles must be below the operator’s ceiling; delete requires reassign_to). ';
+
+				case 'menus':
+					return 'Prefer ahentic/list-menus / ahentic/list-menu-items / ahentic/get-menu for classic Appearance → Menus; '
+						. 'ahentic/update-menu to create-or-replace the item tree and/or theme locations (HITL; never create-post on nav_menu_item). ';
+
+				case 'http':
+					return 'Prefer ahentic/http-fetch to GET a URL. For public pages omit as_user. For wp-admin / logged-in same-site pages pass {"url":"…","as_user":true} — that runs in the user’s browser with their session. Judge soft white screens by success_marker/body, not status alone. '
+						. 'Prefer ahentic/get-debug-log for PHP fatals when WP_DEBUG_LOG is available. ';
+
+				default:
+					return '';
+			}
 		}
 
 		/**
