@@ -41,8 +41,12 @@ The module that decides whether a Session may idle after a reply: thin-body asse
 _Avoid_: verifier, completion service, read-after-write checker
 
 **Session**:
-One conversation / run workspace stored as an `ahentic-session` post; holds entries, status, plan, pending tool, artifacts, and page context.
-_Avoid_: chat thread (as storage), conversation ID alone
+One conversation / run workspace stored as an `ahentic-session` post; holds entries, status, plan, pending tool, artifacts, page context, token spend, and soft context-budget usage (`contextUsage`).
+_Avoid_: chat thread (prefer session when meaning the persisted workspace), conversation ID alone
+
+**Context budget**:
+Ahentic’s soft per-prompt fill cap (**200k** estimated tokens) for compaction and the composer context ring — not the provider’s model window and not cumulative session spend.
+_Avoid_: daily token limit (that’s site-wide spend), context window (provider/model term when known)
 
 **Control block**:
 The structured JSON the model must emit so the orchestrator knows intention, plan, tools, and next action.

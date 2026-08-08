@@ -75,4 +75,57 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertStringContainsString( '{"blocks":"new"}', $built['user'] );
 		$this->assertSame( 1, $built['superseded'] );
 	}
+
+	public function test_chars_to_tokens_rounds_up() {
+		$this->assertSame( 0, Ahentic_Prompt_Assembler::chars_to_tokens( 0 ) );
+		$this->assertSame( 1, Ahentic_Prompt_Assembler::chars_to_tokens( 1 ) );
+		$this->assertSame( 1, Ahentic_Prompt_Assembler::chars_to_tokens( 4 ) );
+		$this->assertSame( 2, Ahentic_Prompt_Assembler::chars_to_tokens( 5 ) );
+	}
+
+	public function test_usage_from_bucket_chars_reports_percent_against_budget() {
+		$chars = array(
+			'system_prompt'     => 400, // 100 tokens
+			'ability_schemas'   => 0,
+			'chat_turns'        => 0,
+			'tool_results'      => 0,
+			'page_context'      => 0,
+			'plan_artifacts'    => 0,
+			'compacted_summary' => 0,
+		);
+		$usage = Ahentic_Prompt_Assembler::usage_from_bucket_chars( $chars );
+
+		$this->assertSame( Ahentic_Prompt_Assembler::CONTEXT_BUDGET_TOKENS, $usage['budgetTokens'] );
+		$this->assertSame( 100, $usage['usedTokens'] );
+		$this->assertSame( 100, $usage['buckets']['system_prompt']['tokens'] );
+		$this->assertSame( 0, $usage['percent'] ); // 100 / 200000 rounds to 0%
+	}
+
+	public function test_bucket_for_turn_classifies_tool_and_summary() {
+		$this->assertSame(
+			'compacted_summary',
+			Ahentic_Prompt_Assembler::bucket_for_turn(
+				array( 'content' => '[Earlier in this session — compact summary]' )
+			)
+		);
+		$this->assertSame(
+			'tool_results',
+			Ahentic_Prompt_Assembler::bucket_for_turn(
+				array( 'content' => '[Ability result: ahentic/list-plugins]\n{}' )
+			)
+		);
+		$this->assertSame(
+			'chat_turns',
+			Ahentic_Prompt_Assembler::bucket_for_turn(
+				array( 'content' => 'Hello' )
+			)
+		);
+	}
+
+	public function test_compact_fill_ratio_threshold() {
+		$threshold = (int) floor(
+			Ahentic_Prompt_Assembler::CONTEXT_BUDGET_TOKENS * Ahentic_Prompt_Assembler::COMPACT_FILL_RATIO
+		);
+		$this->assertSame( 170000, $threshold );
+	}
 }

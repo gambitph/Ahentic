@@ -110,7 +110,7 @@ Requires `status === awaiting_browser`. Mismatched `call_id` → `409`.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/stats/tokens` | Aggregate token usage helpers |
+| `GET` | `/stats/tokens` | Daily token series (`days` query, default 30). Site-timezone rollup with `date`, `label`, `in`, `out`, `total` per day. |
 
 ---
 
@@ -130,6 +130,7 @@ Requires `status === awaiting_browser`. Mismatched `call_id` → `409`.
 | `trace` | Recent debugger events, **envelope only** (`id`, `at`, `ms`, `run`, `type`, `step`, `summary`) — no event `data` |
 | `traceCount` | Total events recorded, so the poll can order payloads even though `trace` is a window |
 | `tokensIn`, `tokensOut`, `tokensUsed`, `stepCount` | Usage |
+| `contextUsage` | Soft context budget fill + technical buckets ([usage gauge](../../pro__premium_only/docs/future-sidebar-usage.md)) |
 | `lastError`, `summaryStatus` | Errors / summary job |
 | `createdAt`, `modifiedAt` | ISO timestamps |
 

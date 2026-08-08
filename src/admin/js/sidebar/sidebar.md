@@ -27,7 +27,8 @@ Do not call AI vendors from the sidebar. Talk to WordPress REST (`ahentic/v1`) a
 | --- | --- |
 | `sidebar.js` | Root UI: tabs, send, poll, browser resume, HITL |
 | `tab-content.js` | Message list, composer chrome, pending cards |
-| `composer.js` | Input + mode; Send ↔ Stop (right-most circle) |
+| `composer.js` | Input + mode; context ring; Send ↔ Stop (right-most circle) |
+| `context-usage.js` | Soft context-budget ring + bucket popover |
 | `api.js` | REST helpers |
 | `storage.js` | `localStorage` chrome state |
 | `session-runner-lock.js` | Per-session active-runner claim (multi-window) |
@@ -114,6 +115,7 @@ Live status shows “Keep this tab visible while this runs” under the awaiting
 - **Modes:** Agent vs Ask (Ask = readonly tools server-side).
 - **Send / Stop:** right-most circle control — ArrowUp Send when idle (disabled if empty/locked); Stop replaces it while a run is active (`canStop`). Never both.
 - **Composer attach / mic:** markup kept in `composer.js` but **visually hidden** (`hidden` + `.ahentic-composer__affordance--deferred`). Attach = free v3 ([future-prompt-file-attachments.md](../../../../pro__premium_only/docs/future-prompt-file-attachments.md)); voice = Premium v3 ([future-prompt-voice-input.md](../../../../pro__premium_only/docs/future-prompt-voice-input.md)) — grill before either.
+- **Context usage ring:** `context-usage.js` in composer footer (left of Send/Stop). Fill % vs 200k soft budget + technical buckets; see [future-sidebar-usage.md](../../../../pro__premium_only/docs/future-sidebar-usage.md).
 - **Live status:** progress label + trace-derived label while busy.
 - **Plans:** server `_ahentic_plan` → `plan-card.js`.
 - **Stale polls:** fingerprint / meta checks avoid clobbering in-flight sends or optimistic messages.

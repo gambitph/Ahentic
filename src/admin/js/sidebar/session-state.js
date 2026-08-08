@@ -7,17 +7,20 @@
 
 /**
  * @typedef {Object} SessionRecord
- * @property {Array}       messages    Mapped chat messages for the tab.
- * @property {string}      status      Session run status.
- * @property {Object|null} progress    Live progress / heartbeat snapshot.
- * @property {Object|null} pendingTool HITL or browser pending tool.
- * @property {Object|null} plan        Agent plan payload.
- * @property {Object|null} thought     Ephemeral thought-process text.
- * @property {Array}       trace       Debugger trace events.
- * @property {string}      approving   In-flight HITL decision, if any.
- * @property {boolean}     pollWatch   Keep polling after send even if status flickers.
+ * @property {Array}       messages     Mapped chat messages for the tab.
+ * @property {string}      status       Session run status.
+ * @property {Object|null} progress     Live progress / heartbeat snapshot.
+ * @property {Object|null} pendingTool  HITL or browser pending tool.
+ * @property {Object|null} plan         Agent plan payload.
+ * @property {Object|null} thought      Ephemeral thought-process text.
+ * @property {Array}       trace        Debugger trace events.
+ * @property {string}      approving    In-flight HITL decision, if any.
+ * @property {boolean}     pollWatch    Keep polling after send even if status flickers.
+ * @property {number}      tokensIn     Cumulative input tokens.
+ * @property {number}      tokensOut    Cumulative output tokens.
+ * @property {number}      tokensUsed   Cumulative total tokens.
+ * @property {Object|null} contextUsage Soft context budget snapshot from REST.
  */
-
 /**
  * Empty per-session UI record.
  *
@@ -34,6 +37,10 @@ export function createEmptySessionRecord() {
 		trace: [],
 		approving: '',
 		pollWatch: false,
+		tokensIn: 0,
+		tokensOut: 0,
+		tokensUsed: 0,
+		contextUsage: null,
 	}
 }
 
@@ -415,6 +422,12 @@ export function mergeServerSessionIntoRecord( session, current, pendingById, map
 		thought,
 		trace,
 		pollWatch: isActiveRunStatus( status ) ? base.pollWatch : false,
+		tokensIn: typeof session.tokensIn === 'number' ? session.tokensIn : ( base.tokensIn || 0 ),
+		tokensOut: typeof session.tokensOut === 'number' ? session.tokensOut : ( base.tokensOut || 0 ),
+		tokensUsed: typeof session.tokensUsed === 'number' ? session.tokensUsed : ( base.tokensUsed || 0 ),
+		contextUsage: session.contextUsage && typeof session.contextUsage === 'object'
+			? session.contextUsage
+			: ( base.contextUsage || null ),
 	}
 }
 

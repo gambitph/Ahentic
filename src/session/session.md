@@ -54,7 +54,9 @@ Constants: `Ahentic_Session_Repository::STATUS_*`.
 | `_ahentic_page_context` | Open-tab snapshot (URL, editor, post id, …) |
 | `_ahentic_artifacts` | Session artifacts store (see [artifacts.md](./artifacts.md)) |
 | `_ahentic_step_count` | Steps consumed this run |
-| `_ahentic_tokens_*` | Token counters |
+| `_ahentic_tokens_*` | Token counters (session spend) |
+| `_ahentic_context_usage` | Soft context-budget fill snapshot (`contextUsage` on REST) |
+| `_ahentic_context_summary` | Mid-run compaction rolling summary |
 | `_ahentic_hitl_session_allows` | Per-session HITL allow-list |
 | `_ahentic_capability_requests` | Missing-ability request queue |
 | `_ahentic_last_error` | Last error message |
@@ -134,7 +136,11 @@ Large staged payloads (drafts, block trees) live in `_ahentic_artifacts`. Pointe
 
 CamelCase fields for the sidebar, including:
 
-`id`, `title`, `status`, `mode`, `messages`, `hasMore`, `trace`, `traceCount`, `progress`, `plan`, `pendingTool`, `artifacts`, `tokensIn` / `tokensOut` / `tokensUsed`, `stepCount`, `lastError`, `summaryStatus`, timestamps.
+`id`, `title`, `status`, `mode`, `messages`, `hasMore`, `trace`, `traceCount`, `progress`, `plan`, `pendingTool`, `artifacts`, `tokensIn` / `tokensOut` / `tokensUsed`, `contextUsage` (soft 200k budget fill + buckets), `stepCount`, `lastError`, `summaryStatus`, timestamps.
+
+### Context usage (`contextUsage`)
+
+Soft fill estimate for the **next** LLM prompt (not cumulative spend). Measured by `Ahentic_Prompt_Assembler`, cached in `_ahentic_context_usage`, refreshed on each think. Drives the composer context ring and ≥85% fill compaction. Design: [future-sidebar-usage.md](../../pro__premium_only/docs/future-sidebar-usage.md).
 
 `trace` here is a **recent window of event envelopes** (no event `data`) because the sidebar polls
 it every ~650ms. The complete log lives on `to_diagnostics()` / `GET /sessions/{id}/diagnostics`:

@@ -14,7 +14,7 @@ if ( ! class_exists( 'Ahentic_Usage' ) ) {
 	 */
 	class Ahentic_Usage {
 		/**
-		 * UTC daily rollup for graphs (legacy key).
+		 * UTC daily rollup (legacy; still bumped for historical UTC consumers).
 		 */
 		const OPTION_KEY = 'ahentic_token_stats_daily';
 
@@ -505,31 +505,142 @@ if ( ! class_exists( 'Ahentic_Usage' ) ) {
 		}
 
 		/**
-		 * Series for REST / settings graphs (UTC days).
+		 * Contiguous Y-m-d keys ending on a day (oldest first).
 		 *
-		 * @param int $days Number of days.
-		 * @return array
+		 * @param string $end_ymd End day (inclusive).
+		 * @param int    $count   Number of days.
+		 * @return string[]
 		 */
-		public static function get_series( $days = 30 ) {
-			$days  = max( 1, min( 120, (int) $days ) );
-			$stats = get_option( self::OPTION_KEY, array() );
-			if ( ! is_array( $stats ) ) {
-				$stats = array();
+		public static function day_keys_ending_on( $end_ymd, $count ) {
+			$count = max( 1, min( 120, (int) $count ) );
+			$keys  = array();
+			$day   = (string) $end_ymd;
+			for ( $i = 0; $i < $count; $i++ ) {
+				array_unshift( $keys, $day );
+				if ( $i < $count - 1 ) {
+					$day = self::site_tz_yesterday( $day );
+				}
 			}
+			return $keys;
+		}
 
+		/**
+		 * Locale-aware short label for a series day (e.g. "Aug 7").
+		 *
+		 * @param string $ymd Y-m-d.
+		 * @return string
+		 */
+		public static function format_series_day_label( $ymd ) {
+			try {
+				$tz = function_exists( 'wp_timezone' ) ? wp_timezone() : new DateTimeZone( 'UTC' );
+				$dt = new DateTimeImmutable( $ymd . ' 12:00:00', $tz );
+				if ( function_exists( 'wp_date' ) ) {
+					return wp_date( 'M j', $dt->getTimestamp(), $tz );
+				}
+				if ( function_exists( 'date_i18n' ) ) {
+					return date_i18n( 'M j', $dt->getTimestamp() );
+				}
+				return $dt->format( 'M j' );
+			} catch ( Exception $e ) {
+				return (string) $ymd;
+			}
+		}
+
+		/**
+		 * Build a zero-filled series from a stats map and day keys.
+		 *
+		 * @param array    $stats  Day => {in,out,total}.
+		 * @param string[] $keys   Y-m-d keys oldest first.
+		 * @param string[] $labels Parallel display labels (optional).
+		 * @return array<int,array{date:string,label:string,in:int,out:int,total:int}>
+		 */
+		public static function build_series_from_stats( array $stats, array $keys, array $labels = array() ) {
 			$series = array();
-			for ( $i = $days - 1; $i >= 0; $i-- ) {
-				$day = gmdate( 'Y-m-d', time() - ( $i * DAY_IN_SECONDS ) );
-				$row = isset( $stats[ $day ] ) && is_array( $stats[ $day ] ) ? $stats[ $day ] : array();
+			foreach ( $keys as $i => $day ) {
+				$row      = isset( $stats[ $day ] ) && is_array( $stats[ $day ] ) ? $stats[ $day ] : array();
 				$series[] = array(
-					'date'  => $day,
+					'date'  => (string) $day,
+					'label' => isset( $labels[ $i ] ) ? (string) $labels[ $i ] : (string) $day,
 					'in'    => isset( $row['in'] ) ? (int) $row['in'] : 0,
 					'out'   => isset( $row['out'] ) ? (int) $row['out'] : 0,
 					'total' => isset( $row['total'] ) ? (int) $row['total'] : 0,
 				);
 			}
-
 			return $series;
+		}
+
+		/**
+		 * Usage percent for settings UI (0–100). Two decimals when in (0, 1).
+		 *
+		 * @param int $used  Tokens used.
+		 * @param int $limit Denominator.
+		 * @return int|float
+		 */
+		public static function format_usage_pct( $used, $limit ) {
+			$used  = max( 0, (int) $used );
+			$limit = (int) $limit;
+			if ( $limit <= 0 ) {
+				return 0;
+			}
+			$raw     = ( $used / $limit ) * 100;
+			$clamped = max( 0.0, min( 100.0, $raw ) );
+			if ( $clamped > 0 && $clamped < 1 ) {
+				return round( $clamped, 2 );
+			}
+			return (int) round( $clamped );
+		}
+
+		/**
+		 * Denominator for the live usage bar (input vs effective temp boost).
+		 *
+		 * @param int $input_limit     Value in the settings field.
+		 * @param int $effective_limit Today's effective cap.
+		 * @return int
+		 */
+		public static function live_bar_denominator( $input_limit, $effective_limit ) {
+			$input_limit = (int) $input_limit;
+			if ( $input_limit <= 0 ) {
+				return 0;
+			}
+			return max( $input_limit, max( 0, (int) $effective_limit ) );
+		}
+
+		/**
+		 * Bar fill width percent (never collapses to 0 while there is usage).
+		 *
+		 * @param int|float $pct  Clamped usage percent.
+		 * @param int       $used Tokens used.
+		 * @return float
+		 */
+		public static function usage_bar_width_pct( $pct, $used ) {
+			$pct  = (float) $pct;
+			$used = (int) $used;
+			if ( $used <= 0 || $pct <= 0 ) {
+				return 0.0;
+			}
+			return max( $pct, 0.5 );
+		}
+
+		/**
+		 * Series for REST / settings graphs (site-timezone days).
+		 *
+		 * @param int $days Number of days.
+		 * @return array<int,array{date:string,label:string,in:int,out:int,total:int}>
+		 */
+		public static function get_series( $days = 30 ) {
+			$days  = max( 1, min( 120, (int) $days ) );
+			$stats = get_option( self::OPTION_SITE_TZ, array() );
+			if ( ! is_array( $stats ) ) {
+				$stats = array();
+			}
+
+			$keys   = self::day_keys_ending_on( self::site_tz_day(), $days );
+			$labels = array();
+			foreach ( $keys as $key ) {
+				$labels[] = self::format_series_day_label( $key );
+			}
+
+			return self::build_series_from_stats( $stats, $keys, $labels );
 		}
 
 		/**

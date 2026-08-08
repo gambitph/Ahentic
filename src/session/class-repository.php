@@ -45,6 +45,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_FORCED_TOOLS        = '_ahentic_forced_tools';
 		const META_LLM_KEEPALIVE       = '_ahentic_llm_keepalive';
 		const META_CONTEXT_SUMMARY    = '_ahentic_context_summary';
+		const META_CONTEXT_USAGE      = '_ahentic_context_usage';
 		const META_THOUGHT             = '_ahentic_thought';
 		const META_EDITOR_REFS         = '_ahentic_editor_refs';
 		const META_BROWSER_PAUSED_AT   = '_ahentic_browser_paused_at';
@@ -392,6 +393,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				'tokensIn'     => (int) get_post_meta( $session_id, self::META_TOKENS_IN, true ),
 				'tokensOut'    => (int) get_post_meta( $session_id, self::META_TOKENS_OUT, true ),
 				'tokensUsed'   => (int) get_post_meta( $session_id, self::META_TOKENS_USED, true ),
+				'contextUsage' => self::get_context_usage_for_rest( $session_id ),
 				'stepCount'    => (int) get_post_meta( $session_id, self::META_STEP_COUNT, true ),
 				'pendingTool'  => is_array( $pending ) ? $pending : null,
 				'lastError'    => (string) get_post_meta( $session_id, self::META_ERROR, true ),
@@ -1618,6 +1620,54 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		public static function get_context_summary( $session_id ) {
 			$raw = get_post_meta( (int) $session_id, self::META_CONTEXT_SUMMARY, true );
 			return is_string( $raw ) ? $raw : '';
+		}
+
+		/**
+		 * Persist last measured context usage snapshot.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $usage      From Prompt_Assembler::measure / for_llm.
+		 */
+		public static function set_context_usage( $session_id, array $usage ) {
+			$session_id = (int) $session_id;
+			if ( $session_id < 1 ) {
+				return;
+			}
+			update_post_meta( $session_id, self::META_CONTEXT_USAGE, wp_slash( wp_json_encode( $usage ) ) );
+		}
+
+		/**
+		 * Cached context usage, or a fresh measure when missing.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array|null
+		 */
+		public static function get_context_usage_for_rest( $session_id ) {
+			$session_id = (int) $session_id;
+			$raw        = get_post_meta( $session_id, self::META_CONTEXT_USAGE, true );
+			if ( is_string( $raw ) && '' !== $raw ) {
+				$decoded = json_decode( $raw, true );
+				if ( is_array( $decoded ) && isset( $decoded['budgetTokens'] ) ) {
+					return $decoded;
+				}
+			}
+
+			if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
+				return null;
+			}
+
+			$usage = Ahentic_Prompt_Assembler::measure_context_usage( $session_id, self::get_mode( $session_id ) );
+			if ( is_array( $usage ) ) {
+				self::set_context_usage( $session_id, $usage );
+			}
+			return is_array( $usage ) ? $usage : null;
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_context_usage( $session_id ) {
+			delete_post_meta( (int) $session_id, self::META_CONTEXT_USAGE );
 		}
 
 		/**

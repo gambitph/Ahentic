@@ -27,6 +27,7 @@ if ( ! class_exists( 'Ahentic_Admin' ) ) {
 			if ( is_admin() ) {
 				add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
 				add_action( 'admin_init', array( $this, 'register_settings' ) );
+				add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_settings_assets' ) );
 				add_filter( 'plugin_action_links_' . plugin_basename( AHENTIC_FILE ), array( $this, 'add_admin_action_links' ) );
 			}
 		}
@@ -81,6 +82,61 @@ if ( ! class_exists( 'Ahentic_Admin' ) ) {
 
 			$limit = isset( $input['daily_limit'] ) ? (int) $input['daily_limit'] : (int) $current['daily_limit'];
 			return Ahentic_Usage::with_daily_limit( $current, $limit );
+		}
+
+		/**
+		 * Enqueue settings page chart + live limit scripts.
+		 *
+		 * @param string $hook Current admin page hook.
+		 */
+		public function enqueue_settings_assets( $hook ) {
+			if ( 'settings_page_' . self::SETTINGS_SLUG !== $hook ) {
+				return;
+			}
+
+			$css_rel = 'src/admin/css/settings.css';
+			$js_rel  = 'src/admin/js/settings/settings.js';
+			$css     = plugin_dir_path( AHENTIC_FILE ) . $css_rel;
+			$js      = plugin_dir_path( AHENTIC_FILE ) . $js_rel;
+
+			if ( file_exists( $css ) ) {
+				wp_enqueue_style(
+					'ahentic-settings',
+					plugins_url( $css_rel, AHENTIC_FILE ),
+					array(),
+					(string) filemtime( $css )
+				);
+			}
+
+			if ( ! file_exists( $js ) ) {
+				return;
+			}
+
+			wp_enqueue_script(
+				'ahentic-settings',
+				plugins_url( $js_rel, AHENTIC_FILE ),
+				array(),
+				(string) filemtime( $js ),
+				true
+			);
+
+			$status = Ahentic_Usage::get_status();
+			wp_localize_script(
+				'ahentic-settings',
+				'ahenticSettings',
+				array(
+					'series'         => Ahentic_Usage::get_series( 14 ),
+					'todayUsed'      => (int) $status['today_used'],
+					'effectiveLimit' => (int) $status['effective_limit'],
+					'tempBoost'      => ! empty( $status['temp_boost'] ),
+					'locale'         => str_replace( '_', '-', determine_locale() ),
+					'i18n'           => array(
+						'usedLabel'    => __( 'Used', 'ahentic' ),
+						'tokensSuffix' => __( 'tokens', 'ahentic' ),
+						'invalidLimit' => __( 'Enter a limit greater than zero.', 'ahentic' ),
+					),
+				)
+			);
 		}
 
 		/**
@@ -140,9 +196,15 @@ if ( ! class_exists( 'Ahentic_Admin' ) ) {
 			$used   = (int) $status['today_used'];
 			$limit  = (int) $status['daily_limit'];
 			$eff    = (int) $status['effective_limit'];
-			$pct    = $eff > 0 ? min( 100, (int) round( ( $used / $eff ) * 100 ) ) : 0;
+			$denom  = Ahentic_Usage::live_bar_denominator( $limit, $eff );
+			$pct    = Ahentic_Usage::format_usage_pct( $used, $denom );
+			$bar_w  = Ahentic_Usage::usage_bar_width_pct( $pct, $used );
+			$pct_display = ( is_float( $pct ) && $pct > 0 && $pct < 1 )
+				? number_format_i18n( $pct, 2 )
+				: number_format_i18n( (int) $pct );
 			$daily_blocked   = ! empty( $status['blocked'] ) && Ahentic_Usage::CODE_DAILY_LIMIT === $status['block_code'];
 			$runaway_blocked = ! empty( $status['runaway_locked'] );
+			$temp_active     = ! empty( $status['temp_boost'] ) && $eff !== $limit;
 			?>
 			<div class="wrap">
 				<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
@@ -208,7 +270,20 @@ if ( ! class_exists( 'Ahentic_Admin' ) ) {
 
 				<p><?php esc_html_e( 'An intelligent AI agent that understands your WordPress site and works alongside you to build, edit, troubleshoot, and manage it.', 'ahentic' ); ?></p>
 
-				<form method="post" action="options.php">
+				<div class="ahentic-settings-usage">
+					<div class="ahentic-settings-usage__header">
+						<h2><?php esc_html_e( 'Token usage', 'ahentic' ); ?></h2>
+						<p class="description"><?php esc_html_e( 'Last 14 days (site timezone)', 'ahentic' ); ?></p>
+					</div>
+					<div
+						id="ahentic-token-usage-chart"
+						class="ahentic-usage-chart"
+						role="img"
+						aria-label="<?php esc_attr_e( 'Daily token usage over the last 14 days', 'ahentic' ); ?>"
+					></div>
+				</div>
+
+				<form method="post" action="options.php" id="ahentic-settings-form">
 					<?php settings_fields( 'ahentic_settings' ); ?>
 					<table class="form-table" role="presentation">
 						<tr>
@@ -224,38 +299,56 @@ if ( ! class_exists( 'Ahentic_Admin' ) ) {
 									placeholder="<?php echo esc_attr( (string) Ahentic_Usage::DEFAULT_DAILY_LIMIT ); ?>"
 									min="1"
 									step="1000"
+									inputmode="numeric"
 									class="regular-text"
+									aria-describedby="ahentic-daily-limit-desc ahentic-daily-limit-error"
 								/>
-								<p class="description">
+								<p class="description" id="ahentic-daily-limit-desc">
+									<?php esc_html_e( 'Site-wide daily limit to stop runaway agent loops from spending unexpected tokens. Raise anytime — a safety backstop, not a plan restriction.', 'ahentic' ); ?>
 									<?php
-									esc_html_e( 'Site-wide daily limit to stop runaway agent loops from spending unexpected tokens. Raise anytime — a safety backstop, not a plan restriction.', 'ahentic' );
 									echo ' ';
-									if ( ! empty( $status['temp_boost'] ) && $eff !== $limit ) {
-										echo esc_html(
-											sprintf(
-												/* translators: 1: tokens used today, 2: temporary effective limit, 3: permanent limit, 4: percent */
-												__( 'Today (site timezone): %1$s / %2$s tokens (%4$d%%). Temporary boost active (permanent limit %3$s).', 'ahentic' ),
-												number_format_i18n( $used ),
-												number_format_i18n( $eff ),
-												number_format_i18n( $limit ),
-												$pct
-											)
-										);
-									} else {
-										echo esc_html(
-											sprintf(
-												/* translators: 1: tokens used today, 2: daily limit, 3: percent */
-												__( 'Today (site timezone): %1$s / %2$s tokens (%3$d%%).', 'ahentic' ),
-												number_format_i18n( $used ),
-												number_format_i18n( $eff ),
-												$pct
-											)
-										);
-									}
+									echo wp_kses(
+										sprintf(
+											/* translators: 1: used tokens markup, 2: limit markup, 3: percent markup */
+											__( 'Today (site timezone): %1$s / %2$s tokens (%3$s%%).', 'ahentic' ),
+											'<strong id="ahentic-usage-used">' . esc_html( number_format_i18n( $used ) ) . '</strong>',
+											'<strong id="ahentic-usage-limit">' . esc_html( number_format_i18n( $denom ) ) . '</strong>',
+											'<span id="ahentic-usage-pct">' . esc_html( $pct_display ) . '</span>'
+										),
+										array(
+											'strong' => array( 'id' => true ),
+											'span'   => array( 'id' => true ),
+										)
+									);
 									?>
+									<span id="ahentic-usage-temp-note"<?php echo $temp_active ? '' : ' hidden'; ?>>
+										<?php
+										echo ' ';
+										echo esc_html(
+											sprintf(
+												/* translators: %s: permanent daily limit */
+												__( 'Temporary boost active (permanent limit %s).', 'ahentic' ),
+												number_format_i18n( $limit )
+											)
+										);
+										?>
+									</span>
 								</p>
-								<div style="max-width: 28rem; height: 8px; background: #dcdcde; border-radius: 4px; overflow: hidden;" aria-hidden="true">
-									<div style="width: <?php echo esc_attr( (string) $pct ); ?>%; height: 100%; background: #5750F8;"></div>
+								<p id="ahentic-daily-limit-error" class="ahentic-daily-limit-error" hidden></p>
+								<div
+									id="ahentic-usage-bar"
+									class="ahentic-usage-bar"
+									role="progressbar"
+									aria-valuemin="0"
+									aria-valuemax="100"
+									aria-valuenow="<?php echo esc_attr( (string) (int) round( (float) $pct ) ); ?>"
+									aria-label="<?php esc_attr_e( 'Daily token usage', 'ahentic' ); ?>"
+								>
+									<div
+										id="ahentic-usage-bar-fill"
+										class="ahentic-usage-bar__fill"
+										style="width: <?php echo esc_attr( (string) $bar_w ); ?>%;"
+									></div>
 								</div>
 							</td>
 						</tr>

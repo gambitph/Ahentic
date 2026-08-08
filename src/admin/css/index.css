@@ -1888,6 +1888,222 @@ a.ahentic-empty__ai-install:hover {
 	min-width: 0;
 }
 
+.ahentic-context-usage {
+	position: relative;
+	flex-shrink: 0;
+}
+
+.ahentic-context-usage__trigger {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--ah-fg-muted);
+	cursor: pointer;
+}
+
+.ahentic-context-usage__trigger:hover,
+.ahentic-context-usage__trigger.is-open {
+	color: var(--ah-fg);
+	background: var(--ah-bg-elevated, rgba(255, 255, 255, 0.06));
+}
+
+.ahentic-context-usage__trigger:focus-visible {
+	outline: 2px solid var(--ah-primary);
+	outline-offset: 2px;
+}
+
+.ahentic-context-usage__ring-track {
+	stroke: var(--ah-border, rgba(255, 255, 255, 0.12));
+}
+
+.ahentic-context-usage__ring-value {
+	stroke: var(--ah-fg);
+	transition: stroke-dasharray 0.2s ease;
+}
+
+/* Fixed + portaled to `.ahentic` so floating sidebar overflow cannot clip it. */
+.ahentic-context-usage__panel {
+	position: fixed;
+	top: 0;
+	left: 0;
+	z-index: 100002;
+	width: min(320px, calc(100vw - 32px));
+	padding: 12px;
+	border-radius: 12px;
+	border: 1px solid var(--ah-border, rgba(255, 255, 255, 0.1));
+	background: var(--ah-bg-elevated, #1c1c22);
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+	color: var(--ah-fg);
+	visibility: hidden;
+	pointer-events: none;
+}
+
+.ahentic-context-usage__panel.is-placed {
+	visibility: visible;
+	pointer-events: auto;
+}
+
+.ahentic-context-usage__panel-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.ahentic-context-usage__panel-title {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.ahentic-context-usage__close {
+	border: none;
+	background: transparent;
+	color: var(--ah-fg-muted);
+	font-size: 18px;
+	line-height: 1;
+	cursor: pointer;
+	padding: 0 2px;
+}
+
+.ahentic-context-usage__summary {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	font-size: 12px;
+	margin-bottom: 4px;
+}
+
+.ahentic-context-usage__budget-label {
+	margin: 0 0 10px;
+	font-size: 11px;
+	color: var(--ah-fg-muted);
+}
+
+.ahentic-context-usage__bar {
+	display: flex;
+	height: 6px;
+	border-radius: 999px;
+	overflow: hidden;
+	background: var(--ah-border, rgba(255, 255, 255, 0.08));
+	margin-bottom: 10px;
+}
+
+.ahentic-context-usage__bar-seg {
+	display: block;
+	height: 100%;
+	min-width: 0;
+}
+
+.ahentic-context-usage__list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.ahentic-context-usage__row {
+	display: grid;
+	grid-template-columns: 10px 1fr auto;
+	align-items: start;
+	gap: 8px;
+	font-size: 12px;
+}
+
+.ahentic-context-usage__swatch {
+	width: 8px;
+	height: 8px;
+	border-radius: 2px;
+	margin-top: 4px;
+}
+
+.ahentic-context-usage__row-copy {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+}
+
+.ahentic-context-usage__row-label {
+	color: var(--ah-fg);
+	min-width: 0;
+}
+
+.ahentic-context-usage__row-desc {
+	font-size: 11px;
+	line-height: 1.35;
+	color: color-mix(in srgb, var(--ah-muted) 85%, transparent);
+}
+
+.ahentic-context-usage__row-value {
+	color: var(--ah-fg-muted);
+	font-variant-numeric: tabular-nums;
+	padding-top: 1px;
+}
+
+.ahentic-context-usage__session {
+	margin-top: 12px;
+	padding-top: 10px;
+	border-top: 1px solid var(--ah-border, rgba(255, 255, 255, 0.08));
+}
+
+.ahentic-context-usage__session-title {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--ah-fg-muted);
+	margin-bottom: 6px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.ahentic-context-usage__session-grid {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ahentic-context-usage__session-row {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 12px;
+	align-items: start;
+}
+
+.ahentic-context-usage__session-copy {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+}
+
+.ahentic-context-usage__session-label {
+	font-size: 12px;
+	color: var(--ah-fg);
+}
+
+.ahentic-context-usage__session-desc {
+	font-size: 11px;
+	line-height: 1.35;
+	color: color-mix(in srgb, var(--ah-muted) 85%, transparent);
+}
+
+.ahentic-context-usage__session-value {
+	color: var(--ah-fg-muted);
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	font-size: 12px;
+	padding-top: 1px;
+}
+
 /* Deferred attach/mic — keep markup; attach = free v3, voice = Premium v3 */
 
 /* See future-prompt-file-attachments.md / future-prompt-voice-input.md */

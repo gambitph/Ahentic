@@ -28,7 +28,7 @@
 2. Busy sessions (`running`, `awaiting_browser`) reject new messages with conflict (`409` / `ahentic_session_busy`) except documented HITL redirect cases.
 3. Approvals require `awaiting_human` + `pendingTool`; decisions include allow once / session / always / deny.
 4. Browser results require `awaiting_browser` + matching `call_id`; mismatch → conflict.
-5. `GET /sessions/{id}` is the poll target and includes status, messages/entries, plan, pendingTool, progress, **heartbeat** (or equivalent liveness), artifacts pointers, errors — enough for Sidebar PRD busy/stuck/wait UX.
+5. `GET /sessions/{id}` is the poll target and includes status, messages/entries, plan, pendingTool, progress, **heartbeat** (or equivalent liveness), artifacts pointers, errors, token spend meters, and **`contextUsage`** (soft context-budget fill + buckets) — enough for Sidebar PRD busy/stuck/wait UX and the composer context ring.
 6. `POST …/continue` must remain available to kick a dead-heartbeat or resume an honest partial.
 
 ## Page context

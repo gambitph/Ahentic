@@ -31,6 +31,10 @@ describe( 'session-state record map', () => {
 			trace: [],
 			approving: '',
 			pollWatch: false,
+			tokensIn: 0,
+			tokensOut: 0,
+			tokensUsed: 0,
+			contextUsage: null,
 		} )
 	} )
 

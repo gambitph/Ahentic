@@ -16,6 +16,7 @@ import {
 	ArrowUp, ChevronDown, Paperclip, Mic, Square,
 } from 'lucide-react'
 import { MODES } from './constants'
+import ContextUsageControl from './context-usage'
 
 /**
  * @param {string} code REST / usage limit error code.
@@ -27,24 +28,28 @@ function isTokenLimitError( code ) {
 }
 
 /**
- * @param {Object}   props
- * @param {string}   props.mode
- * @param {Function} props.onModeChange
- * @param {Function} props.onSubmit
- * @param {boolean}  props.focusSignal
- * @param {string}   props.shortcutLabel
- * @param {boolean}  [props.disabled]      Blocked (no AI / connector) — whole composer inert.
- * @param {boolean}  [props.inputDisabled] Textarea/mode locked while a run is active.
- * @param {boolean}  [props.canStop]       Show stop (replaces send) for the active run.
- * @param {Function} [props.onStop]
- * @param {boolean}  [props.stopping]
- * @param {string}   [props.disabledHint]
- * @param {string}   [props.connectorsUrl]
- * @param {string}   [props.placeholder]
- * @param {string}   [props.error]
- * @param {string}   [props.errorCode]     REST error code (e.g. token limit).
- * @param {string}   [props.settingsUrl]   Ahentic settings admin URL.
- * @param {Function} [props.onClearError]
+ * @param {Object}      props
+ * @param {string}      props.mode
+ * @param {Function}    props.onModeChange
+ * @param {Function}    props.onSubmit
+ * @param {boolean}     props.focusSignal
+ * @param {string}      props.shortcutLabel
+ * @param {boolean}     [props.disabled]      Blocked (no AI / connector) — whole composer inert.
+ * @param {boolean}     [props.inputDisabled] Textarea/mode locked while a run is active.
+ * @param {boolean}     [props.canStop]       Show stop (replaces send) for the active run.
+ * @param {Function}    [props.onStop]
+ * @param {boolean}     [props.stopping]
+ * @param {string}      [props.disabledHint]
+ * @param {string}      [props.connectorsUrl]
+ * @param {string}      [props.placeholder]
+ * @param {string}      [props.error]
+ * @param {string}      [props.errorCode]     REST error code (e.g. token limit).
+ * @param {string}      [props.settingsUrl]   Ahentic settings admin URL.
+ * @param {Function}    [props.onClearError]
+ * @param {Object|null} [props.contextUsage]  Soft context budget snapshot.
+ * @param {number}      [props.tokensIn]
+ * @param {number}      [props.tokensOut]
+ * @param {number}      [props.tokensUsed]
  */
 export default function Composer( {
 	mode,
@@ -64,6 +69,10 @@ export default function Composer( {
 	errorCode = '',
 	settingsUrl = '',
 	onClearError,
+	contextUsage = null,
+	tokensIn = 0,
+	tokensOut = 0,
+	tokensUsed = 0,
 } ) {
 	const [ value, setValue ] = useState( '' )
 	const [ modeOpen, setModeOpen ] = useState( false )
@@ -244,6 +253,12 @@ export default function Composer( {
 						>
 							<Mic size={ 14 } strokeWidth={ 1.75 } />
 						</button>
+						<ContextUsageControl
+							contextUsage={ contextUsage }
+							tokensIn={ tokensIn }
+							tokensOut={ tokensOut }
+							tokensUsed={ tokensUsed }
+						/>
 						{ canStop ? (
 							<button
 								type="button"

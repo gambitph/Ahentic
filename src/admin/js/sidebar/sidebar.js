@@ -1453,6 +1453,10 @@ export default function Sidebar() {
 							setSendError( '' )
 							setSendErrorCode( '' )
 						} }
+						contextUsage={ activeSession.contextUsage || null }
+						tokensIn={ activeSession.tokensIn || 0 }
+						tokensOut={ activeSession.tokensOut || 0 }
+						tokensUsed={ activeSession.tokensUsed || 0 }
 						placeholder={
 							activeStatus === 'awaiting_human' && activePendingTool
 								? __( 'Send to change direction (skips this approval)…', 'ahentic' )

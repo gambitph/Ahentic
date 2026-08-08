@@ -82,8 +82,10 @@ Order of concerns for each planned tool (after the ability is available for the 
 ## Budgets
 
 - Default / content-aware step and max-output budgets per Agent runtime PRD (24 / 48 steps; 8k / 16k staging).
+- Soft per-prompt **context budget** (200k tokens estimated; compact at ≥85% fill) per Agent runtime PRD + [usage gauge](../../pro__premium_only/docs/future-sidebar-usage.md). Not a hard stop — daily site tokens remain the spend backstop.
 - Hitting a ceiling mid-job: honest partial + allow Continue; never fake long-form completion.
 - Mid-run context compaction may summarize older turns/tools; must retain plan, artifact keys, latest user goal.
+- Session REST includes `contextUsage` (fill % + technical buckets) for the composer ring; never present cumulative `tokensUsed` as context fill %.
 
 ## Modes
 
