@@ -146,4 +146,57 @@ class FinishGateTest extends TestCase {
 		);
 		$this->assertTrue( Ahentic_Finish_Gate::payload_body_is_thin( $payload ) );
 	}
+
+	/**
+	 * Regression: successful set-blocks with a long body must not trip thin.
+	 *
+	 * The WP 7 RichTextData counting bug made the browser report text_chars=0
+	 * despite inserted_count>0; Finish Gate then forced endless rebuilds.
+	 */
+	public function test_set_blocks_payload_not_thin_when_text_chars_above_floor() {
+		$payload = array(
+			'ok'             => true,
+			'inserted_count' => 28,
+			'text_chars'     => 6842,
+		);
+		$this->assertFalse( Ahentic_Finish_Gate::payload_body_is_thin( $payload ) );
+		$this->assertSame( 6842, Ahentic_Finish_Gate::body_chars_from_write_payload( $payload ) );
+	}
+
+	/**
+	 * Arithmetically, text_chars=0 is under the floor — but with inserted_count it is a
+	 * measurement miss, not empty copy (assess_write_payload must not stamp thin).
+	 */
+	public function test_zero_chars_is_thin_arithmetically_but_measure_failure_when_inserted() {
+		$payload = array(
+			'ok'             => true,
+			'inserted_count' => 27,
+			'text_chars'     => 0,
+		);
+		$this->assertTrue( Ahentic_Finish_Gate::payload_body_is_thin( $payload ) );
+		$this->assertTrue( Ahentic_Finish_Gate::write_payload_looks_like_measure_failure( $payload ) );
+	}
+
+	/**
+	 * Empty apply (no blocks) with zero chars is not a measurement failure.
+	 */
+	public function test_zero_chars_without_inserts_is_not_measure_failure() {
+		$payload = array(
+			'ok'             => true,
+			'inserted_count' => 0,
+			'text_chars'     => 0,
+		);
+		$this->assertFalse( Ahentic_Finish_Gate::write_payload_looks_like_measure_failure( $payload ) );
+	}
+
+	/**
+	 * Non-zero measurement is never a measure failure.
+	 */
+	public function test_nonzero_chars_is_not_measure_failure() {
+		$payload = array(
+			'inserted_count' => 10,
+			'text_chars'     => 50,
+		);
+		$this->assertFalse( Ahentic_Finish_Gate::write_payload_looks_like_measure_failure( $payload ) );
+	}
 }

@@ -397,8 +397,13 @@ function collectBlockTextSamples( raw ) {
 		}
 		const attrs = node.attributes && typeof node.attributes === 'object' ? node.attributes : {}
 		for ( const key of [ 'content', 'text', 'caption', 'citation' ] ) {
-			if ( typeof attrs[ key ] === 'string' ) {
-				out.push( attrs[ key ] )
+			const val = attrs[ key ]
+			if ( typeof val === 'string' ) {
+				out.push( val )
+			} else if ( isRichTextValue( val ) ) {
+				// WP 7+ stores rich-text attrs as RichTextData after createBlock/getBlocks.
+				// Counting only strings made set-blocks report text_chars: 0 → false thin loops.
+				out.push( richTextToHtml( val ) )
 			}
 		}
 		if ( Array.isArray( node.innerBlocks ) ) {
@@ -413,15 +418,89 @@ function collectBlockTextSamples( raw ) {
  * Plain-text character count of a block tree, tags stripped.
  *
  * Mirrors the PHP side so one threshold governs both server and editor writes.
+ * Exported for unit tests (Finish Gate text_chars arithmetic).
  *
  * @param {*} raw
  * @return {number}
  */
-function blockTextChars( raw ) {
+export function blockTextChars( raw ) {
 	return collectBlockTextSamples( raw ).reduce(
 		( total, sample ) => total + String( sample ).replace( /<[^>]*>/gu, '' ).trim().length,
 		0
 	)
+}
+
+/**
+ * Strip tags/collapse whitespace for serialized HTML / post content.
+ *
+ * @param {string} html
+ * @return {number}
+ */
+export function plainTextCharsFromHtml( html ) {
+	return String( html || '' )
+		.replace( /<[^>]*>/gu, ' ' )
+		.replace( /\s+/gu, ' ' )
+		.trim().length
+}
+
+/**
+ * Best-effort document text size after an editor write.
+ *
+ * Prefer live attr walk (incl. RichTextData), then serialize()/edited post content
+ * (third-party save() HTML), then the blocks just applied. Take the max so one
+ * opaque block schema cannot force text_chars: 0 → false thin loops.
+ *
+ * @param {Object} args
+ * @param {Array}  [args.live]     Blocks from getBlocks() after the write.
+ * @param {Array}  [args.applied]  Blocks just inserted/replaced (pre-store shape).
+ * @param {Object} [args.wp]       window.wp
+ * @param {Function} [args.select] wp.data.select
+ * @return {{ text_chars: number, text_chars_source: string }}
+ */
+export function measureEditorTextChars( {
+	live = [],
+	applied = [],
+	wp = null,
+	select = null,
+} = {} ) {
+	const candidates = []
+	const push = ( source, chars ) => {
+		const n = Math.max( 0, Number( chars ) || 0 )
+		candidates.push( { source, chars: n } )
+	}
+
+	push( 'attrs', blockTextChars( live ) )
+	if ( Array.isArray( applied ) && applied.length ) {
+		push( 'applied', blockTextChars( applied ) )
+	}
+
+	try {
+		if ( wp?.blocks?.serialize && Array.isArray( live ) && live.length ) {
+			push( 'serialize', plainTextCharsFromHtml( wp.blocks.serialize( live ) ) )
+		}
+	} catch ( error ) {
+		// ignore serialize failures (dynamic blocks, etc.)
+	}
+
+	try {
+		const edited = select?.( 'core/editor' )?.getEditedPostContent?.()
+		if ( typeof edited === 'string' && edited.length ) {
+			push( 'edited_post', plainTextCharsFromHtml( edited ) )
+		}
+	} catch ( error ) {
+		// ignore
+	}
+
+	let best = candidates[ 0 ] || { source: 'attrs', chars: 0 }
+	for ( let i = 1; i < candidates.length; i++ ) {
+		if ( candidates[ i ].chars > best.chars ) {
+			best = candidates[ i ]
+		}
+	}
+	return {
+		text_chars: best.chars,
+		text_chars_source: best.source,
+	}
 }
 
 /**
@@ -1286,13 +1365,21 @@ export function replaceBlocks( input = {} ) {
 	const replacedRefs = refsForClientIds( clientIds )
 	ctx.dispatch( 'core/block-editor' ).replaceBlocks( clientIds, blocks )
 	syncRegistryFromEditor( ctx.select )
+	const live = blockSelect.getBlocks?.() || []
+	const measured = measureEditorTextChars( {
+		live,
+		applied: blocks,
+		wp: ctx.wp,
+		select: ctx.select,
+	} )
 	return {
 		ok: true,
 		replaced_refs: replacedRefs,
 		inserted_count: blocks.length,
 		inserted_names: blocks.map( block => block.name ),
 		inserted_refs: refsForClientIds( blocks.map( block => block.clientId ).filter( Boolean ) ),
-		text_chars: blockTextChars( blockSelect.getBlocks?.() || [] ),
+		text_chars: measured.text_chars,
+		text_chars_source: measured.text_chars_source,
 	}
 }
 
@@ -1328,12 +1415,19 @@ export function setBlocks( input = {} ) {
 	}
 	syncRegistryFromEditor( ctx.select )
 	const live = blockSelect.getBlocks?.() || []
+	const measured = measureEditorTextChars( {
+		live,
+		applied: blocks,
+		wp: ctx.wp,
+		select: ctx.select,
+	} )
 	return {
 		ok: true,
 		inserted_count: live.length,
 		inserted_names: live.map( block => block.name ),
 		inserted_refs: refsForClientIds( live.map( block => block.clientId ) ),
-		text_chars: blockTextChars( live ),
+		text_chars: measured.text_chars,
+		text_chars_source: measured.text_chars_source,
 	}
 }
 
@@ -1389,6 +1483,13 @@ export function insertBlocks( input = {} ) {
 
 	dispatch.insertBlocks( blocks, index, rootClientId || undefined )
 	syncRegistryFromEditor( ctx.select )
+	const live = blockSelect.getBlocks?.() || []
+	const measured = measureEditorTextChars( {
+		live,
+		applied: blocks,
+		wp: ctx.wp,
+		select: ctx.select,
+	} )
 	return {
 		ok: true,
 		inserted_count: blocks.length,
@@ -1396,7 +1497,8 @@ export function insertBlocks( input = {} ) {
 		inserted_refs: refsForClientIds( blocks.map( block => block.clientId ).filter( Boolean ) ),
 		index,
 		root_ref: rootClientId ? refForClientId( rootClientId ) : null,
-		text_chars: blockTextChars( blockSelect.getBlocks?.() || [] ),
+		text_chars: measured.text_chars,
+		text_chars_source: measured.text_chars_source,
 	}
 }
 
@@ -1429,11 +1531,18 @@ export function deleteBlocks( input = {} ) {
 	const deletedRefs = refsForClientIds( clientIds )
 	ctx.dispatch( 'core/block-editor' ).removeBlocks( clientIds )
 	syncRegistryFromEditor( ctx.select )
+	const live = blockSelect.getBlocks?.() || []
+	const measured = measureEditorTextChars( {
+		live,
+		wp: ctx.wp,
+		select: ctx.select,
+	} )
 	return {
 		ok: true,
 		deleted_refs: deletedRefs,
 		deleted_count: deletedRefs.length,
-		text_chars: blockTextChars( blockSelect.getBlocks?.() || [] ),
+		text_chars: measured.text_chars,
+		text_chars_source: measured.text_chars_source,
 	}
 }
 

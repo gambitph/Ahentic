@@ -17,7 +17,7 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 	 *
 	 * Primary interface: evaluate_reply() and assess_write_payload().
 	 * Pure helpers (planned_includes_artifact_apply, forced_apply_tools_for_context,
-	 * payload_body_is_thin) are part of the test surface.
+	 * payload_body_is_thin, write_payload_looks_like_measure_failure) are part of the test surface.
 	 */
 	class Ahentic_Finish_Gate {
 
@@ -141,50 +141,111 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 			$min_chars = self::LONG_FORM_MIN_CHARS;
 			$chars     = self::body_chars_from_write_payload( $payload );
 			$target    = self::write_target_key( $name, $payload );
+			$step      = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 
 			// A later write to the same document supersedes what an earlier one reported.
-			$findings = array();
+			$prior_thin_for_target = false;
+			$findings              = array();
 			foreach ( Ahentic_Session_Repository::get_verify_pending( $session_id ) as $item ) {
 				if ( isset( $item['target'] ) && (string) $item['target'] === $target ) {
+					$prior_thin_for_target = true;
 					continue;
 				}
 				$findings[] = $item;
 			}
 
-			$thin = self::payload_body_is_thin( $payload );
-
-			if ( $thin ) {
-				$payload['thin']        = true;
-				$payload['thin_reason'] = sprintf(
-					/* translators: 1: measured characters, 2: required characters */
-					__( 'This document holds %1$d characters of text; the long-form work requested needs at least %2$d. Keep writing — expand it with real sections instead of replying.', 'ahentic' ),
-					max( 0, $chars ),
-					$min_chars
-				);
-				$findings[] = array(
-					'ability' => $name,
-					'target'  => $target,
-					'at'      => gmdate( 'c' ),
-					'chars'   => max( 0, $chars ),
-				);
-			}
-
-			Ahentic_Session_Repository::set_verify_pending( $session_id, $findings );
-
-			if ( $thin ) {
+			/*
+			 * Inserted blocks with text_chars=0 is almost never an empty article — it is a
+			 * measurement miss (RichTextData, third-party attrs). Do not stamp thin or the
+			 * model will regenerate forever.
+			 */
+			if ( self::write_payload_looks_like_measure_failure( $payload ) ) {
+				$payload['measure_failed'] = true;
+				$payload['thin']           = false;
+				unset( $payload['thin_reason'] );
+				Ahentic_Session_Repository::set_verify_pending( $session_id, $findings );
 				Ahentic_Session_Repository::append_trace(
 					$session_id,
-					'verify_thin',
-					sprintf( 'Thin body after %s', $name ),
+					'verify_measure_failed',
+					sprintf( 'Skipping thin: inserted blocks but text_chars=0 after %s', $name ),
+					array(
+						'ability'        => $name,
+						'target'         => $target,
+						'chars'          => max( 0, $chars ),
+						'inserted_count' => isset( $payload['inserted_count'] ) ? (int) $payload['inserted_count'] : 0,
+						'source'         => isset( $payload['text_chars_source'] ) ? (string) $payload['text_chars_source'] : '',
+					),
+					$step
+				);
+				return $payload;
+			}
+
+			$thin = self::payload_body_is_thin( $payload );
+
+			if ( ! $thin ) {
+				Ahentic_Session_Repository::set_verify_pending( $session_id, $findings );
+				if ( empty( $findings ) ) {
+					Ahentic_Session_Repository::clear_verify_attempts( $session_id );
+				}
+				return $payload;
+			}
+
+			/*
+			 * Mid-run circuit breaker: thin is re-fed on every tool result. If this target was
+			 * already marked thin once, do not stamp thin again (avoids regenerate loops without
+			 * consuming evaluate_reply's MAX_VERIFY_ATTEMPTS repair think).
+			 */
+			if ( $prior_thin_for_target ) {
+				$payload['thin']        = false;
+				$payload['thin_capped'] = true;
+				$payload['thin_reason'] = __(
+					'The body still looks thin after a repair attempt — stopping further automatic expansion. Review the editor, or send Continue to try again.',
+					'ahentic'
+				);
+				Ahentic_Session_Repository::set_verify_pending( $session_id, $findings );
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'verify_thin_capped',
+					'Thin repair capped mid-run — not stamping thin again',
 					array(
 						'ability' => $name,
 						'target'  => $target,
 						'chars'   => max( 0, $chars ),
 						'minimum' => $min_chars,
 					),
-					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+					$step
 				);
+				return $payload;
 			}
+
+			$payload['thin']        = true;
+			$payload['thin_reason'] = sprintf(
+				/* translators: 1: measured characters, 2: required characters */
+				__( 'This document holds %1$d characters of text; the long-form work requested needs at least %2$d. Keep writing — expand it with real sections instead of replying.', 'ahentic' ),
+				max( 0, $chars ),
+				$min_chars
+			);
+			$findings[] = array(
+				'ability' => $name,
+				'target'  => $target,
+				'at'      => gmdate( 'c' ),
+				'chars'   => max( 0, $chars ),
+			);
+
+			Ahentic_Session_Repository::set_verify_pending( $session_id, $findings );
+
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'verify_thin',
+				sprintf( 'Thin body after %s', $name ),
+				array(
+					'ability' => $name,
+					'target'  => $target,
+					'chars'   => max( 0, $chars ),
+					'minimum' => $min_chars,
+				),
+				$step
+			);
 
 			return $payload;
 		}
@@ -328,6 +389,21 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 			$chars = self::body_chars_from_write_payload( $payload );
 			return ( $chars >= 0 && $chars < self::LONG_FORM_MIN_CHARS )
 				|| self::write_payload_looks_like_placeholder( $payload );
+		}
+
+		/**
+		 * Blocks were inserted but the char counter saw nothing — measurement miss, not empty copy.
+		 *
+		 * @param array $payload Write payload.
+		 * @return bool
+		 */
+		public static function write_payload_looks_like_measure_failure( array $payload ) {
+			$chars = self::body_chars_from_write_payload( $payload );
+			if ( 0 !== $chars ) {
+				return false;
+			}
+			$inserted = isset( $payload['inserted_count'] ) ? (int) $payload['inserted_count'] : 0;
+			return $inserted > 0;
 		}
 
 		/**
