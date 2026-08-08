@@ -122,7 +122,7 @@ Optional checklist from the model’s control block (`debug.plan`). Stored in `_
 
 Cleared on each new user message (`handle_user_message`). **Artifacts are kept** across new messages by default so “now put that draft in the editor” still works.
 
-Step statuses are settled when the run ends so the card never reads as live on an idle session: a finished run marks the remaining steps `completed`, and a user Stop (`cancel`) marks them `cancelled`.
+Step statuses are settled when the run ends so the card never reads as live on an idle session: a finished run marks the remaining steps `completed`; a user Stop (`cancel`), LLM/run failure, or token-limit stop marks unfinished steps `cancelled`.
 
 ---
 

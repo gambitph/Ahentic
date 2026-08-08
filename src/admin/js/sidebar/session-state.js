@@ -397,9 +397,15 @@ export function mergeServerSessionIntoRecord( session, current, pendingById, map
 		? session.pendingTool
 		: null
 
-	const plan = session.plan && typeof session.plan === 'object' && Array.isArray( session.plan.steps ) && session.plan.steps.length
+	let plan = session.plan && typeof session.plan === 'object' && Array.isArray( session.plan.steps ) && session.plan.steps.length
 		? session.plan
 		: null
+
+	// Fail / cancel paths must not leave the checklist looking live (server should
+	// settle steps; this covers race/poll and older sessions that predate that fix).
+	if ( plan && ( status === 'error' || status === 'cancelled' || sessionHasAssistantError( messages ) ) ) {
+		plan = cancelIncompletePlanSteps( plan )
+	}
 
 	const thoughtText = session.thoughtProcess?.text || session.thoughtProcess?.Text || ''
 	let thought = base.thought
@@ -451,4 +457,22 @@ export function cancelIncompletePlanSteps( plan ) {
 		return plan
 	}
 	return { ...plan, steps }
+}
+
+/**
+ * @param {Array} messages UI messages.
+ * @return {boolean} True when the latest assistant turn is an error.
+ */
+export function sessionHasAssistantError( messages ) {
+	if ( ! Array.isArray( messages ) || ! messages.length ) {
+		return false
+	}
+	for ( let i = messages.length - 1; i >= 0; i-- ) {
+		const msg = messages[ i ]
+		if ( ! msg || msg.role !== 'assistant' ) {
+			continue
+		}
+		return !! ( msg.meta && msg.meta.error )
+	}
+	return false
 }

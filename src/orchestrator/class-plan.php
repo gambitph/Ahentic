@@ -317,10 +317,10 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		}
 
 		/**
-		 * Mark unfinished plan steps cancelled when the user stops the run.
+		 * Mark unfinished plan steps cancelled when the user stops the run or the run fails.
 		 *
 		 * Without this the card keeps a step at in_progress, so the checklist reads
-		 * as still working after Stop.
+		 * as still working after Stop / LLM errors / token-limit stops.
 		 *
 		 * @param int $session_id Session ID.
 		 */

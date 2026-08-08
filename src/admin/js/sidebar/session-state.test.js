@@ -17,6 +17,7 @@ import {
 	mergeServerSessionIntoRecord,
 	cancelIncompletePlanSteps,
 	sessionFingerprint,
+	sessionHasAssistantError,
 } from './session-state'
 
 describe( 'session-state record map', () => {
@@ -337,6 +338,87 @@ describe( 'cancelIncompletePlanSteps', () => {
 	it( 'returns the same plan reference when nothing changes', () => {
 		const plan = { steps: [ { id: '1', status: 'completed' } ] }
 		expect( cancelIncompletePlanSteps( plan ) ).toBe( plan )
+	} )
+} )
+
+describe( 'sessionHasAssistantError', () => {
+	it( 'detects the latest assistant error meta', () => {
+		expect( sessionHasAssistantError( [
+			{ role: 'user', content: 'go' },
+			{
+				role: 'assistant',
+				content: 'fail',
+				meta: { error: true },
+			},
+		] ) ).toBe( true )
+		expect( sessionHasAssistantError( [
+			{
+				role: 'assistant',
+				content: 'ok',
+				meta: {},
+			},
+		] ) ).toBe( false )
+	} )
+} )
+
+describe( 'mergeServerSessionIntoRecord plan settlement', () => {
+	const mapEntries = entries => entries.map( entry => ( {
+		id: entry.id,
+		role: entry.role,
+		content: entry.content || '',
+		meta: entry.meta || {},
+	} ) )
+
+	it( 'cancels open plan steps when the latest assistant message is an error', () => {
+		const next = mergeServerSessionIntoRecord(
+			{
+				id: 42,
+				status: 'idle',
+				messages: [
+					{
+						id: 'u1',
+						role: 'user',
+						content: 'do work',
+					},
+					{
+						id: 'a1',
+						role: 'assistant',
+						content: 'timed out',
+						meta: { error: true },
+					},
+				],
+				plan: {
+					title: 'Work',
+					steps: [
+						{
+							id: '1',
+							content: 'Done',
+							status: 'completed',
+						},
+						{
+							id: '2',
+							content: 'Still going',
+							status: 'in_progress',
+						},
+						{
+							id: '3',
+							content: 'Later',
+							status: 'pending',
+						},
+					],
+				},
+				trace: [],
+			},
+			createEmptySessionRecord(),
+			{},
+			mapEntries
+		)
+		expect( next.status ).toBe( 'idle' )
+		expect( next.plan.steps.map( s => s.status ) ).toEqual( [
+			'completed',
+			'cancelled',
+			'cancelled',
+		] )
 	} )
 } )
 

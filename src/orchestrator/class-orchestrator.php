@@ -1011,11 +1011,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$session_id,
 				array(
 					'role'    => 'assistant',
-					'content' => sprintf(
-						/* translators: %s: error message */
-						__( 'Sorry — I could not complete that request (%s). Check that WordPress AI / a model connector is configured.', 'ahentic' ),
-						$error->get_error_message()
-					),
+					'content' => self::fail_run_user_message( $error ),
 					'meta'    => array(
 						'error' => true,
 						'code'  => $error->get_error_code(),
@@ -1028,6 +1024,10 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$error->get_error_message(),
 				array( 'code' => $error->get_error_code() )
 			);
+			// Same as Stop / token-limit: open checklist steps must not stay in_progress.
+			if ( class_exists( 'Ahentic_Plan' ) ) {
+				Ahentic_Plan::cancel_on_stop( $session_id );
+			}
 			Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_ERROR );
 			Ahentic_Session_Repository::mark_idle( $session_id );
 			Ahentic_Session_Repository::append_trace(
@@ -1036,6 +1036,40 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'Run idle after error',
 				array( 'reason' => 'error' )
 			);
+		}
+
+		/**
+		 * User-facing copy for a failed LLM / run step.
+		 *
+		 * @param \WP_Error $error Error.
+		 * @return string
+		 */
+		private static function fail_run_user_message( $error ) {
+			$detail = $error->get_error_message();
+			// Timeouts are transport failures — not missing connectors.
+			if ( self::error_looks_like_timeout( $detail ) ) {
+				return sprintf(
+					/* translators: %s: error message */
+					__( 'Sorry — the model request timed out (%s). The run stopped; send another message to continue.', 'ahentic' ),
+					$detail
+				);
+			}
+			return sprintf(
+				/* translators: %s: error message */
+				__( 'Sorry — I could not complete that request (%s). Check that WordPress AI / a model connector is configured.', 'ahentic' ),
+				$detail
+			);
+		}
+
+		/**
+		 * @param string $detail Error detail.
+		 * @return bool
+		 */
+		private static function error_looks_like_timeout( $detail ) {
+			$detail = (string) $detail;
+			return ( false !== stripos( $detail, 'timed out' ) )
+				|| ( false !== stripos( $detail, 'cURL error 28' ) )
+				|| ( false !== stripos( $detail, 'Operation timed out' ) );
 		}
 
 		/**
