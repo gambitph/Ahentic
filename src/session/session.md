@@ -143,7 +143,7 @@ CamelCase fields for the sidebar, including:
 
 ### Context usage (`contextUsage`)
 
-Soft fill estimate for the **next** LLM prompt (not cumulative spend). Measured by `Ahentic_Prompt_Assembler`, cached in `_ahentic_context_usage`, refreshed on each think. Drives the composer context ring and ≥85% fill compaction. Design: [future-sidebar-usage.md](../../pro__premium_only/docs/future-sidebar-usage.md).
+Soft fill estimate for the **next** LLM prompt (not cumulative spend). Measured by `Ahentic_Prompt_Assembler`, cached in `_ahentic_context_usage`, refreshed on each think. Drives the composer context ring and ≥85% fill compaction. Product: [Sidebar PRD](../../pro__premium_only/docs/prd/sidebar.md).
 
 `trace` here is a **recent window of event envelopes** (no event `data`) because the sidebar polls
 it every ~650ms. The complete log lives on `to_diagnostics()` / `GET /sessions/{id}/diagnostics`:

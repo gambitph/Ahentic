@@ -2,7 +2,7 @@
 
 **When:** **v2** (not MVP)
 **Status:** Deferred product backlog — surfaces in scope for parity tracking but **not** a current build wave
-**Source:** Grilling 2026-08-07 (Q4 deferrals); MVP ship wave **09–14** already landed
+**Source:** Grilling 2026-08-07 (Q4 deferrals); MVP ship wave **09–14** already landed (taxonomy, menus, media list/get, settings writes, floating viewport recovery)
 
 Delete or rewrite rows when a surface is promoted to its own build task (or explicitly marked never). Sibling future note: [`multi-window-take-over.md`](./multi-window-take-over.md).
 

@@ -3,7 +3,7 @@
  *
  * Portaled with position:fixed so floating sidebar overflow:hidden cannot clip it.
  *
- * @see pro__premium_only/docs/future-sidebar-usage.md
+ * @see pro__premium_only/docs/prd/sidebar.md (context usage ring)
  */
 
 import {

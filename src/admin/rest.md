@@ -130,7 +130,7 @@ Requires `status === awaiting_browser`. Mismatched `call_id` → `409`.
 | `trace` | Recent debugger events, **envelope only** (`id`, `at`, `ms`, `run`, `type`, `step`, `summary`) — no event `data` |
 | `traceCount` | Total events recorded, so the poll can order payloads even though `trace` is a window |
 | `tokensIn`, `tokensOut`, `tokensUsed`, `stepCount` | Usage |
-| `contextUsage` | Soft context budget fill + technical buckets ([usage gauge](../../pro__premium_only/docs/future-sidebar-usage.md)) |
+| `contextUsage` | Soft context budget fill + technical buckets ([Sidebar PRD](../../pro__premium_only/docs/prd/sidebar.md)) |
 | `lastError`, `summaryStatus` | Errors / summary job |
 | `jobResumable` | Continue can resume mid-failure / honest partial |
 | `contentWork` | Long-form intent flag (budgets / verify) |

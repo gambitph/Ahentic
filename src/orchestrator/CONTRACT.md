@@ -57,7 +57,7 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 **Job resume module:** `Ahentic_Job_Resume` owns new-goal vs resume-same-job run-start ritual (Repository clears/sets, sticky `content_work`, active goal, Plan reopen via `Ahentic_Plan`) and whether forced apply tools may finish after a failure during content work. Primary interface: `begin_new_goal()`, `begin_resume()`, `should_finish_after_forced_tools()`, `should_try_finish_after_browser_resume()`. The Orchestrator must call these — do not reimplement Continuable / cue / clear sequences at call sites.
 
-**Subagent module:** `Ahentic_Subagent` owns temporary cheap mode over **existing** abilities: deepen `forced_tools` (purpose `apply|batch|recipe` — only `apply` may auto-finish), preserve batch remainder across HITL/browser, bind placeholders from earlier step payloads before pause/execute, optional chain summary when idle. It must **not** invent follow-up abilities or domain recipes (no generate→upload→place hardcoding). See [`future-subagent.md`](../../pro__premium_only/docs/future-subagent.md).
+**Subagent module:** `Ahentic_Subagent` owns temporary cheap mode over **existing** abilities: deepen `forced_tools` (purpose `apply|batch|recipe` — only `apply` may auto-finish), preserve batch remainder across HITL/browser, bind placeholders from earlier step payloads before pause/execute, optional chain summary when idle. It must **not** invent follow-up abilities or domain recipes (no generate→upload→place hardcoding). Product should: [Agent runtime PRD — Subagent Recipe](../../pro__premium_only/docs/prd/agent-runtime.md#subagent-recipe--shipped). Mini-job hop (not built): [`future-subagent.md`](../../pro__premium_only/docs/future-subagent.md).
 
 **Think/debug module:** `Ahentic_Think_Debug` owns AHENTIC_DEBUG recovery and post-think disposition. Primary interface: `run_think()`, `apply_live_progress()`, `finalize_result_text()`, `should_finish_without_tools()`, `publish_thought_process()`, `queue_missing_ability()`. The Orchestrator must call these — do not reimplement debug retry or missing-ability policy at call sites. Single LLM phases remain `Ahentic_Orchestrator::run_llm_phase()` (used by Think/Debug and plan-retry).
 
@@ -88,7 +88,7 @@ Order of concerns for each planned tool (after the ability is available for the 
 ## Budgets
 
 - Default / content-aware step and max-output budgets per Agent runtime PRD (24 / 48 steps; 8k / 16k staging).
-- Soft per-prompt **context budget** (200k tokens estimated; compact at ≥85% fill) per Agent runtime PRD + [usage gauge](../../pro__premium_only/docs/future-sidebar-usage.md). Not a hard stop — daily site tokens remain the spend backstop.
+- Soft per-prompt **context budget** (200k tokens estimated; compact at ≥85% fill) per Agent runtime PRD + [Sidebar PRD](../../pro__premium_only/docs/prd/sidebar.md). Not a hard stop — daily site tokens remain the spend backstop.
 - Hitting a ceiling mid-job: honest partial + allow Continue; never fake long-form completion.
 - Mid-run context compaction may summarize older turns/tools; must retain plan, artifact keys, latest user goal.
 - Session REST includes `contextUsage` (fill % + technical buckets) for the composer ring; never present cumulative `tokensUsed` as context fill %.

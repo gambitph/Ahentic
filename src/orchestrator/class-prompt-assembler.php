@@ -40,7 +40,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		/**
 		 * Soft per-prompt context budget (tokens). WP AI Client does not expose model windows yet.
 		 *
-		 * @see pro__premium_only/docs/future-sidebar-usage.md
+		 * @see pro__premium_only/docs/prd/sidebar.md (context usage ring)
+		 * @see pro__premium_only/docs/prd/agent-runtime.md (budgets / compaction)
 		 */
 		const CONTEXT_BUDGET_TOKENS = 200000;
 

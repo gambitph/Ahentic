@@ -133,7 +133,7 @@ Isolatable work may skip fat main thinks via `Ahentic_Subagent` ([future-subagen
 - **Job Resume:** `Ahentic_Job_Resume` owns run-start ritual (`begin_new_goal` / `begin_resume`) and forced-apply-finish decisions. Failures leave Plan + Artifacts + active goal Continuable; forced apply failures during content work return to think instead of `final_reply`.
 - Run lock (`_ahentic_run_lock`) prevents overlapping steps on the same session.
 - **LLM liveness:** while `complete_chat` runs, keepalive ticks + optional WP HTTP curl progress bump `heartbeatAt` (and refresh the run lock). Sidebar polls nudge cron so ticks can fire in other requests.
-- **Context compaction:** when history is large **or** estimated next-prompt fill ≥ 85% of the soft **200k** budget, older turns become an extractive rolling summary; pinned goal + plan (+ artifact pointers) stay on the user prompt. Fill + technical buckets are exposed as `contextUsage` on session REST for the composer ring ([usage gauge](../../pro__premium_only/docs/future-sidebar-usage.md)).
+- **Context compaction:** when history is large **or** estimated next-prompt fill ≥ 85% of the soft **200k** budget, older turns become an extractive rolling summary; pinned goal + plan (+ artifact pointers) stay on the user prompt. Fill + technical buckets are exposed as `contextUsage` on session REST for the composer ring ([Sidebar PRD](../../pro__premium_only/docs/prd/sidebar.md)).
 
 ---
 
