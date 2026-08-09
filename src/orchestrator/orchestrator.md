@@ -118,9 +118,10 @@ Tool JSON injected into the next think is capped (~8k chars) to avoid blowing co
 
 ### Subagent (cheap mode)
 
-Isolatable work may skip fat main thinks via `Ahentic_Subagent` ([future-subagent.md](../../pro__premium_only/docs/future-subagent.md)):
+Isolatable work may skip or slim fat main thinks via `Ahentic_Subagent` ([future-subagent.md](../../pro__premium_only/docs/future-subagent.md)):
 
-- Deepen `forced_tools`: when the model already planned several **existing** abilities, run them without `for_llm()` between steps; HITL/browser pauses preserve batch remainder; `bind_recipe_input` before pause fills placeholders from earlier step payloads.
+- **Recipe:** deepen `forced_tools` — when the model already planned several **existing** abilities, run them without `for_llm()` between steps; HITL/browser pauses preserve batch remainder; `bind_recipe_input` before pause fills placeholders from earlier step payloads.
+- **Mini-job hop:** main sets `mini_job=true` + `hop_brief` with empty `tools_planned` → one slim think (`assemble_mini_job_hop`: ability catalog + brief + pinned goal/plan, no chat history) → tools via Tool runner → short summary entry → main continues. Vetoes: ask_user, empty brief, tools already planned (Recipe wins), full-history jobs (omit `mini_job`).
 - Does **not** invent follow-up abilities or domain chains.
 
 ---

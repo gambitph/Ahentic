@@ -408,6 +408,7 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 			if ( ! empty( $planned['clear_forced_tools'] ) ) {
 				Ahentic_Session_Repository::clear_forced_tools( $session_id );
 				Ahentic_Session_Repository::clear_subagent_recipe( $session_id );
+				Ahentic_Session_Repository::clear_subagent_hop( $session_id );
 			}
 			if ( ! empty( $planned['clear_thought'] ) ) {
 				Ahentic_Session_Repository::clear_thought( $session_id );

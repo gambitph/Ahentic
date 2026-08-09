@@ -181,4 +181,134 @@ class SubagentTest extends TestCase {
 			)
 		);
 	}
+
+	/**
+	 * Mini-job hop: enter only when peelable (flag + brief, no tools yet, not ask_user).
+	 */
+	public function test_should_enter_hop_when_mini_job_with_brief_and_empty_tools() {
+		$this->assertTrue(
+			Ahentic_Subagent::should_enter_hop(
+				array(
+					'mini_job'      => true,
+					'hop_brief'     => 'Place a featured image for the draft; topic cats, landscape.',
+					'next'          => 'use_tools',
+					'tools_planned' => array(),
+				),
+				array()
+			)
+		);
+	}
+
+	public function test_should_enter_hop_vetoes() {
+		$brief = array(
+			'mini_job'  => true,
+			'hop_brief' => 'Do the image work',
+			'next'      => 'use_tools',
+		);
+
+		$this->assertFalse(
+			Ahentic_Subagent::should_enter_hop(
+				array_merge( $brief, array( 'next' => 'ask_user' ) ),
+				array()
+			),
+			'Clarifying question stays on main'
+		);
+
+		$this->assertFalse(
+			Ahentic_Subagent::should_enter_hop(
+				array(
+					'mini_job'  => true,
+					'hop_brief' => '',
+					'next'      => 'use_tools',
+				),
+				array()
+			),
+			'Empty brief — no hop'
+		);
+
+		$this->assertFalse(
+			Ahentic_Subagent::should_enter_hop(
+				array(
+					'mini_job'  => false,
+					'hop_brief' => 'x',
+					'next'      => 'use_tools',
+				),
+				array()
+			)
+		);
+
+		$this->assertFalse(
+			Ahentic_Subagent::should_enter_hop(
+				$brief,
+				array(
+					array(
+						'name'  => 'ahentic/generate-image',
+						'input' => array(),
+					),
+				)
+			),
+			'Tools already planned → Recipe path, not hop'
+		);
+
+		$this->assertFalse(
+			Ahentic_Subagent::should_enter_hop(
+				array_merge(
+					$brief,
+					array(
+						'tools_planned' => array( 'ahentic/generate-image' ),
+					)
+				),
+				array()
+			),
+			'Raw tools_planned in debug also vetoes hop'
+		);
+	}
+
+		public function test_hop_brief_from_debug_trims() {
+		$this->assertSame(
+			'Generate then upload hero',
+			Ahentic_Subagent::hop_brief_from_debug(
+				array(
+					'hop_brief' => "  Generate then upload hero\n",
+				)
+			)
+		);
+		$this->assertSame( '', Ahentic_Subagent::hop_brief_from_debug( array() ) );
+	}
+
+	public function test_hop_summary_payload_is_compact() {
+		$summary = Ahentic_Subagent::hop_summary_payload(
+			true,
+			'Placed featured image',
+			array(
+				array(
+					'ability' => 'ahentic/upload-media',
+					'ok'      => true,
+				),
+				array(
+					'ability' => 'ahentic-browser/set-featured-image',
+					'ok'      => true,
+				),
+			)
+		);
+		$this->assertTrue( $summary['ok'] );
+		$this->assertTrue( $summary['mini_job_hop'] );
+		$this->assertSame( 'Placed featured image', $summary['summary'] );
+		$this->assertCount( 2, $summary['steps'] );
+		$this->assertSame( 'ahentic/upload-media', $summary['steps'][0]['ability'] );
+	}
+
+	public function test_try_begin_hop_without_repository_is_false() {
+		$this->assertFalse(
+			Ahentic_Subagent::try_begin_hop(
+				1,
+				array(
+					'mini_job'  => true,
+					'hop_brief' => 'do it',
+					'next'      => 'use_tools',
+				),
+				array()
+			)
+		);
+	}
 }

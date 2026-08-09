@@ -58,7 +58,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @param string     $mode        Agent mode (agent|ask).
 		 * @param string     $user_suffix Optional text appended to the user message (retries).
 		 * @param array|null $extra_turn  Optional prior assistant turn to inject into history.
-		 * @param array      $opts        Optional flags (slim_debug_retry => true for AHENTIC_DEBUG recovery).
+		 * @param array      $opts        Optional flags (slim_debug_retry, mini_job_hop + hop_brief).
 		 * @return array{
 		 *   system: string,
 		 *   history: array,
@@ -67,7 +67,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 *   compacted: bool,
 		 *   superseded: int,
 		 *   context_usage: array,
-		 *   slim_debug_retry?: bool
+		 *   slim_debug_retry?: bool,
+		 *   mini_job_hop?: bool
 		 * }
 		 */
 		public static function for_llm( $session_id, $mode, $user_suffix = '', $extra_turn = null, array $opts = array() ) {
@@ -77,6 +78,29 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					$pinned = self::pinned_run_context_for_prompt( $session_id );
 				}
 				$assembled = self::assemble_slim_debug_retry( $mode, $user_suffix, $pinned );
+				if ( class_exists( 'Ahentic_Session_Repository' ) ) {
+					Ahentic_Session_Repository::set_context_usage( $session_id, $assembled['context_usage'] );
+				}
+				return $assembled;
+			}
+
+			if ( ! empty( $opts['mini_job_hop'] ) ) {
+				$brief  = isset( $opts['hop_brief'] ) ? (string) $opts['hop_brief'] : '';
+				$pinned = '';
+				if ( $session_id ) {
+					$pinned = self::pinned_run_context_for_prompt( $session_id );
+				}
+				$abilities_index = '';
+				if ( class_exists( 'Ahentic_Abilities' ) ) {
+					$abilities_index = self::format_abilities_index(
+						Ahentic_Abilities::available_for_mode( $mode )
+					);
+				}
+				if ( is_string( $user_suffix ) && '' !== trim( $user_suffix ) ) {
+					$brief = trim( $brief );
+					$brief = ( '' !== $brief ? $brief . "\n\n" : '' ) . trim( $user_suffix );
+				}
+				$assembled = self::assemble_mini_job_hop( $mode, $brief, $pinned, $abilities_index );
 				if ( class_exists( 'Ahentic_Session_Repository' ) ) {
 					Ahentic_Session_Repository::set_context_usage( $session_id, $assembled['context_usage'] );
 				}
@@ -154,6 +178,82 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				'superseded'       => 0,
 				'context_usage'    => self::usage_from_bucket_chars( $chars ),
 				'slim_debug_retry' => true,
+			);
+		}
+
+		/**
+		 * System prompt for a mini-job hop (ability catalog, no chat / routing packs).
+		 *
+		 * @param string $mode            agent|ask.
+		 * @param string $abilities_index Formatted ability index (may be empty in tests).
+		 * @return string
+		 */
+		public static function mini_job_hop_system( $mode, $abilities_index = '' ) {
+			$mode = 'ask' === $mode ? 'ask' : 'agent';
+			$line = 'ask' === $mode
+				? 'Mode: Ask (readonly tools only). '
+				: 'Mode: Agent. ';
+			$system = 'You are Ahentic, a WordPress workspace agent in a temporary mini-job hop. '
+				. $line
+				. 'Use only the ability catalog below and the hop brief on the user turn. '
+				. 'Do not invent site changes. Do not ask clarifying questions unless the brief is impossible. '
+				. 'Output exactly one <<<AHENTIC_DEBUG {…} AHENTIC_DEBUG>>> block FIRST with intention, thinking, '
+				. 'tools_planned (objects {"name","input"} or name strings), and next '
+				. '(reply|ask_user|use_tools|missing_ability), then a short user-facing reply. '
+				. 'Prefer next="use_tools" with the abilities needed to finish this hop; when done, next="reply". '
+				. 'Do not mention the debug block or that this is a mini-job.';
+
+			$index = is_string( $abilities_index ) ? trim( $abilities_index ) : '';
+			if ( '' !== $index ) {
+				$system .= "\n\nAvailable abilities:\n" . $index;
+			}
+			return $system;
+		}
+
+		/**
+		 * Assemble a mini-job hop prompt (empty history; main-packed brief; no size cap).
+		 *
+		 * @param string $mode            agent|ask.
+		 * @param string $hop_brief       Main-packed brief (may be long).
+		 * @param string $pinned          Optional pinned run context.
+		 * @param string $abilities_index Formatted ability index.
+		 * @return array Same shape as for_llm() plus mini_job_hop.
+		 */
+		public static function assemble_mini_job_hop( $mode, $hop_brief, $pinned = '', $abilities_index = '' ) {
+			$system = self::mini_job_hop_system( $mode, $abilities_index );
+			$user   = '';
+			if ( is_string( $pinned ) && '' !== trim( $pinned ) ) {
+				$user .= trim( $pinned ) . "\n\n";
+			}
+			$brief = is_string( $hop_brief ) ? trim( $hop_brief ) : '';
+			if ( '' !== $brief ) {
+				$user .= "Mini-job hop brief (complete this work with existing abilities):\n" . $brief;
+			} else {
+				$user .= 'Mini-job hop brief missing — set next="reply" and explain you cannot proceed.';
+			}
+			$format = '[Format reminder] Output exactly one <<<AHENTIC_DEBUG {…} AHENTIC_DEBUG>>> block FIRST '
+				. '(intention, thinking, tools_planned, next), then the short user-facing reply.';
+			$user  .= "\n\n" . $format;
+
+			$chars = array(
+				'system_prompt'     => strlen( $system ),
+				'ability_schemas'   => is_string( $abilities_index ) ? strlen( $abilities_index ) : 0,
+				'chat_turns'        => strlen( $user ),
+				'tool_results'      => 0,
+				'page_context'      => 0,
+				'plan_artifacts'    => 0,
+				'compacted_summary' => 0,
+			);
+
+			return array(
+				'system'        => $system,
+				'history'       => array(),
+				'user'          => $user,
+				'clipped'       => array(),
+				'compacted'     => false,
+				'superseded'    => 0,
+				'context_usage' => self::usage_from_bucket_chars( $chars ),
+				'mini_job_hop'  => true,
 			);
 		}
 
@@ -394,6 +494,11 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				. 'intention: short present-tense UI status (~10 words). '
 				. 'thinking: 1–3 sentences shown in chat (never empty). '
 				. 'tools_planned: ability name strings or {"name","input"} objects. '
+				. 'mini_job + hop_brief: when a peelable chunk does NOT need full chat history, set mini_job=true, '
+				. 'hop_brief to a self-contained brief (pack everything the hop needs — no size cap), tools_planned=[], next=use_tools. '
+				. 'Orchestrator runs one slim hop think with the normal ability catalog, then returns a short summary. '
+				. 'If tools are already known, batch them in tools_planned instead (Recipe — no hop). '
+				. 'If the job needs full history, omit mini_job. '
 				. 'ability_needed: required when next is missing_ability. '
 				. 'plan: Agent mode MUST include plan.steps when intending 2+ tools OR any write; one readonly tool may omit; omit for simple Ask. '
 				. 'Coarse user-facing steps; exactly one in_progress; on later thinks re-send the FULL plan (keep completed ids). '

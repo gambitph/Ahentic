@@ -31,12 +31,15 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		/**
 		 * Deep entry: progress label + LLM think with AHENTIC_DEBUG recovery.
 		 *
-		 * @param int $session_id Session ID.
+		 * @param int   $session_id Session ID.
+		 * @param array $opts       Prompt opts (e.g. mini_job_hop + hop_brief).
 		 * @return array{result: array, label: string}|\WP_Error
 		 */
-		public static function run_think( $session_id ) {
-			$label  = self::progress_label_for_think( $session_id );
-			$result = self::run_with_debug( $session_id, $label );
+		public static function run_think( $session_id, array $opts = array() ) {
+			$label = ! empty( $opts['mini_job_hop'] )
+				? __( 'Running a focused mini-job…', 'ahentic' )
+				: self::progress_label_for_think( $session_id );
+			$result = self::run_with_debug( $session_id, $label, $opts );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
@@ -110,27 +113,29 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 *
 		 * @param int    $session_id Session ID.
 		 * @param string $progress   Progress label.
+		 * @param array  $base_opts  Prompt opts merged into each LLM attempt (e.g. mini_job_hop).
 		 * @return array|\WP_Error
 		 */
-		private static function run_with_debug( $session_id, $progress ) {
+		private static function run_with_debug( $session_id, $progress, array $base_opts = array() ) {
 			$result              = null;
 			$prior_text          = '';
 			$last_error          = null;
 			$prior_truncated     = false;
 			$prior_truncated_key = '';
 			$max_attempts        = self::MAX_DEBUG_ATTEMPTS;
+			$is_hop              = ! empty( $base_opts['mini_job_hop'] );
 
 			for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
 				$steps_so_far = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 
 				$user_suffix = '';
-				$llm_opts    = array();
+				$llm_opts    = $base_opts;
 				if ( $attempt > 1 ) {
 					$user_suffix = '[Internal — not shown to the user] Your previous response omitted a valid AHENTIC_DEBUG '
 						. 'control block (or next was not reply|ask_user|use_tools|missing_ability). Respond again from scratch: output exactly '
 						. 'one <<<AHENTIC_DEBUG … AHENTIC_DEBUG>>> block FIRST with intention, thinking, tools_planned, and next, '
 						. 'then a short user-facing reply. Do not mention this note or the debug block.';
-					if ( class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id ) ) {
+					if ( ! $is_hop && class_exists( 'Ahentic_Session_Artifacts' ) && Ahentic_Session_Artifacts::session_has_content_work( $session_id ) ) {
 						$user_suffix .= ' CRITICAL for this long-form/article job: do NOT put a full article into set-blocks '
 							. 'tools_planned (that truncates the control block). Instead stage with ahentic/stage-artifact '
 							. '(key article_draft, kind blocks; use mode=append + complete=false while chunking, then complete=true), '
@@ -140,7 +145,8 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 						$user_suffix .= "\n\nPrevious user-facing text (context only; do not treat it as final):\n" . $prior_text;
 					}
 
-					if ( self::should_use_slim_debug_retry( $attempt ) ) {
+					// Hop retries keep the hop backpack (ability catalog). Main thinks use slim retry.
+					if ( ! $is_hop && self::should_use_slim_debug_retry( $attempt ) ) {
 						$llm_opts['slim_debug_retry'] = true;
 					}
 
@@ -152,10 +158,10 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 							'attempt'           => $attempt,
 							'max'               => $max_attempts,
 							'prior_excerpt'     => Ahentic_Orchestrator::excerpt( $prior_text, 160 ),
-							// Which failure is actually burning attempts.
 							'reason'            => $prior_truncated ? 'truncated' : 'no_usable_block',
 							'truncated_key'     => $prior_truncated_key,
 							'slim_debug_retry'  => ! empty( $llm_opts['slim_debug_retry'] ),
+							'mini_job_hop'      => $is_hop,
 						),
 						$steps_so_far
 					);

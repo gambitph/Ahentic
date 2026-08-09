@@ -627,4 +627,29 @@ class PromptAssemblerTest extends TestCase {
 		$total = strlen( $built['system'] ) + strlen( $built['user'] );
 		$this->assertLessThan( 4000, $total, 'Slim retry prompt must stay far below a full think' );
 	}
+
+	/**
+	 * Mini-job hop backpack: ability catalog + brief, no chat history / routing packs.
+	 */
+	public function test_assemble_mini_job_hop_carries_brief_and_abilities() {
+		$built = Ahentic_Prompt_Assembler::assemble_mini_job_hop(
+			'agent',
+			'Generate a landscape hero for the cats post and set it featured.',
+			"---\nPinned run context:\n- Latest user goal: cats article",
+			"- ahentic/generate-image — …\n- ahentic/upload-media — …"
+		);
+
+		$this->assertSame( array(), $built['history'] );
+		$this->assertTrue( ! empty( $built['mini_job_hop'] ) );
+		$this->assertStringContainsString( 'ahentic/generate-image', $built['system'] );
+		$this->assertStringContainsString( 'mini-job', $built['system'] );
+		$this->assertStringNotContainsString( 'CRITICAL — content routing', $built['system'] );
+		$this->assertStringContainsString( 'cats post', $built['user'] );
+		$this->assertStringContainsString( 'Latest user goal', $built['user'] );
+		$this->assertStringContainsString( 'AHENTIC_DEBUG', $built['user'] );
+		// No hard cap on brief — long briefs must still appear intact.
+		$long = str_repeat( 'detail ', 500 );
+		$fat  = Ahentic_Prompt_Assembler::assemble_mini_job_hop( 'agent', $long, '', '- ahentic/x' );
+		$this->assertStringContainsString( 'detail detail', $fat['user'] );
+	}
 }

@@ -37,6 +37,8 @@ If the block is missing or `next` is invalid, the orchestrator **retries interna
 | `intention` | yes | Short present-tense live status (“Reading editor blocks”) — UI progress |
 | `thinking` | yes | 1–3 sentences shown in the sidebar chat as thought process |
 | `tools_planned` | when using tools | Strings (`"ahentic/…"`) or objects `{ "name", "input" }` |
+| `mini_job` | optional | `true` to peel a **mini-job hop** (requires `hop_brief`, empty `tools_planned`) |
+| `hop_brief` | when `mini_job` | Main-packed self-contained brief for the slim hop (no hard size cap) |
 | `next` | yes | `reply` \| `ask_user` \| `use_tools` \| `missing_ability` |
 | `plan` | optional | Multi-step checklist for the plan card / system prompt |
 | `ability_needed` | when missing | Ability slug(s) the product does not have yet |
@@ -65,6 +67,16 @@ Prefer objects with input:
 Bare name strings are normalized to `{ "name", "input": {} }`.
 
 Caps: at most `MAX_TOOL_PROGRESS` tools per think; unknown names become tool-error entries (or Ask-mode write blocks).
+
+### Mini-job hop
+
+When a peelable chunk does **not** need full chat history:
+
+```json
+{ "mini_job": true, "hop_brief": "…self-contained brief…", "tools_planned": [], "next": "use_tools" }
+```
+
+Orchestrator schedules one slim think (ability catalog + brief + pinned goal/plan; empty history), runs any tools the hop plans, appends a short summary tool entry, then continues on main. If `tools_planned` is already non-empty, prefer **Recipe** (batch) — leave `mini_job` off. If the job needs full history, omit `mini_job`.
 
 ### `from_memory`
 

@@ -45,6 +45,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_FORCED_TOOLS         = '_ahentic_forced_tools';
 		const META_FORCED_TOOLS_PURPOSE = '_ahentic_forced_tools_purpose';
 		const META_SUBAGENT_RECIPE      = '_ahentic_subagent_recipe';
+		const META_SUBAGENT_HOP         = '_ahentic_subagent_hop';
 		/** Forced tools from Finish Gate / apply_required — may finish after success. */
 		const FORCED_PURPOSE_APPLY = 'apply';
 		/** Remaining tools after browser/HITL pause — must return to think. */
@@ -1682,6 +1683,40 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
+		 * Pending / active mini-job hop (brief + phase).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array|null
+		 */
+		public static function get_subagent_hop( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_SUBAGENT_HOP, true );
+			if ( empty( $raw ) ) {
+				return null;
+			}
+			$decoded = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			return is_array( $decoded ) ? $decoded : null;
+		}
+
+		/**
+		 * @param int   $session_id Session ID.
+		 * @param array $state      Hop state (brief, phase, …).
+		 */
+		public static function set_subagent_hop( $session_id, array $state ) {
+			update_post_meta(
+				$session_id,
+				self::META_SUBAGENT_HOP,
+				wp_slash( wp_json_encode( $state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) )
+			);
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 */
+		public static function clear_subagent_hop( $session_id ) {
+			delete_post_meta( $session_id, self::META_SUBAGENT_HOP );
+		}
+
+		/**
 		 * Whether an LLM completion is in flight (external keepalive may bump heartbeat).
 		 *
 		 * @param int $session_id Session ID.
@@ -1976,6 +2011,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			self::clear_pending_final( $session_id );
 			self::clear_forced_tools( $session_id );
 			self::clear_subagent_recipe( $session_id );
+			self::clear_subagent_hop( $session_id );
 			self::clear_context_summary( $session_id );
 			self::set_llm_keepalive( $session_id, false );
 			self::clear_browser_paused_at( $session_id );
