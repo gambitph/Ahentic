@@ -58,6 +58,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @param string     $mode        Agent mode (agent|ask).
 		 * @param string     $user_suffix Optional text appended to the user message (retries).
 		 * @param array|null $extra_turn  Optional prior assistant turn to inject into history.
+		 * @param array      $opts        Optional flags (slim_debug_retry => true for AHENTIC_DEBUG recovery).
 		 * @return array{
 		 *   system: string,
 		 *   history: array,
@@ -65,15 +66,95 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 *   clipped: array,
 		 *   compacted: bool,
 		 *   superseded: int,
-		 *   context_usage: array
+		 *   context_usage: array,
+		 *   slim_debug_retry?: bool
 		 * }
 		 */
-		public static function for_llm( $session_id, $mode, $user_suffix = '', $extra_turn = null ) {
+		public static function for_llm( $session_id, $mode, $user_suffix = '', $extra_turn = null, array $opts = array() ) {
+			if ( ! empty( $opts['slim_debug_retry'] ) ) {
+				$pinned = '';
+				if ( $session_id ) {
+					$pinned = self::pinned_run_context_for_prompt( $session_id );
+				}
+				$assembled = self::assemble_slim_debug_retry( $mode, $user_suffix, $pinned );
+				if ( class_exists( 'Ahentic_Session_Repository' ) ) {
+					Ahentic_Session_Repository::set_context_usage( $session_id, $assembled['context_usage'] );
+				}
+				return $assembled;
+			}
+
 			$assembled = self::assemble_prompt( $session_id, $mode, $user_suffix, $extra_turn, true );
 			if ( class_exists( 'Ahentic_Session_Repository' ) ) {
 				Ahentic_Session_Repository::set_context_usage( $session_id, $assembled['context_usage'] );
 			}
 			return $assembled;
+		}
+
+		/**
+		 * Tiny system prompt for AHENTIC_DEBUG recovery (no ability index / routing packs).
+		 *
+		 * @param string $mode agent|ask.
+		 * @return string
+		 */
+		public static function slim_debug_retry_system( $mode ) {
+			$mode = 'ask' === $mode ? 'ask' : 'agent';
+			$line = 'ask' === $mode
+				? 'Mode: Ask (readonly tools only). '
+				: 'Mode: Agent. ';
+			return 'You are Ahentic, a WordPress workspace agent. '
+				. $line
+				. 'Your previous reply omitted a valid control block. '
+				. 'Output exactly one <<<AHENTIC_DEBUG {…} AHENTIC_DEBUG>>> block FIRST with intention, thinking, '
+				. 'tools_planned (reuse ability names you already intended; objects {"name","input"} or name strings), '
+				. 'and next (reply|ask_user|use_tools|missing_ability), then a short user-facing reply. '
+				. 'Do not invent site changes. Do not mention the debug block. '
+				. 'Keep tools_planned empty when next is reply or ask_user.';
+		}
+
+		/**
+		 * Assemble a slim recovery prompt (empty history; suffix carries prior prose).
+		 *
+		 * @param string $mode        agent|ask.
+		 * @param string $user_suffix Retry instructions (+ prior text).
+		 * @param string $pinned      Optional pinned run context.
+		 * @return array Same shape as for_llm() plus slim_debug_retry.
+		 */
+		public static function assemble_slim_debug_retry( $mode, $user_suffix = '', $pinned = '' ) {
+			$system = self::slim_debug_retry_system( $mode );
+			$user   = '';
+			if ( is_string( $pinned ) && '' !== trim( $pinned ) ) {
+				$user .= trim( $pinned ) . "\n\n";
+			}
+			if ( is_string( $user_suffix ) && '' !== trim( $user_suffix ) ) {
+				$user .= trim( $user_suffix );
+			}
+			if ( '' === $user ) {
+				$user = 'Emit a valid AHENTIC_DEBUG control block, then a short reply.';
+			}
+			$format = '[Format reminder] Output exactly one <<<AHENTIC_DEBUG {…} AHENTIC_DEBUG>>> block FIRST '
+				. '(intention, thinking, tools_planned, next), then the short user-facing reply.';
+			$user  .= "\n\n" . $format;
+
+			$chars = array(
+				'system_prompt'     => strlen( $system ),
+				'ability_schemas'   => 0,
+				'chat_turns'        => strlen( $user ),
+				'tool_results'      => 0,
+				'page_context'      => 0,
+				'plan_artifacts'    => 0,
+				'compacted_summary' => 0,
+			);
+
+			return array(
+				'system'           => $system,
+				'history'          => array(),
+				'user'             => $user,
+				'clipped'          => array(),
+				'compacted'        => false,
+				'superseded'       => 0,
+				'context_usage'    => self::usage_from_bucket_chars( $chars ),
+				'slim_debug_retry' => true,
+			);
 		}
 
 		/**
@@ -278,10 +359,17 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				&& class_exists( 'Ahentic_Session_Artifacts' )
 				&& Ahentic_Session_Artifacts::session_has_content_work( $session_id );
 			$recent_abilities = self::recent_ability_names_from_entries( $entries );
-			$routing_packs    = self::select_tool_routing_packs(
+			$want_media       = false;
+			if ( $session_id && class_exists( 'Ahentic_Session_Repository' ) ) {
+				$want_media = self::goal_suggests_media_pack(
+					Ahentic_Session_Repository::get_active_goal( $session_id )
+				);
+			}
+			$routing_packs = self::select_tool_routing_packs(
 				$page_context,
 				(bool) $has_content_work,
-				$recent_abilities
+				$recent_abilities,
+				$want_media
 			);
 			$routing = self::tool_routing_guidance_for_packs( $routing_packs );
 
@@ -427,13 +515,16 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 *
 		 * Floor from page context + content_work; recent abilities may sticky-add packs.
 		 * Empty page context bootstraps content (discovery) but not editor/media essays.
+		 * Media is NOT attached for every block-editor think — only sticky media tools,
+		 * media admin screens, or an explicit media-ish goal.
 		 *
 		 * @param array    $page_context      Session page context (may be empty).
 		 * @param bool     $has_content_work  Whether the session is mid long-form content work.
 		 * @param string[] $recent_abilities  Trailing tool ability names this run (optional).
+		 * @param bool     $want_media        Goal / caller asks for image/media work.
 		 * @return string[] Pack ids.
 		 */
-		public static function select_tool_routing_packs( array $page_context, $has_content_work = false, array $recent_abilities = array() ) {
+		public static function select_tool_routing_packs( array $page_context, $has_content_work = false, array $recent_abilities = array(), $want_media = false ) {
 			$packs = array( 'core' );
 			$url   = isset( $page_context['url'] ) ? (string) $page_context['url'] : '';
 			$in_editor = ! empty( $page_context['is_block_editor'] )
@@ -450,9 +541,9 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			if ( $in_editor || $has_content_work || in_array( 'editor', $sticky, true ) ) {
 				$packs[] = 'editor';
 			}
-			// Media: editor screen / media admin / sticky media abilities — not every content_work think.
+			// Media: sticky media abilities / media admin / media-ish goal — not bare editor.
 			if (
-				$in_editor
+				$want_media
 				|| in_array( 'media', $sticky, true )
 				|| self::url_matches_any( $url, array( 'upload.php', 'media-new.php' ) )
 			) {
@@ -491,6 +582,23 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			}
 
 			return array_values( array_unique( $packs ) );
+		}
+
+		/**
+		 * Whether the active goal is asking for image / media library work.
+		 *
+		 * @param string $goal Active goal text.
+		 * @return bool
+		 */
+		public static function goal_suggests_media_pack( $goal ) {
+			$goal = strtolower( trim( (string) $goal ) );
+			if ( '' === $goal ) {
+				return false;
+			}
+			return (bool) preg_match(
+				'/\b(featured\s+image|generate\s+(an?\s+)?image|upload\s+(an?\s+)?(image|photo|media)|media\s+library|hero\s+image|alt\s+text|set[\s-]?featured|cover\s+image)\b/i',
+				$goal
+			);
 		}
 
 		/**

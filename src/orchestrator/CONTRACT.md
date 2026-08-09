@@ -51,7 +51,7 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 `Ahentic_Abilities::execute` remains the ability **dispatch** seam (registration → `execute_*`). The Tool runner is the orchestrator **pipeline** around that dispatch. Orchestrator still owns step-loop concerns shared with prompts (e.g. `progress_label_for_tool`, session `with_current_session`). Plan advance after a tool is owned by `Ahentic_Plan` (called from the Finish Gate / Tool runner path).
 
-**Prompt assembly module:** `Ahentic_Prompt_Assembler` owns system prompt text, history/tool compaction, and user-turn shaping. The Orchestrator must call `for_llm()` (or the assembler’s tested helpers) — do not reimplement prompt/payload assembly at call sites.
+**Prompt assembly module:** `Ahentic_Prompt_Assembler` owns system prompt text, history/tool compaction, and user-turn shaping (including slim AHENTIC_DEBUG recovery prompts). The Orchestrator must call `for_llm()` (or the assembler’s tested helpers) — do not reimplement prompt/payload assembly at call sites.
 
 **Plan module:** `Ahentic_Plan` owns the plan checklist. Primary interface: `sync_after_think()`, `ensure_after_think()`, `advance_after_tool()`, `complete_on_finish()`, `cancel_on_stop()`, `reopen_cancelled_steps()`. The Orchestrator (and Finish Gate for advance) must call these — do not reimplement plan merge/normalize/FSM at call sites.
 
@@ -59,7 +59,7 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 **Subagent module:** `Ahentic_Subagent` owns temporary cheap mode over **existing** abilities: deepen `forced_tools` (purpose `apply|batch|recipe` — successful queues may finish without a wrap-up think; Job Resume decides), preserve batch remainder across HITL/browser, bind placeholders from earlier step payloads before pause/execute, optional chain summary when idle. It must **not** invent follow-up abilities or domain recipes (no generate→upload→place hardcoding). Product should: [Agent runtime PRD — Subagent Recipe](../../pro__premium_only/docs/prd/agent-runtime.md#subagent-recipe--shipped). Mini-job hop (not built): [`future-subagent.md`](../../pro__premium_only/docs/future-subagent.md).
 
-**Think/debug module:** `Ahentic_Think_Debug` owns AHENTIC_DEBUG recovery and post-think disposition. Primary interface: `run_think()`, `apply_live_progress()`, `finalize_result_text()`, `should_finish_without_tools()`, `publish_thought_process()`, `queue_missing_ability()`. The Orchestrator must call these — do not reimplement debug retry or missing-ability policy at call sites. Single LLM phases remain `Ahentic_Orchestrator::run_llm_phase()` (used by Think/Debug and plan-retry).
+**Think/debug module:** `Ahentic_Think_Debug` owns AHENTIC_DEBUG recovery and post-think disposition. Primary interface: `run_think()`, `apply_live_progress()`, `finalize_result_text()`, `should_finish_without_tools()`, `publish_thought_process()`, `queue_missing_ability()`. Internal retries (attempt ≥2) must use a slim `for_llm( …, slim_debug_retry )` prompt — not a second full backpack. The Orchestrator must call these — do not reimplement debug retry or missing-ability policy at call sites. Single LLM phases remain `Ahentic_Orchestrator::run_llm_phase()` (used by Think/Debug and plan-retry).
 
 ## Browser preflight & recovery
 

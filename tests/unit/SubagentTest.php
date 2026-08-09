@@ -143,6 +143,12 @@ class SubagentTest extends TestCase {
 			'recipe',
 			Ahentic_Subagent::resolve_remainder_purpose( 'recipe', false )
 		);
+		// Fresh model multi-tool pause: no recipe yet → batch (call site must check
+		// get_recipe before ensure_chain so empty does not become apply or false recipe).
+		$this->assertNotSame(
+			'apply',
+			Ahentic_Subagent::resolve_remainder_purpose( '', false )
+		);
 	}
 
 	public function test_compact_payload_keeps_only_safe_keys() {

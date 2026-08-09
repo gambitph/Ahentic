@@ -137,4 +137,14 @@ class ThinkDebugTest extends TestCase {
 			Ahentic_Think_Debug::disposition_for_debug( array( 'next' => 'reply' ) )
 		);
 	}
+
+	/**
+	 * Attempt 2+ uses a slim prompt (not a second full backpack).
+	 */
+	public function test_should_use_slim_debug_retry() {
+		$this->assertFalse( Ahentic_Think_Debug::should_use_slim_debug_retry( 1 ) );
+		$this->assertTrue( Ahentic_Think_Debug::should_use_slim_debug_retry( 2 ) );
+		$this->assertTrue( Ahentic_Think_Debug::should_use_slim_debug_retry( 3 ) );
+		$this->assertFalse( Ahentic_Think_Debug::should_use_slim_debug_retry( 0 ) );
+	}
 }

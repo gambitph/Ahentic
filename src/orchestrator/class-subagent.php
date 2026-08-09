@@ -37,15 +37,17 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 			if ( empty( $remaining ) || ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				return;
 			}
-			self::ensure_chain( $session_id, $planned );
 			$names = array();
 			foreach ( $remaining as $call ) {
 				$names[] = isset( $call['name'] ) ? (string) $call['name'] : '';
 			}
-			// Explicit apply meta only (Finish Gate). Empty meta must not default to apply —
-			// get_forced_tools_purpose() treats unset as apply, which mislabeled model batches.
+			// Resolve purpose BEFORE ensure_chain — otherwise a fresh multi-tool pause always
+			// looks like an active recipe and never gets purpose=batch.
+			// Explicit apply meta only (Finish Gate). Empty must not become apply
+			// (get_forced_tools_purpose() defaults unset → apply).
 			$explicit = Ahentic_Session_Repository::get_forced_tools_purpose_raw( $session_id );
 			$purpose  = self::resolve_remainder_purpose( $explicit, (bool) self::get_recipe( $session_id ) );
+			self::ensure_chain( $session_id, $planned );
 			Ahentic_Session_Repository::set_forced_tools( $session_id, $remaining, $purpose );
 			Ahentic_Session_Repository::append_trace(
 				$session_id,

@@ -124,6 +124,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				$steps_so_far = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 
 				$user_suffix = '';
+				$llm_opts    = array();
 				if ( $attempt > 1 ) {
 					$user_suffix = '[Internal — not shown to the user] Your previous response omitted a valid AHENTIC_DEBUG '
 						. 'control block (or next was not reply|ask_user|use_tools|missing_ability). Respond again from scratch: output exactly '
@@ -139,17 +140,22 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 						$user_suffix .= "\n\nPrevious user-facing text (context only; do not treat it as final):\n" . $prior_text;
 					}
 
+					if ( self::should_use_slim_debug_retry( $attempt ) ) {
+						$llm_opts['slim_debug_retry'] = true;
+					}
+
 					Ahentic_Session_Repository::append_trace(
 						$session_id,
 						'debug_retry',
 						sprintf( 'Retrying for AHENTIC_DEBUG (%d/%d)', $attempt, $max_attempts ),
 						array(
-							'attempt'       => $attempt,
-							'max'           => $max_attempts,
-							'prior_excerpt' => Ahentic_Orchestrator::excerpt( $prior_text, 160 ),
+							'attempt'           => $attempt,
+							'max'               => $max_attempts,
+							'prior_excerpt'     => Ahentic_Orchestrator::excerpt( $prior_text, 160 ),
 							// Which failure is actually burning attempts.
-							'reason'        => $prior_truncated ? 'truncated' : 'no_usable_block',
-							'truncated_key' => $prior_truncated_key,
+							'reason'            => $prior_truncated ? 'truncated' : 'no_usable_block',
+							'truncated_key'     => $prior_truncated_key,
+							'slim_debug_retry'  => ! empty( $llm_opts['slim_debug_retry'] ),
 						),
 						$steps_so_far
 					);
@@ -162,7 +168,8 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 					$progress,
 					null,
 					$user_suffix,
-					1 === $attempt
+					1 === $attempt,
+					$llm_opts
 				);
 				if ( is_wp_error( $result ) ) {
 					$last_error = $result;
@@ -269,6 +276,19 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 			}
 
 			return $result;
+		}
+
+		/**
+		 * Whether this debug recovery attempt should use a slim LLM prompt.
+		 *
+		 * Attempt 1 is a full think. Attempt 2+ only need the control block recovered —
+		 * not a second full system/history backpack.
+		 *
+		 * @param int $attempt 1-based attempt number.
+		 * @return bool
+		 */
+		public static function should_use_slim_debug_retry( $attempt ) {
+			return (int) $attempt > 1;
 		}
 
 		/**

@@ -14,6 +14,7 @@ class PromptAssemblerTest extends TestCase {
 		// Catalogs for sticky pack derivation (same ABSPATH bootstrap as other unit tests).
 		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-content.php';
 		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-browser.php';
+		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-media.php';
 	}
 
 	public function test_excerpt_truncates_with_ellipsis() {
@@ -371,7 +372,8 @@ class PromptAssemblerTest extends TestCase {
 			),
 			false
 		);
-		$this->assertSame( array( 'core', 'content', 'editor', 'media' ), $editor );
+		// Editor screen alone must not pull the media essay (sticky / media admin / goal).
+		$this->assertSame( array( 'core', 'content', 'editor' ), $editor );
 
 		$dashboard = Ahentic_Prompt_Assembler::select_tool_routing_packs(
 			array(
@@ -429,8 +431,59 @@ class PromptAssemblerTest extends TestCase {
 		);
 		$this->assertContains( 'content', $packs );
 		$this->assertContains( 'editor', $packs );
-		// Sticky editor alone must not force media (media needs media abilities / editor screen / content work).
+		// Sticky editor alone must not force media.
 		$this->assertNotContains( 'media', $packs );
+	}
+
+	/**
+	 * Media pack needs sticky media tools, media admin URL, or a media-ish goal — not bare editor.
+	 */
+	public function test_media_pack_gates_sticky_url_and_goal() {
+		$editor = array(
+			'is_block_editor' => true,
+			'url'             => 'https://example.com/wp-admin/post.php?post=1&action=edit',
+		);
+		$this->assertNotContains(
+			'media',
+			Ahentic_Prompt_Assembler::select_tool_routing_packs( $editor, false )
+		);
+
+		$with_sticky = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			$editor,
+			false,
+			array( 'ahentic/generate-image' )
+		);
+		$this->assertContains( 'media', $with_sticky );
+
+		$media_admin = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => false,
+				'url'             => 'https://example.com/wp-admin/upload.php',
+			),
+			false
+		);
+		$this->assertContains( 'media', $media_admin );
+
+		$with_goal = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			$editor,
+			false,
+			array(),
+			true
+		);
+		$this->assertContains( 'media', $with_goal );
+	}
+
+	public function test_goal_suggests_media_pack() {
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'generate our featured image' )
+		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'Upload an image for the hero' )
+		);
+		$this->assertFalse(
+			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'add internal links in our article' )
+		);
+		$this->assertFalse( Ahentic_Prompt_Assembler::goal_suggests_media_pack( '' ) );
 	}
 
 	public function test_compose_system_prompt_orders_stable_prefix_then_variable_suffix() {
@@ -495,8 +548,7 @@ class PromptAssemblerTest extends TestCase {
 	}
 
 	public function test_editor_routing_guidance_stays_under_token_budget() {
-		// Regression guard from measured post-fix baseline (~2846 tokens for editor packs).
-		// Fail if ungated prose creeps back into the default content/editor path.
+		// Default editor-screen packs omit media; guard against ungated prose creep.
 		$packs = Ahentic_Prompt_Assembler::select_tool_routing_packs(
 			array(
 				'is_block_editor' => true,
@@ -507,11 +559,12 @@ class PromptAssemblerTest extends TestCase {
 		$guidance = Ahentic_Prompt_Assembler::tool_routing_guidance_for_packs( $packs );
 		$tokens   = Ahentic_Prompt_Assembler::chars_to_tokens( strlen( $guidance ) );
 
-		$this->assertSame( array( 'core', 'content', 'editor', 'media' ), $packs );
-		$this->assertLessThanOrEqual( 2700, $tokens );
+		$this->assertSame( array( 'core', 'content', 'editor' ), $packs );
+		$this->assertLessThanOrEqual( 2300, $tokens );
 		$this->assertStringNotContainsString( 'Prefer ahentic/list-users', $guidance );
 		$this->assertStringNotContainsString( 'Prefer ahentic/list-menus', $guidance );
 		$this->assertStringNotContainsString( 'Prefer ahentic/list-plugins', $guidance );
+		$this->assertStringNotContainsString( 'ahentic/generate-image', $guidance );
 		$this->assertStringContainsString( 'prefer per_page 10–20', $guidance );
 		$this->assertStringContainsString( 'do NOT re-call list-content', $guidance );
 		$this->assertStringContainsString( 'get-blocks with {"refs"', $guidance );
@@ -520,6 +573,19 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertStringContainsString( 'never get-content solely to pick a link target', $guidance );
 		$this->assertStringContainsString( 'batch all update-block-attributes in one tools_planned', $guidance );
 		$this->assertStringContainsString( 'ONE tools_planned with final HTML', $guidance );
+	}
+
+	public function test_editor_plus_media_sticky_includes_media_essay() {
+		$packs = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => true,
+				'url'             => 'https://example.com/wp-admin/post.php?post=1&action=edit',
+			),
+			false,
+			array( 'ahentic/generate-image' )
+		);
+		$guidance = Ahentic_Prompt_Assembler::tool_routing_guidance_for_packs( $packs );
+		$this->assertContains( 'media', $packs );
 		$this->assertStringContainsString( 'ahentic/generate-image', $guidance );
 		$this->assertStringContainsString( 'upload-media', $guidance );
 		$this->assertStringContainsString( 'set-featured-image', $guidance );
@@ -536,5 +602,29 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertContains( 'editor', $packs );
 		$this->assertContains( 'content', $packs );
 		$this->assertNotContains( 'media', $packs, 'content_work alone must not pull the media essay' );
+	}
+
+	/**
+	 * Debug-retry slim system stays tiny vs full routing (no ability index / packs).
+	 */
+	public function test_slim_debug_retry_system_is_compact() {
+		$slim = Ahentic_Prompt_Assembler::slim_debug_retry_system( 'agent' );
+		$this->assertStringContainsString( 'AHENTIC_DEBUG', $slim );
+		$this->assertStringContainsString( 'tools_planned', $slim );
+		$this->assertStringNotContainsString( 'Available abilities:', $slim );
+		$this->assertStringNotContainsString( 'CRITICAL — content routing', $slim );
+		$this->assertLessThan( 1200, strlen( $slim ) );
+
+		$built = Ahentic_Prompt_Assembler::assemble_slim_debug_retry(
+			'agent',
+			'[Internal] emit debug block',
+			"--- Pinned\n- Latest user goal: add links"
+		);
+		$this->assertSame( array(), $built['history'] );
+		$this->assertStringContainsString( 'emit debug block', $built['user'] );
+		$this->assertStringContainsString( 'Latest user goal', $built['user'] );
+		$this->assertTrue( $built['slim_debug_retry'] );
+		$total = strlen( $built['system'] ) + strlen( $built['user'] );
+		$this->assertLessThan( 4000, $total, 'Slim retry prompt must stay far below a full think' );
 	}
 }

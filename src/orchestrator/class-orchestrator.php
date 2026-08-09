@@ -310,6 +310,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$forced_tools   = Ahentic_Session_Repository::consume_forced_tools( $session_id );
 			$from_forced    = ! empty( $forced_tools );
 
+			if ( ! $from_forced ) {
+				// consume_forced_tools keeps purpose meta; clear orphans so a later model
+				// batch pause cannot inherit a stale "apply" sticker.
+				Ahentic_Session_Repository::clear_forced_tools( $session_id );
+			}
+
 			if ( $from_forced ) {
 				Ahentic_Session_Repository::bump_step( $session_id );
 				$is_apply_forced = Ahentic_Session_Repository::FORCED_PURPOSE_APPLY === $forced_purpose;
@@ -723,9 +729,10 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @param string      $user_suffix Optional text appended to the user message (retries).
 		 * @param bool        $bump_step   When false (AHENTIC_DEBUG / empty-reply retries), reuse the
 		 *                                 current step number and do not consume MAX_STEPS_PER_RUN.
+		 * @param array       $opts        Prompt opts (e.g. slim_debug_retry => true).
 		 * @return array|\WP_Error
 		 */
-		public static function run_llm_phase( $session_id, $progress, $extra_turn = null, $user_suffix = '', $bump_step = true ) {
+		public static function run_llm_phase( $session_id, $progress, $extra_turn = null, $user_suffix = '', $bump_step = true, array $opts = array() ) {
 			if ( $bump_step ) {
 				$step = Ahentic_Session_Repository::bump_step( $session_id );
 			} else {
@@ -737,10 +744,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			Ahentic_Session_Repository::set_progress( $session_id, $progress, $step );
 
 			$mode      = Ahentic_Session_Repository::get_mode( $session_id );
-			$assembled = Ahentic_Prompt_Assembler::for_llm( $session_id, $mode, $user_suffix, $extra_turn );
+			$assembled = Ahentic_Prompt_Assembler::for_llm( $session_id, $mode, $user_suffix, $extra_turn, $opts );
 			$system    = $assembled['system'];
 			$history   = $assembled['history'];
 			$user      = $assembled['user'];
+			$slim      = ! empty( $opts['slim_debug_retry'] ) || ! empty( $assembled['slim_debug_retry'] );
 
 			$step_summary = $bump_step
 				? sprintf( 'Step %d — %s', $step, $progress )
@@ -751,11 +759,12 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'step_start',
 				$step_summary,
 				array(
-					'progress'      => $progress,
-					'history_turns' => count( $history ),
-					'debug_retry'   => ! $bump_step,
-					'compacted'     => ! empty( $assembled['compacted'] ),
-					'superseded'    => isset( $assembled['superseded'] ) ? (int) $assembled['superseded'] : 0,
+					'progress'         => $progress,
+					'history_turns'    => count( $history ),
+					'debug_retry'      => ! $bump_step,
+					'slim_debug_retry' => $slim,
+					'compacted'        => ! empty( $assembled['compacted'] ),
+					'superseded'       => isset( $assembled['superseded'] ) ? (int) $assembled['superseded'] : 0,
 				),
 				$step
 			);
@@ -774,7 +783,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				);
 			}
 
-			$max_output = self::max_output_tokens_for_session( $session_id );
+			$max_output = $slim
+				? min( 4000, self::max_output_tokens_for_session( $session_id ) )
+				: self::max_output_tokens_for_session( $session_id );
 
 			// Prompt sizes, not prompt text: a runaway context is the single most
 			// common cause of slow runs and is invisible from excerpts alone.
@@ -783,14 +794,15 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'llm_request',
 				sprintf( 'LLM request — prompt %dc', strlen( $system ) + strlen( $user ) ),
 				array(
-					'progress'      => $progress,
-					'user_excerpt'  => self::excerpt( $user, 120 ),
-					'debug_retry'   => ! $bump_step,
-					'system_len'    => strlen( $system ),
-					'user_len'      => strlen( $user ),
-					'history_turns' => count( $history ),
-					'max_output'    => $max_output,
-					'content_work'  => Ahentic_Session_Repository::get_content_work( $session_id ),
+					'progress'         => $progress,
+					'user_excerpt'     => self::excerpt( $user, 120 ),
+					'debug_retry'      => ! $bump_step,
+					'slim_debug_retry' => $slim,
+					'system_len'       => strlen( $system ),
+					'user_len'         => strlen( $user ),
+					'history_turns'    => count( $history ),
+					'max_output'       => $max_output,
+					'content_work'     => Ahentic_Session_Repository::get_content_work( $session_id ),
 				),
 				$step
 			);
