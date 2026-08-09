@@ -555,10 +555,16 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 			}
 			// Resolve purpose BEFORE ensure_chain — otherwise a fresh multi-tool pause always
 			// looks like an active recipe and never gets purpose=batch.
-			// Explicit apply meta only (Finish Gate). Empty must not become apply
-			// (get_forced_tools_purpose() defaults unset → apply).
-			$explicit = Ahentic_Session_Repository::get_forced_tools_purpose_raw( $session_id );
-			$purpose  = self::resolve_remainder_purpose( $explicit, (bool) self::get_recipe( $session_id ) );
+			// Explicit apply meta only (Finish Gate). Empty must not become apply for research
+			// remainders (get_forced_tools_purpose() defaults unset → apply).
+			// Exception: content-work remainders that are only from_memory applies keep apply
+			// so Job Resume emits forced_apply_retry on failure (same as Finish Gate apply).
+			$explicit      = Ahentic_Session_Repository::get_forced_tools_purpose_raw( $session_id );
+			$has_recipe    = (bool) self::get_recipe( $session_id );
+			$content_work  = class_exists( 'Ahentic_Session_Artifacts' )
+				? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
+				: (bool) Ahentic_Session_Repository::get_content_work( $session_id );
+			$purpose       = self::resolve_remainder_purpose( $explicit, $has_recipe, $remaining, $content_work );
 			self::ensure_chain( $session_id, $planned );
 			Ahentic_Session_Repository::set_forced_tools( $session_id, $remaining, $purpose );
 			Ahentic_Session_Repository::append_trace(
@@ -577,14 +583,18 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 		/**
 		 * Purpose for a preserved remainder queue.
 		 *
-		 * Only an explicit "apply" meta (Finish Gate forced apply) stays apply.
-		 * Empty / unknown → batch, or recipe when a Subagent chain is active.
+		 * Only an explicit "apply" meta (Finish Gate forced apply) stays apply, except when
+		 * content work leaves a from_memory-only apply remainder (set-blocks / create-post /
+		 * update-post) — that is the same Job Resume failure path as Finish Gate apply.
+		 * Empty / unknown research remainders → batch, or recipe when a Subagent chain is active.
 		 *
 		 * @param string $explicit_purpose_meta Raw META_FORCED_TOOLS_PURPOSE (may be empty).
 		 * @param bool   $has_recipe            Active Subagent recipe/chain.
+		 * @param array  $remaining             Remaining planned tools (optional).
+		 * @param bool   $content_work          Session is mid long-form content work.
 		 * @return string apply|batch|recipe
 		 */
-		public static function resolve_remainder_purpose( $explicit_purpose_meta, $has_recipe ) {
+		public static function resolve_remainder_purpose( $explicit_purpose_meta, $has_recipe, array $remaining = array(), $content_work = false ) {
 			$explicit = (string) $explicit_purpose_meta;
 			if ( 'apply' === $explicit ) {
 				return 'apply';
@@ -595,7 +605,43 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 			if ( 'recipe' === $explicit ) {
 				return 'recipe';
 			}
+			if ( $content_work && self::remainder_is_content_from_memory_apply( $remaining ) ) {
+				return 'apply';
+			}
 			return $has_recipe ? 'recipe' : 'batch';
+		}
+
+		/**
+		 * Whether every remaining tool is a from_memory content apply (pure).
+		 *
+		 * @param array $remaining Remaining planned tool calls.
+		 * @return bool
+		 */
+		public static function remainder_is_content_from_memory_apply( array $remaining ) {
+			if ( empty( $remaining ) ) {
+				return false;
+			}
+			// Mirror Finish Gate forced-apply ability names (string literals keep this pure).
+			$apply_names = array(
+				'ahentic-browser/set-blocks',
+				'ahentic/create-post',
+				'ahentic/update-post',
+			);
+
+			foreach ( $remaining as $call ) {
+				if ( ! is_array( $call ) ) {
+					return false;
+				}
+				$name  = isset( $call['name'] ) ? (string) $call['name'] : '';
+				$input = isset( $call['input'] ) && is_array( $call['input'] ) ? $call['input'] : array();
+				if ( '' === $name || ! in_array( $name, $apply_names, true ) ) {
+					return false;
+				}
+				if ( empty( $input['from_memory'] ) ) {
+					return false;
+				}
+			}
+			return true;
 		}
 
 		/**
