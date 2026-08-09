@@ -20,13 +20,207 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 	/**
 	 * Deep module: skip or slim full main thinks for isolatable ability work.
 	 *
-	 * Primary interface (Recipe): after_tool_success(), preserve_batch_remainder(),
-	 * bind_recipe_input(), finalize_recipe_if_idle(), recipe_state helpers.
-	 * Primary interface (mini-job hop): try_begin_hop(), llm_opts_for_pending_hop(),
-	 * finish_hop_after_tools(), maybe_finish_hop_after_resume(), abort_on_deny_or_failure();
-	 * pure: should_enter_hop(), hop_brief_from_debug(), hop_summary_payload().
+	 * Primary interface (Orchestrator): before_think(), after_main_think(),
+	 * after_tools(), after_resume_tool(), on_think_failure(), on_tool_failure().
+	 * Recipe helpers for Tool runner: after_tool_success(), preserve_batch_remainder(),
+	 * bind_recipe_input(), finalize_recipe_if_idle().
+	 * Pure decide / hop helpers stay public for unit tests — not a second hop registry.
 	 */
 	class Ahentic_Subagent {
+
+		/**
+		 * Pre-think opts for a pending mini-job hop (marks phase thinking).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return array{llm_opts: array, in_hop: bool}
+		 */
+		public static function before_think( $session_id ) {
+			$opts = self::llm_opts_for_pending_hop( $session_id );
+			return array(
+				'llm_opts' => $opts,
+				'in_hop'   => ! empty( $opts['mini_job_hop'] ),
+			);
+		}
+
+		/**
+		 * Pure: disposition after a think (main or hop).
+		 *
+		 * @param array $ctx {
+		 *     @type bool  $in_hop               Whether this think was a hop slim backpack.
+		 *     @type bool  $finish_without_tools Think/Debug says finish without tools.
+		 *     @type bool  $wants_tools          Control block next=use_tools.
+		 *     @type array $debug                Parsed AHENTIC_DEBUG.
+		 *     @type array $planned              Normalized tools_planned.
+		 * }
+		 * @return string begin_hop|run_tools|finish_hop|abort_to_user|finish_reply
+		 */
+		public static function decide_after_main_think( array $ctx ) {
+			$in_hop         = ! empty( $ctx['in_hop'] );
+			$finish_without = ! empty( $ctx['finish_without_tools'] );
+			$wants_tools    = ! empty( $ctx['wants_tools'] );
+			$debug          = isset( $ctx['debug'] ) && is_array( $ctx['debug'] ) ? $ctx['debug'] : array();
+			$planned        = isset( $ctx['planned'] ) && is_array( $ctx['planned'] ) ? $ctx['planned'] : array();
+			$next           = isset( $debug['next'] ) ? (string) $debug['next'] : '';
+
+			if ( $in_hop ) {
+				if ( $finish_without || ! $wants_tools ) {
+					if ( 'ask_user' === $next ) {
+						return 'abort_to_user';
+					}
+					return 'finish_hop';
+				}
+				return 'run_tools';
+			}
+
+			if ( $finish_without || ! $wants_tools ) {
+				return 'finish_reply';
+			}
+
+			if ( self::should_enter_hop( $debug, $planned ) ) {
+				return 'begin_hop';
+			}
+
+			return 'run_tools';
+		}
+
+		/**
+		 * Apply hop/peel side effects after a think; return disposition for Orchestrator.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $ctx        Same as decide_after_main_think plus optional result.
+		 * @return array{action: string, reply_text?: string}
+		 */
+		public static function after_main_think( $session_id, array $ctx ) {
+			$debug   = isset( $ctx['debug'] ) && is_array( $ctx['debug'] ) ? $ctx['debug'] : array();
+			$planned = isset( $ctx['planned'] ) && is_array( $ctx['planned'] ) ? $ctx['planned'] : array();
+			$result  = isset( $ctx['result'] ) && is_array( $ctx['result'] ) ? $ctx['result'] : array();
+			$reply   = isset( $result['text'] ) ? (string) $result['text'] : '';
+			$in_hop  = ! empty( $ctx['in_hop'] );
+			$action  = self::decide_after_main_think( $ctx );
+
+			if ( 'begin_hop' === $action ) {
+				if ( ! self::try_begin_hop( $session_id, $debug, $planned ) ) {
+					// Cannot persist hop (or eligibility raced) — run tools on main.
+					$action = 'run_tools';
+				}
+			} elseif ( 'run_tools' === $action ) {
+				if ( $in_hop ) {
+					self::mark_hop_running_tools( $session_id );
+				}
+			} elseif ( 'finish_hop' === $action ) {
+				self::finish_hop_after_tools( $session_id, false, $reply );
+			} elseif ( 'abort_to_user' === $action ) {
+				self::abort_hop( $session_id, 'ask_user' );
+			}
+
+			return array(
+				'action'     => $action,
+				'reply_text' => $reply,
+			);
+		}
+
+		/**
+		 * Pure: after a tool batch, whether hop owns the return.
+		 *
+		 * @param bool $has_active_hop Active hop meta present.
+		 * @return string finish_hop|continue
+		 */
+		public static function decide_after_tools( $has_active_hop ) {
+			return $has_active_hop ? 'finish_hop' : 'continue';
+		}
+
+		/**
+		 * After tools in the step loop: finalize recipe if idle; finish hop when active.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $ctx        { any_failed?: bool, reply_text?: string }.
+		 * @return array{action: string, any_failed?: bool}
+		 */
+		public static function after_tools( $session_id, array $ctx = array() ) {
+			$any_failed = ! empty( $ctx['any_failed'] );
+			$reply_text = isset( $ctx['reply_text'] ) ? (string) $ctx['reply_text'] : '';
+
+			if ( ! $any_failed ) {
+				self::finalize_recipe_if_idle( $session_id );
+			}
+
+			$action = self::decide_after_tools( self::has_active_hop( $session_id ) );
+			if ( 'finish_hop' !== $action ) {
+				return array(
+					'action'     => 'continue',
+					'any_failed' => $any_failed,
+				);
+			}
+
+			self::finish_hop_after_tools( $session_id, $any_failed, $reply_text );
+			if ( class_exists( 'Ahentic_Session_Repository' ) ) {
+				Ahentic_Session_Repository::append_trace(
+					$session_id,
+					'subagent_hop_return',
+					'Mini-job hop returned to main',
+					array( 'any_failed' => $any_failed ),
+					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+				);
+			}
+
+			return array(
+				'action'     => 'finish_hop',
+				'any_failed' => $any_failed,
+			);
+		}
+
+		/**
+		 * After HITL approval or browser result for one tool.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $ctx        { ok: bool, name?: string, payload?: array, reason?: string }.
+		 * @return array{action: string, reason?: string}
+		 */
+		public static function after_resume_tool( $session_id, array $ctx ) {
+			$ok = ! empty( $ctx['ok'] );
+			if ( ! $ok ) {
+				$reason = isset( $ctx['reason'] ) ? (string) $ctx['reason'] : 'tool_failed';
+				self::abort_on_deny_or_failure( $session_id, $reason );
+				return array(
+					'action' => 'aborted',
+					'reason' => $reason,
+				);
+			}
+
+			$name    = isset( $ctx['name'] ) ? (string) $ctx['name'] : '';
+			$payload = isset( $ctx['payload'] ) && is_array( $ctx['payload'] )
+				? $ctx['payload']
+				: array( 'ok' => true );
+			self::after_tool_success( $session_id, $name, $payload, array(), 0 );
+			self::finalize_recipe_if_idle( $session_id );
+			self::maybe_finish_hop_after_resume( $session_id, false );
+
+			return array( 'action' => 'continue' );
+		}
+
+		/**
+		 * LLM think failed — clear hop if active (noop otherwise).
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function on_think_failure( $session_id ) {
+			self::abort_hop( $session_id, 'llm_error' );
+		}
+
+		/**
+		 * Mid-loop tool failure: keep hop steps for summary; else abort recipe.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function on_tool_failure( $session_id ) {
+			if ( self::has_active_hop( $session_id ) ) {
+				if ( class_exists( 'Ahentic_Session_Repository' ) ) {
+					Ahentic_Session_Repository::clear_forced_tools( $session_id );
+				}
+				return;
+			}
+			self::abort_recipe( $session_id );
+		}
 
 		/**
 		 * Whether the main control block may start a mini-job hop (pure).
@@ -132,8 +326,8 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 				'subagent_hop_begin',
 				'Mini-job hop scheduled',
 				array(
-					'brief_excerpt' => class_exists( 'Ahentic_Orchestrator' )
-						? Ahentic_Orchestrator::excerpt( $brief, 120 )
+					'brief_excerpt' => class_exists( 'Ahentic_Prompt_Assembler' )
+						? Ahentic_Prompt_Assembler::excerpt( $brief, 120 )
 						: substr( $brief, 0, 120 ),
 				),
 				$step

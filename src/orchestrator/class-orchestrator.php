@@ -362,12 +362,15 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				);
 				$planned = self::normalize_tool_calls( $forced_tools );
 			} else {
-				// Composition: Think/Debug → Plan → tools (or finish).
-				// Pending mini-job hop uses a slim backpack (Subagent) instead of a full main think.
-				$hop_opts = class_exists( 'Ahentic_Subagent' )
-					? Ahentic_Subagent::llm_opts_for_pending_hop( $session_id )
-					: array();
-				$in_hop   = ! empty( $hop_opts['mini_job_hop'] );
+				// Composition: Think/Debug → Plan → Subagent disposition → tools (or finish).
+				$before   = class_exists( 'Ahentic_Subagent' )
+					? Ahentic_Subagent::before_think( $session_id )
+					: array(
+						'llm_opts' => array(),
+						'in_hop'   => false,
+					);
+				$hop_opts = isset( $before['llm_opts'] ) && is_array( $before['llm_opts'] ) ? $before['llm_opts'] : array();
+				$in_hop   = ! empty( $before['in_hop'] );
 				$think    = Ahentic_Think_Debug::run_think( $session_id, $hop_opts );
 
 				// User may have hit Stop during the LLM call — do not continue the run.
@@ -376,8 +379,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				}
 
 				if ( is_wp_error( $think ) ) {
-					if ( $in_hop && class_exists( 'Ahentic_Subagent' ) ) {
-						Ahentic_Subagent::abort_hop( $session_id, 'llm_error' );
+					if ( class_exists( 'Ahentic_Subagent' ) ) {
+						Ahentic_Subagent::on_think_failure( $session_id );
 					}
 					self::fail_run( $session_id, $think );
 					return false;
@@ -412,45 +415,40 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 				$result = Ahentic_Think_Debug::finalize_result_text( $result, $debug );
 
-				if ( Ahentic_Think_Debug::should_finish_without_tools( $session_id, $debug ) ) {
-					if ( $in_hop && class_exists( 'Ahentic_Subagent' ) ) {
-						Ahentic_Subagent::finish_hop_after_tools(
-							$session_id,
-							false,
-							isset( $result['text'] ) ? (string) $result['text'] : ''
-						);
-						return true;
-					}
+				$finish_without = Ahentic_Think_Debug::should_finish_without_tools( $session_id, $debug );
+				$next           = isset( $debug['next'] ) ? (string) $debug['next'] : '';
+				$planned        = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
+				$wants_tools    = ( 'use_tools' === $next );
+
+				$sub_disp = class_exists( 'Ahentic_Subagent' )
+					? Ahentic_Subagent::after_main_think(
+						$session_id,
+						array(
+							'in_hop'               => $in_hop,
+							'finish_without_tools' => $finish_without,
+							'wants_tools'          => $wants_tools,
+							'debug'                => $debug,
+							'planned'              => $planned,
+							'result'               => $result,
+						)
+					)
+					: array(
+						'action' => ( $finish_without || ! $wants_tools ) ? 'finish_reply' : 'run_tools',
+					);
+				$sub_action = isset( $sub_disp['action'] ) ? (string) $sub_disp['action'] : 'run_tools';
+
+				if ( 'finish_hop' === $sub_action ) {
+					return true;
+				}
+				if ( 'abort_to_user' === $sub_action || 'finish_reply' === $sub_action ) {
 					return self::try_finish_with_reply( $session_id, $result, $debug );
 				}
-
-				$next    = (string) $debug['next'];
-				$planned = self::normalize_tool_calls( isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array() );
-
-				$wants_tools = ( 'use_tools' === $next );
-
-				if ( ! $wants_tools ) {
-					if ( $in_hop && class_exists( 'Ahentic_Subagent' ) ) {
-						if ( 'ask_user' === $next ) {
-							Ahentic_Subagent::abort_hop( $session_id, 'ask_user' );
-							return self::try_finish_with_reply( $session_id, $result, $debug );
-						}
-						Ahentic_Subagent::finish_hop_after_tools(
-							$session_id,
-							false,
-							isset( $result['text'] ) ? (string) $result['text'] : ''
-						);
-						return true;
-					}
-					return self::try_finish_with_reply( $session_id, $result, $debug );
-				}
-
-				// Main peel: schedule slim hop instead of running tools on a full backpack.
-				if ( ! $in_hop && class_exists( 'Ahentic_Subagent' ) && Ahentic_Subagent::try_begin_hop( $session_id, $debug, $planned ) ) {
+				if ( 'begin_hop' === $sub_action ) {
 					Ahentic_Think_Debug::publish_thought_process( $session_id, $result, $debug );
 					return true;
 				}
 
+				// run_tools (default).
 				if ( empty( $planned ) ) {
 					$planned = array(
 						array(
@@ -461,10 +459,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				}
 
 				$planned = array_slice( $planned, 0, self::MAX_TOOL_PROGRESS );
-
-				if ( $in_hop && class_exists( 'Ahentic_Subagent' ) ) {
-					Ahentic_Subagent::mark_hop_running_tools( $session_id );
-				}
 
 				// Show the first tool step immediately (same label the debugger will log).
 				$first_tool = isset( $planned[0]['name'] ) ? (string) $planned[0]['name'] : '';
@@ -622,12 +616,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				if ( empty( $run['ok'] ) ) {
 					$any_failed = true;
 					if ( class_exists( 'Ahentic_Subagent' ) ) {
-						if ( Ahentic_Subagent::has_active_hop( $session_id ) ) {
-							// Keep chain steps for hop failure summary; drop remainder queue.
-							Ahentic_Session_Repository::clear_forced_tools( $session_id );
-						} else {
-							Ahentic_Subagent::abort_recipe( $session_id );
-						}
+						Ahentic_Subagent::on_tool_failure( $session_id );
 					}
 				} elseif ( class_exists( 'Ahentic_Subagent' ) ) {
 					$payload = isset( $run['payload'] ) && is_array( $run['payload'] ) ? $run['payload'] : array( 'ok' => true );
@@ -639,25 +628,17 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return self::try_finish_with_reply( $session_id, $result, $debug );
 			}
 
-			if ( class_exists( 'Ahentic_Subagent' ) && ! $any_failed ) {
-				Ahentic_Subagent::finalize_recipe_if_idle( $session_id );
-			}
-
-			// Mini-job hop: summarize back to main (same session token totals); do not idle here.
-			if ( class_exists( 'Ahentic_Subagent' ) && Ahentic_Subagent::has_active_hop( $session_id ) ) {
-				Ahentic_Subagent::finish_hop_after_tools(
+			if ( class_exists( 'Ahentic_Subagent' ) ) {
+				$after_tools = Ahentic_Subagent::after_tools(
 					$session_id,
-					$any_failed,
-					isset( $result['text'] ) ? (string) $result['text'] : ''
+					array(
+						'any_failed' => $any_failed,
+						'reply_text' => isset( $result['text'] ) ? (string) $result['text'] : '',
+					)
 				);
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'subagent_hop_return',
-					'Mini-job hop returned to main',
-					array( 'any_failed' => $any_failed ),
-					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
-				);
-				return true;
+				if ( isset( $after_tools['action'] ) && 'finish_hop' === $after_tools['action'] ) {
+					return true;
+				}
 			}
 
 			// Forced tools: finish with stashed reply when the queue succeeds (apply/batch/recipe).
@@ -1686,7 +1667,13 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			if ( 'deny' === $choice ) {
 				self::skip_pending_hitl_tool( $session_id, 'user_denied' );
 				if ( class_exists( 'Ahentic_Subagent' ) ) {
-					Ahentic_Subagent::abort_on_deny_or_failure( $session_id, 'user_denied' );
+					Ahentic_Subagent::after_resume_tool(
+						$session_id,
+						array(
+							'ok'     => false,
+							'reason' => 'user_denied',
+						)
+					);
 				}
 				Ahentic_Session_Repository::set_status( $session_id, Ahentic_Session_Repository::STATUS_RUNNING );
 				Ahentic_Session_Repository::set_progress( $session_id, __( 'Skipping that action…', 'ahentic' ), $step );
@@ -1731,13 +1718,25 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 			}
 
-			if ( ! empty( $run['ok'] ) && class_exists( 'Ahentic_Subagent' ) ) {
-				$payload = isset( $run['payload'] ) && is_array( $run['payload'] ) ? $run['payload'] : array( 'ok' => true );
-				Ahentic_Subagent::after_tool_success( $session_id, $name, $payload, array(), 0 );
-				Ahentic_Subagent::finalize_recipe_if_idle( $session_id );
-				Ahentic_Subagent::maybe_finish_hop_after_resume( $session_id, false );
-			} elseif ( empty( $run['ok'] ) && class_exists( 'Ahentic_Subagent' ) ) {
-				Ahentic_Subagent::abort_on_deny_or_failure( $session_id, 'tool_failed' );
+			if ( class_exists( 'Ahentic_Subagent' ) ) {
+				if ( ! empty( $run['ok'] ) ) {
+					Ahentic_Subagent::after_resume_tool(
+						$session_id,
+						array(
+							'ok'      => true,
+							'name'    => $name,
+							'payload' => isset( $run['payload'] ) && is_array( $run['payload'] ) ? $run['payload'] : array( 'ok' => true ),
+						)
+					);
+				} else {
+					Ahentic_Subagent::after_resume_tool(
+						$session_id,
+						array(
+							'ok'     => false,
+							'reason' => 'tool_failed',
+						)
+					);
+				}
 			}
 
 			// Keep the approved tool's step label visible into the next think.
@@ -1813,18 +1812,25 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$step
 			);
 
-			if ( $ok && class_exists( 'Ahentic_Subagent' ) ) {
-				Ahentic_Subagent::after_tool_success(
-					$session_id,
-					$name,
-					is_array( $tool_payload ) ? $tool_payload : array( 'ok' => true ),
-					array(),
-					0
-				);
-				Ahentic_Subagent::finalize_recipe_if_idle( $session_id );
-				Ahentic_Subagent::maybe_finish_hop_after_resume( $session_id, false );
-			} elseif ( ! $ok && class_exists( 'Ahentic_Subagent' ) ) {
-				Ahentic_Subagent::abort_on_deny_or_failure( $session_id, 'browser_error' );
+			if ( class_exists( 'Ahentic_Subagent' ) ) {
+				if ( $ok ) {
+					Ahentic_Subagent::after_resume_tool(
+						$session_id,
+						array(
+							'ok'      => true,
+							'name'    => $name,
+							'payload' => is_array( $tool_payload ) ? $tool_payload : array( 'ok' => true ),
+						)
+					);
+				} else {
+					Ahentic_Subagent::after_resume_tool(
+						$session_id,
+						array(
+							'ok'     => false,
+							'reason' => 'browser_error',
+						)
+					);
+				}
 			}
 
 			$forced_remain = ! empty( Ahentic_Session_Repository::get_forced_tools( $session_id ) );
