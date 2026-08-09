@@ -19,6 +19,12 @@ class JobResumeTest extends TestCase {
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
 		require_once dirname( __DIR__, 2 ) . '/src/orchestrator/class-job-resume.php';
+		require_once __DIR__ . '/ability-modules-bootstrap.php';
+		ahentic_phpunit_require_ability_modules();
+		Ahentic_Abilities::reset_modules_for_tests();
+		foreach ( ahentic_phpunit_core_ability_module_classes() as $module ) {
+			Ahentic_Abilities::register_module( $module );
+		}
 	}
 
 	/**
@@ -269,6 +275,18 @@ class JobResumeTest extends TestCase {
 		$this->assertTrue(
 			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, false, 'apply' )
 		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, false, 'batch', false ),
+			'Research-only batch (e.g. search after get-blocks) must return to think'
+		);
+		$this->assertTrue(
+			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, false, 'batch', true ),
+			'Batch that included a write may finish'
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, false, 'recipe', false ),
+			'Research-only recipe remainder must return to think'
+		);
 	}
 
 	/**
@@ -372,6 +390,16 @@ class JobResumeTest extends TestCase {
 				false,
 				''
 			)
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/get-blocks',
+				true,
+				false,
+				false,
+				'batch'
+			),
+			'Readonly get-blocks must not finish a batch queue'
 		);
 	}
 }

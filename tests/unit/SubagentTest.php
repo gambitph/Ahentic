@@ -311,4 +311,191 @@ class SubagentTest extends TestCase {
 			)
 		);
 	}
+
+	/**
+	 * Disposition seam (#10): after_main_think decide vocabulary.
+	 */
+	public function test_decide_after_main_think_begin_hop_when_peelable() {
+		$this->assertSame(
+			'begin_hop',
+			Ahentic_Subagent::decide_after_main_think(
+				array(
+					'in_hop'               => false,
+					'finish_without_tools' => false,
+					'wants_tools'          => true,
+					'debug'                => array(
+						'mini_job'      => true,
+						'hop_brief'     => 'Place featured image',
+						'next'          => 'use_tools',
+						'tools_planned' => array(),
+					),
+					'planned'              => array(),
+				)
+			)
+		);
+	}
+
+	public function test_decide_after_main_think_run_tools_when_not_peelable() {
+		$this->assertSame(
+			'run_tools',
+			Ahentic_Subagent::decide_after_main_think(
+				array(
+					'in_hop'               => false,
+					'finish_without_tools' => false,
+					'wants_tools'          => true,
+					'debug'                => array(
+						'next' => 'use_tools',
+					),
+					'planned'              => array(
+						array(
+							'name'  => 'ahentic/get-content',
+							'input' => array(),
+						),
+					),
+				)
+			)
+		);
+	}
+
+	public function test_decide_after_main_think_finish_reply_without_tools() {
+		$this->assertSame(
+			'finish_reply',
+			Ahentic_Subagent::decide_after_main_think(
+				array(
+					'in_hop'               => false,
+					'finish_without_tools' => true,
+					'wants_tools'          => false,
+					'debug'                => array( 'next' => 'reply' ),
+					'planned'              => array(),
+				)
+			)
+		);
+		$this->assertSame(
+			'finish_reply',
+			Ahentic_Subagent::decide_after_main_think(
+				array(
+					'in_hop'               => false,
+					'finish_without_tools' => false,
+					'wants_tools'          => false,
+					'debug'                => array( 'next' => 'reply' ),
+					'planned'              => array(),
+				)
+			)
+		);
+	}
+
+	public function test_decide_after_main_think_hop_finish_and_abort_to_user() {
+		$this->assertSame(
+			'finish_hop',
+			Ahentic_Subagent::decide_after_main_think(
+				array(
+					'in_hop'               => true,
+					'finish_without_tools' => true,
+					'wants_tools'          => false,
+					'debug'                => array( 'next' => 'reply' ),
+					'planned'              => array(),
+				)
+			)
+		);
+		$this->assertSame(
+			'finish_hop',
+			Ahentic_Subagent::decide_after_main_think(
+				array(
+					'in_hop'               => true,
+					'finish_without_tools' => false,
+					'wants_tools'          => false,
+					'debug'                => array( 'next' => 'reply' ),
+					'planned'              => array(),
+				)
+			)
+		);
+		$this->assertSame(
+			'abort_to_user',
+			Ahentic_Subagent::decide_after_main_think(
+				array(
+					'in_hop'               => true,
+					'finish_without_tools' => false,
+					'wants_tools'          => false,
+					'debug'                => array( 'next' => 'ask_user' ),
+					'planned'              => array(),
+				)
+			)
+		);
+		$this->assertSame(
+			'run_tools',
+			Ahentic_Subagent::decide_after_main_think(
+				array(
+					'in_hop'               => true,
+					'finish_without_tools' => false,
+					'wants_tools'          => true,
+					'debug'                => array( 'next' => 'use_tools' ),
+					'planned'              => array(
+						array(
+							'name'  => 'ahentic/generate-image',
+							'input' => array(),
+						),
+					),
+				)
+			)
+		);
+	}
+
+	public function test_decide_after_tools_finish_hop_vs_continue() {
+		$this->assertSame( 'finish_hop', Ahentic_Subagent::decide_after_tools( true ) );
+		$this->assertSame( 'continue', Ahentic_Subagent::decide_after_tools( false ) );
+	}
+
+	public function test_after_main_think_without_repository_returns_disposition() {
+		$disp = Ahentic_Subagent::after_main_think(
+			1,
+			array(
+				'in_hop'               => false,
+				'finish_without_tools' => false,
+				'wants_tools'          => true,
+				'debug'                => array(
+					'mini_job'      => true,
+					'hop_brief'     => 'Place featured image',
+					'next'          => 'use_tools',
+					'tools_planned' => array(),
+				),
+				'planned'              => array(),
+				'result'               => array( 'text' => 'ok' ),
+			)
+		);
+		// Without Session Repository, begin_hop cannot persist — fall through to run_tools.
+		$this->assertSame( 'run_tools', $disp['action'] );
+	}
+
+	public function test_after_tools_without_repository_continues() {
+		$disp = Ahentic_Subagent::after_tools(
+			1,
+			array(
+				'any_failed' => false,
+				'reply_text' => '',
+			)
+		);
+		$this->assertSame( 'continue', $disp['action'] );
+	}
+
+	public function test_after_resume_tool_without_repository_ok_and_fail() {
+		$ok = Ahentic_Subagent::after_resume_tool(
+			1,
+			array(
+				'ok'      => true,
+				'name'    => 'ahentic/generate-image',
+				'payload' => array( 'ok' => true ),
+			)
+		);
+		$this->assertSame( 'continue', $ok['action'] );
+
+		$fail = Ahentic_Subagent::after_resume_tool(
+			1,
+			array(
+				'ok'     => false,
+				'reason' => 'user_denied',
+			)
+		);
+		$this->assertSame( 'aborted', $fail['action'] );
+		$this->assertSame( 'user_denied', $fail['reason'] );
+	}
 }
