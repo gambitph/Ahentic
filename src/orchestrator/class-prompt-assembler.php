@@ -430,7 +430,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * Split system prompt into measurable buckets (stable core / abilities / routing / plan).
 		 *
 		 * Order is intentional for future provider prompt caching: identical prefix bytes across
-		 * steps when mode + ability index are unchanged; packs and plan are the variable suffix.
+		 * steps when mode is unchanged; abilities index + routing packs (same pack picker) and
+		 * plan are the variable suffix.
 		 *
 		 * @param string $mode       Mode.
 		 * @param int    $session_id Session ID.
@@ -439,9 +440,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		public static function system_prompt_parts( $mode, $session_id = 0 ) {
 			$site_name  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 			$site_url   = home_url( '/' );
-			$available  = Ahentic_Abilities::available_for_mode( $mode );
-			$tools_list = self::format_abilities_index( $available );
-			$admin_map  = Ahentic_Abilities::format_admin_links_for_prompt();
+			$available = Ahentic_Abilities::available_for_mode( $mode );
+			$admin_map = Ahentic_Abilities::format_admin_links_for_prompt();
 
 			$page_context = array();
 			$entries      = array();
@@ -470,6 +470,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				(bool) $has_content_work,
 				$recent_abilities,
 				$want_media
+			);
+			// Same packs as routing essays — do not list every registered ability every think.
+			$tools_list = self::format_abilities_index(
+				self::filter_available_abilities_for_packs( $available, $routing_packs )
 			);
 			$routing = self::tool_routing_guidance_for_packs( $routing_packs );
 
@@ -546,6 +550,53 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				'routing'   => $routing,
 				'plan'      => $plan,
 			);
+		}
+
+		/**
+		 * Narrow available abilities to those whose routing pack is selected for this think.
+		 *
+		 * Uses the same module `names()` → pack map as sticky packs. Names with no pack
+		 * (snapshot, guidance, site health/options, …) stay as always-on core. Empty
+		 * `$packs` fails open (returns the full list) so unit tests / edge cases never
+		 * get an empty toolbox.
+		 *
+		 * Prompt index only — does not unregister abilities or change execute availability.
+		 *
+		 * @param string[] $available Ability names for the mode.
+		 * @param string[] $packs     Selected routing pack ids.
+		 * @return string[]
+		 */
+		public static function filter_available_abilities_for_packs( array $available, array $packs ) {
+			$packs = array_values(
+				array_unique(
+					array_filter(
+						array_map( 'strval', $packs ),
+						static function ( $id ) {
+							return '' !== $id;
+						}
+					)
+				)
+			);
+			if ( ! $packs ) {
+				return array_values( $available );
+			}
+			$map      = self::ability_name_to_routing_pack_map();
+			$pack_set = array_fill_keys( $packs, true );
+			$out      = array();
+			foreach ( $available as $name ) {
+				$name = (string) $name;
+				if ( '' === $name ) {
+					continue;
+				}
+				if ( ! isset( $map[ $name ] ) ) {
+					$out[] = $name;
+					continue;
+				}
+				if ( isset( $pack_set[ $map[ $name ] ] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
 		}
 
 		/**

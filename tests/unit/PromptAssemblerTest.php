@@ -10,11 +10,15 @@ use PHPUnit\Framework\TestCase;
 class PromptAssemblerTest extends TestCase {
 
 	public static function setUpBeforeClass(): void {
-		require_once dirname( __DIR__, 2 ) . '/src/orchestrator/class-prompt-assembler.php';
-		// Catalogs for sticky pack derivation (same ABSPATH bootstrap as other unit tests).
-		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-content.php';
-		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-browser.php';
-		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-abilities-media.php';
+		$root = dirname( __DIR__, 2 );
+		require_once $root . '/src/orchestrator/class-prompt-assembler.php';
+		// Catalogs for sticky pack / ability-index subset (same ABSPATH bootstrap as other unit tests).
+		require_once $root . '/src/abilities/class-abilities-content.php';
+		require_once $root . '/src/abilities/class-abilities-browser.php';
+		require_once $root . '/src/abilities/class-abilities-media.php';
+		require_once $root . '/src/abilities/class-abilities-plugins.php';
+		require_once $root . '/src/abilities/class-abilities-users.php';
+		require_once $root . '/src/abilities/class-abilities-site.php';
 	}
 
 	public function test_excerpt_truncates_with_ellipsis() {
@@ -533,6 +537,71 @@ class PromptAssemblerTest extends TestCase {
 		);
 		$this->assertStringContainsString( 'ahentic/* (list-content, get-content)', $out );
 		$this->assertStringContainsString( 'ahentic-browser/* (set-blocks)', $out );
+	}
+
+	/**
+	 * Ability index for a think follows selected routing packs (same map as sticky packs).
+	 * Unmapped names stay (core / site / guidance); out-of-pack modules drop.
+	 */
+	public function test_filter_available_abilities_for_packs_subsets_by_selected_packs() {
+		$available = array_merge(
+			Ahentic_Abilities_Content::names(),
+			Ahentic_Abilities_Browser::names(),
+			Ahentic_Abilities_Media::names(),
+			Ahentic_Abilities_Plugins::names(),
+			Ahentic_Abilities_Users::names(),
+			array(
+				'ahentic/get-site-snapshot',
+				'ahentic/get-wordpress-guidance',
+				Ahentic_Abilities_Site::HTTP_FETCH,
+			)
+		);
+		$filtered = Ahentic_Prompt_Assembler::filter_available_abilities_for_packs(
+			$available,
+			array( 'core', 'content', 'editor' )
+		);
+
+		$this->assertContains( 'ahentic/list-content', $filtered );
+		$this->assertContains( 'ahentic-browser/set-blocks', $filtered );
+		$this->assertContains( 'ahentic/get-site-snapshot', $filtered );
+		$this->assertContains( 'ahentic/get-wordpress-guidance', $filtered );
+		$this->assertNotContains( 'ahentic/generate-image', $filtered );
+		$this->assertNotContains( 'ahentic/list-plugins', $filtered );
+		$this->assertNotContains( 'ahentic/list-users', $filtered );
+		$this->assertNotContains( Ahentic_Abilities_Site::HTTP_FETCH, $filtered );
+
+		$with_media = Ahentic_Prompt_Assembler::filter_available_abilities_for_packs(
+			$available,
+			array( 'core', 'content', 'editor', 'media' )
+		);
+		$this->assertContains( 'ahentic/generate-image', $with_media );
+
+		$empty_packs = Ahentic_Prompt_Assembler::filter_available_abilities_for_packs(
+			$available,
+			array()
+		);
+		$this->assertSame( array_values( $available ), $empty_packs );
+	}
+
+	public function test_editor_abilities_index_omits_out_of_pack_names() {
+		$available = array_merge(
+			Ahentic_Abilities_Content::names(),
+			Ahentic_Abilities_Browser::names(),
+			Ahentic_Abilities_Media::names(),
+			Ahentic_Abilities_Plugins::names(),
+			Ahentic_Abilities_Users::names()
+		);
+		$packs    = array( 'core', 'content', 'editor' );
+		$subset   = Ahentic_Prompt_Assembler::filter_available_abilities_for_packs( $available, $packs );
+		$full_idx = Ahentic_Prompt_Assembler::format_abilities_index( $available );
+		$sub_idx  = Ahentic_Prompt_Assembler::format_abilities_index( $subset );
+
+		$this->assertLessThan( strlen( $full_idx ), strlen( $sub_idx ) );
+		$this->assertStringNotContainsString( 'generate-image', $sub_idx );
+		$this->assertStringNotContainsString( 'list-plugins', $sub_idx );
+		$this->assertStringNotContainsString( 'list-users', $sub_idx );
+		$this->assertStringContainsString( 'list-content', $sub_idx );
+		$this->assertStringContainsString( 'set-blocks', $sub_idx );
 	}
 
 	public function test_tool_routing_guidance_for_packs_is_smaller_than_full() {
