@@ -274,6 +274,24 @@ function capValue( value, depth = 0 ) {
 }
 
 /**
+ * Attach capped primary rich-text HTML onto a compact get-blocks node.
+ *
+ * @param {Object} node
+ * @param {string} key
+ * @param {string} html
+ * @param {{ full?: boolean }} opts
+ */
+function attachCompactContentHtml( node, key, html, opts ) {
+	if ( opts.full || ! html ) {
+		return
+	}
+	if ( ! node.attributes ) {
+		node.attributes = {}
+	}
+	node.attributes[ key ] = capValue( html )
+}
+
+/**
  * @param {Object} block
  * @param {{ remaining: number }} budget
  * @param {{ full?: boolean }} [opts]
@@ -316,6 +334,9 @@ function serializeBlockTree( block, budget, opts = {} ) {
 		}
 	}
 	// Plain-text preview so the agent can match user phrases (e.g. "Get in touch").
+	// Compact mode also ships capped HTML for the primary content attr so internal
+	// links / light text edits can patch from one full-document get-blocks (no second
+	// refs read just to recover content HTML).
 	for ( const key of CONTENT_ATTR_KEYS ) {
 		if ( ! ( key in rawAttrs ) ) {
 			continue
@@ -329,6 +350,7 @@ function serializeBlockTree( block, budget, opts = {} ) {
 			// Tells the agent which attribute key to patch via update-block-attributes
 			// without needing a full attributes dump for a simple text edit.
 			node.content_attr = key
+			attachCompactContentHtml( node, key, html, opts )
 			break
 		}
 	}
@@ -339,6 +361,7 @@ function serializeBlockTree( block, budget, opts = {} ) {
 	if ( ! node.preview ) {
 		let bestPreview = ''
 		let bestKey = ''
+		let bestHtml = ''
 		for ( const key of Object.keys( rawAttrs ) ) {
 			const val = rawAttrs[ key ]
 			const html = isRichTextValue( val )
@@ -351,11 +374,13 @@ function serializeBlockTree( block, budget, opts = {} ) {
 			if ( preview && preview.includes( ' ' ) && preview.length > bestPreview.length ) {
 				bestPreview = preview
 				bestKey = key
+				bestHtml = html
 			}
 		}
 		if ( bestPreview ) {
 			node.preview = bestPreview
 			node.content_attr = bestKey
+			attachCompactContentHtml( node, bestKey, bestHtml, opts )
 		}
 	}
 	const inner = Array.isArray( block.innerBlocks ) ? block.innerBlocks : []

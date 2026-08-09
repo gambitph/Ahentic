@@ -357,6 +357,56 @@ describe( 'getBlocks scoped refs', () => {
 		expect( result.blocks[ 1 ].attributes.content ).toContain( 'unused' )
 	} )
 
+	it( 'compact full-document read includes HTML content for text blocks', () => {
+		const html = 'Private cars <a href="https://example.com/x">cost more</a> than fares.'
+		const blocksById = {
+			cid_p: {
+				clientId: 'cid_p',
+				name: 'core/paragraph',
+				attributes: { content: html, dropCap: false },
+				innerBlocks: [],
+			},
+			cid_h: {
+				clientId: 'cid_h',
+				name: 'core/heading',
+				attributes: { content: 'Why people choose a private car', level: 2 },
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_p, blocksById.cid_h ]
+		syncFromBlocks( root, 1 )
+
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: () => ( {} ),
+			},
+		}
+
+		const result = getBlocks( {} )
+		expect( result.ok ).toBe( true )
+		expect( result.scoped ).toBeUndefined()
+		expect( result.blocks ).toHaveLength( 2 )
+		expect( result.blocks[ 0 ].preview ).toContain( 'Private cars' )
+		expect( result.blocks[ 0 ].content_attr ).toBe( 'content' )
+		expect( result.blocks[ 0 ].attributes.content ).toBe( html )
+		expect( result.blocks[ 0 ].attributes.dropCap ).toBeUndefined()
+		expect( result.blocks[ 1 ].attributes.content ).toBe( 'Why people choose a private car' )
+		expect( result.blocks[ 1 ].attributes.level ).toBeUndefined()
+	} )
+
 	it( 'errors when scoped refs are missing', () => {
 		syncFromBlocks( [], 1 )
 		global.window.wp = {

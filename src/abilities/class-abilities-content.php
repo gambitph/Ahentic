@@ -32,7 +32,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		const META_CONTENT_SUMMARY    = '_ahentic_content_summary';
 		const META_CONTENT_SUMMARY_AT = '_ahentic_content_summary_at';
 
-		const MAX_PER_PAGE      = 25;
+		const MAX_PER_PAGE       = 25;
+		/** Max phrases for search-content queries[] in one ability call. */
+		const MAX_SEARCH_QUERIES = 5;
 		/** Default page size for list-content — prefer pagination over large dumps. */
 		const DEFAULT_PER_PAGE  = 15;
 		const MAX_CONTENT_CHARS = 20000;
@@ -517,15 +519,20 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::SEARCH,
 				array(
 					'label'               => __( 'Search content', 'ahentic' ),
-					'description'         => __( 'Finds posts/pages matching a phrase in title, content, or meta; returns snippets and edit links.', 'ahentic' ),
+					'description'         => __( 'Finds posts/pages matching a phrase (or up to 5 phrases via queries) in title, content, or meta; returns snippets and edit links. Multiple phrases run in one call with no extra LLM between them.', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',
-						'required'   => array( 'query' ),
 						'properties' => array(
 							'query'         => array(
 								'type'        => 'string',
-								'description' => __( 'Phrase to search for. Alias: search (coerced to query before run).', 'ahentic' ),
+								'description' => __( 'Phrase to search for. Alias: search (coerced to query before run). Prefer queries when you need several phrases in one call.', 'ahentic' ),
+							),
+							'queries'       => array(
+								'type'        => 'array',
+								'description' => __( 'Up to 5 search phrases run in one ability call (no extra LLM between them). Combined with query when both are set; duplicates dropped.', 'ahentic' ),
+								'items'       => array( 'type' => 'string' ),
+								'maxItems'    => 5,
 							),
 							'search'        => array(
 								'type'        => 'string',
@@ -1582,15 +1589,89 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		}
 
 		/**
+		 * Collect unique search phrases from query + queries (cap MAX_SEARCH_QUERIES).
+		 *
+		 * @param array $input Coerced input.
+		 * @return string[]
+		 */
+		public static function normalize_search_queries( array $input ) {
+			$raw = array();
+			if ( isset( $input['query'] ) ) {
+				$q = trim( (string) $input['query'] );
+				if ( '' !== $q ) {
+					$raw[] = $q;
+				}
+			}
+			if ( isset( $input['queries'] ) && is_array( $input['queries'] ) ) {
+				foreach ( $input['queries'] as $item ) {
+					$q = trim( (string) $item );
+					if ( '' !== $q ) {
+						$raw[] = $q;
+					}
+				}
+			}
+			$out  = array();
+			$seen = array();
+			foreach ( $raw as $q ) {
+				$key = strtolower( $q );
+				if ( isset( $seen[ $key ] ) ) {
+					continue;
+				}
+				$seen[ $key ] = true;
+				$out[]        = $q;
+			}
+			return array_slice( $out, 0, self::MAX_SEARCH_QUERIES );
+		}
+
+		/**
+		 * Merge per-query search batches; first-seen post id wins; attach matched_queries.
+		 *
+		 * @param array<int, array{query?:string, results?:array}> $batches Per-query batches.
+		 * @return array<int, array>
+		 */
+		public static function merge_search_content_batches( array $batches ) {
+			$by_id = array();
+			foreach ( $batches as $batch ) {
+				$query   = isset( $batch['query'] ) ? (string) $batch['query'] : '';
+				$results = isset( $batch['results'] ) && is_array( $batch['results'] ) ? $batch['results'] : array();
+				foreach ( $results as $item ) {
+					if ( ! is_array( $item ) || ! isset( $item['id'] ) ) {
+						continue;
+					}
+					$id = (int) $item['id'];
+					if ( ! isset( $by_id[ $id ] ) ) {
+						$item['matched_queries'] = ( '' !== $query ) ? array( $query ) : array();
+						$by_id[ $id ]            = $item;
+						continue;
+					}
+					if ( '' === $query ) {
+						continue;
+					}
+					$prev = isset( $by_id[ $id ]['matched_queries'] ) && is_array( $by_id[ $id ]['matched_queries'] )
+						? $by_id[ $id ]['matched_queries']
+						: array();
+					if ( ! in_array( $query, $prev, true ) ) {
+						$prev[] = $query;
+					}
+					$by_id[ $id ]['matched_queries'] = $prev;
+				}
+			}
+			return array_values( $by_id );
+		}
+
+		/**
 		 * Search title/content/(optional) meta.
+		 *
+		 * Accepts query and/or queries[] (up to MAX_SEARCH_QUERIES) — multiple phrases
+		 * run in one ability call with no LLM between them.
 		 *
 		 * @param mixed $input Input.
 		 * @return array|\WP_Error
 		 */
 		public static function execute_search_content( $input = array() ) {
-			$input = self::coerce_search_input( is_array( $input ) ? $input : array() );
-			$query = isset( $input['query'] ) ? trim( (string) $input['query'] ) : '';
-			if ( '' === $query ) {
+			$input   = self::coerce_search_input( is_array( $input ) ? $input : array() );
+			$queries = self::normalize_search_queries( $input );
+			if ( ! $queries ) {
 				return new WP_Error( 'ahentic_missing_query', __( 'A search query is required.', 'ahentic' ) );
 			}
 
@@ -1602,10 +1683,69 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			$snippet_len = isset( $input['snippet_chars'] ) ? (int) $input['snippet_chars'] : 160;
 			$snippet_len = max( 40, min( self::MAX_SNIPPET, $snippet_len ) );
 
-			$ids_matched     = array(); // id => list of match kinds.
+			$opts = array(
+				'post_types'  => $post_types,
+				'statuses'    => $statuses,
+				'limit'       => $limit,
+				'search_meta' => $search_meta,
+				'snippet_len' => $snippet_len,
+			);
+
+			if ( 1 === count( $queries ) ) {
+				$one = self::run_search_content_query( $queries[0], $opts );
+				return array(
+					'query'       => $queries[0],
+					'count'       => count( $one['results'] ),
+					'limit'       => $limit,
+					'search_meta' => $search_meta,
+					'post_type'   => $post_types,
+					'status'      => $statuses,
+					'results'     => $one['results'],
+				);
+			}
+
+			$batches = array();
+			foreach ( $queries as $q ) {
+				$one       = self::run_search_content_query( $q, $opts );
+				$batches[] = array(
+					'query'   => $q,
+					'count'   => count( $one['results'] ),
+					'results' => $one['results'],
+				);
+			}
+			$merged = self::merge_search_content_batches( $batches );
+
+			return array(
+				'query'       => $queries[0],
+				'queries'     => $queries,
+				'searches'    => $batches,
+				'count'       => count( $merged ),
+				'limit'       => $limit,
+				'search_meta' => $search_meta,
+				'post_type'   => $post_types,
+				'status'      => $statuses,
+				'results'     => $merged,
+			);
+		}
+
+		/**
+		 * Run one search phrase (title/content + optional meta).
+		 *
+		 * @param string $query Phrase.
+		 * @param array  $opts  post_types, statuses, limit, search_meta, snippet_len.
+		 * @return array{results: array}
+		 */
+		private static function run_search_content_query( $query, array $opts ) {
+			$query       = (string) $query;
+			$post_types  = $opts['post_types'];
+			$statuses    = $opts['statuses'];
+			$limit       = (int) $opts['limit'];
+			$search_meta = (bool) $opts['search_meta'];
+			$snippet_len = (int) $opts['snippet_len'];
+
+			$ids_matched     = array();
 			$meta_keys_by_id = array();
 
-			// Title / content via WP_Query.
 			$wpq = new WP_Query(
 				array(
 					's'                      => $query,
@@ -1633,9 +1773,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					if ( ! isset( $ids_matched[ $pid ] ) ) {
 						$ids_matched[ $pid ] = array();
 					}
-					$ids_matched[ $pid ][]     = 'meta';
-					$ids_matched[ $pid ]       = array_values( array_unique( $ids_matched[ $pid ] ) );
-					$meta_keys_by_id[ $pid ]   = is_array( $keys ) ? $keys : array();
+					$ids_matched[ $pid ][]   = 'meta';
+					$ids_matched[ $pid ]     = array_values( array_unique( $ids_matched[ $pid ] ) );
+					$meta_keys_by_id[ $pid ] = is_array( $keys ) ? $keys : array();
 				}
 			}
 
@@ -1669,24 +1809,16 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					}
 				}
 
-				$item = self::summarize_post( $post, false );
-				$item['matched_in']        = $matched_in;
-				$item['matched_meta_keys'] = isset( $meta_keys_by_id[ $pid ] ) ? array_slice( $meta_keys_by_id[ $pid ], 0, 10 ) : array();
-				$item['snippet']           = self::make_snippet( $snippet_text, $query, $snippet_len );
-				$item['snippet_field']     = $snippet_source;
-				$results[]                 = $item;
+				$item                          = self::summarize_post( $post, false );
+				$item['matched_in']            = $matched_in;
+				$item['matched_meta_keys']     = isset( $meta_keys_by_id[ $pid ] ) ? array_slice( $meta_keys_by_id[ $pid ], 0, 10 ) : array();
+				$item['snippet']               = self::make_snippet( $snippet_text, $query, $snippet_len );
+				$item['snippet_field']         = $snippet_source;
+				$results[]                     = $item;
 				++$count;
 			}
 
-			return array(
-				'query'       => $query,
-				'count'       => count( $results ),
-				'limit'       => $limit,
-				'search_meta' => $search_meta,
-				'post_type'   => $post_types,
-				'status'      => $statuses,
-				'results'     => $results,
-			);
+			return array( 'results' => $results );
 		}
 
 		/**
