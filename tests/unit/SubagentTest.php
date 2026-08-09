@@ -119,7 +119,8 @@ class SubagentTest extends TestCase {
 	}
 
 	/**
-	 * Model batch remainders are batch/recipe — empty purpose meta must not become apply.
+	 * Model batch remainders are batch/recipe — empty purpose meta must not become apply,
+	 * except content-work from_memory apply remainders (Job Resume forced_apply_retry path).
 	 */
 	public function test_resolve_remainder_purpose_keeps_explicit_apply_only() {
 		$this->assertSame(
@@ -148,6 +149,52 @@ class SubagentTest extends TestCase {
 		$this->assertNotSame(
 			'apply',
 			Ahentic_Subagent::resolve_remainder_purpose( '', false )
+		);
+	}
+
+	public function test_resolve_remainder_purpose_content_from_memory_apply() {
+		$set_blocks = array(
+			array(
+				'name'  => 'ahentic-browser/set-blocks',
+				'input' => array( 'from_memory' => 'article_draft' ),
+			),
+		);
+		$this->assertTrue( Ahentic_Subagent::remainder_is_content_from_memory_apply( $set_blocks ) );
+		$this->assertSame(
+			'apply',
+			Ahentic_Subagent::resolve_remainder_purpose( '', true, $set_blocks, true ),
+			'Content-work from_memory set-blocks remainder is apply (forced_apply_retry)'
+		);
+		$this->assertSame(
+			'recipe',
+			Ahentic_Subagent::resolve_remainder_purpose( '', true, $set_blocks, false ),
+			'Without content_work, recipe flag still wins for empty purpose'
+		);
+		$this->assertSame(
+			'batch',
+			Ahentic_Subagent::resolve_remainder_purpose(
+				'',
+				false,
+				array(
+					array(
+						'name'  => 'ahentic/search-content',
+						'input' => array( 'query' => 'cats' ),
+					),
+				),
+				true
+			),
+			'Research remainder stays batch even during content_work'
+		);
+		$this->assertFalse(
+			Ahentic_Subagent::remainder_is_content_from_memory_apply(
+				array(
+					array(
+						'name'  => 'ahentic-browser/set-blocks',
+						'input' => array( 'blocks' => array() ),
+					),
+				)
+			),
+			'Inline set-blocks without from_memory is not content apply'
 		);
 	}
 
