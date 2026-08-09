@@ -592,7 +592,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
 					: Ahentic_Session_Repository::get_content_work( $session_id );
 				if ( Ahentic_Job_Resume::should_finish_after_forced_tools( true, $any_failed, $has_content_work, $forced_purpose ) ) {
+					Ahentic_Session_Repository::clear_forced_tools( $session_id );
 					return self::try_finish_with_reply( $session_id, $result, $debug );
+				}
+				if ( empty( Ahentic_Session_Repository::get_forced_tools( $session_id ) ) ) {
+					Ahentic_Session_Repository::clear_forced_tools( $session_id );
 				}
 				if ( $any_failed && $has_content_work && Ahentic_Session_Repository::FORCED_PURPOSE_APPLY === $forced_purpose ) {
 					Ahentic_Session_Repository::append_trace(
@@ -624,6 +628,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				if ( ! empty( $unapplied ) && ! Ahentic_Finish_Gate::planned_includes_artifact_apply( $planned, $unapplied ) ) {
 					$apply_tools = Ahentic_Finish_Gate::build_forced_apply_tools( $session_id, $unapplied );
 					if ( ! empty( $apply_tools ) ) {
+						Ahentic_Finish_Gate::stash_pending_final( $session_id, $result, $debug );
 						Ahentic_Session_Repository::set_forced_tools(
 							$session_id,
 							$apply_tools,
@@ -1734,7 +1739,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$has_content_work = class_exists( 'Ahentic_Session_Artifacts' )
 				? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
 				: Ahentic_Session_Repository::get_content_work( $session_id );
-			if ( Ahentic_Job_Resume::should_try_finish_after_browser_resume( $name, $ok, $forced_remain, $has_content_work ) ) {
+			$forced_purpose = Ahentic_Session_Repository::get_forced_tools_purpose( $session_id );
+			if ( Ahentic_Job_Resume::should_try_finish_after_browser_resume( $name, $ok, $forced_remain, $has_content_work, $forced_purpose ) ) {
 				$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
 				$result  = array(
 					'text'  => ( is_array( $stashed ) && ! empty( $stashed['text'] ) ) ? (string) $stashed['text'] : '',
@@ -1746,13 +1752,15 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				Ahentic_Session_Repository::append_trace(
 					$session_id,
 					'browser_attr_batch_finish',
-					'Attribute patch batch complete — finishing without another think',
+					'Browser batch complete — finishing without another think',
 					array(
 						'ability' => $name,
 						'ok'      => $ok,
+						'purpose' => $forced_purpose,
 					),
 					$step
 				);
+				Ahentic_Session_Repository::clear_forced_tools( $session_id );
 				if ( ! self::try_finish_with_reply( $session_id, $result, $debug ) ) {
 					return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 				}

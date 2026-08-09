@@ -1053,16 +1053,53 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 		 * @param int $session_id Session ID.
 		 * @return bool
 		 */
+		/**
+		 * Content draft kinds (not images).
+		 *
+		 * @return string[]
+		 */
+		public static function content_kinds() {
+			return array( self::KIND_BLOCKS, self::KIND_HTML, self::KIND_MARKDOWN, self::KIND_POST_CONTENT );
+		}
+
+		/**
+		 * Whether any content artifact pointer is in one of the given statuses.
+		 *
+		 * @param int      $session_id Session ID.
+		 * @param string[] $statuses   Status constants.
+		 * @return bool
+		 */
+		public static function has_content_artifact_status( $session_id, array $statuses ) {
+			$kinds = self::content_kinds();
+			foreach ( self::list_pointers( $session_id ) as $p ) {
+				$kind   = isset( $p['kind'] ) ? (string) $p['kind'] : '';
+				$status = isset( $p['status'] ) ? (string) $p['status'] : '';
+				if ( ! in_array( $kind, $kinds, true ) ) {
+					continue;
+				}
+				if ( in_array( $status, $statuses, true ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Whether this session is mid long-form content work (sticky flag or content artifact).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return bool
+		 */
 		public static function session_has_content_work( $session_id ) {
 			// Intent gate (e.g. “finish this article”) — before any artifact exists.
 			if ( class_exists( 'Ahentic_Session_Repository' ) && Ahentic_Session_Repository::get_content_work( $session_id ) ) {
 				return true;
 			}
 			$pointers = self::list_pointers( $session_id );
-			$content_kinds = array( self::KIND_BLOCKS, self::KIND_HTML, self::KIND_MARKDOWN, self::KIND_POST_CONTENT );
+			$kinds    = self::content_kinds();
 			foreach ( $pointers as $p ) {
 				$kind = isset( $p['kind'] ) ? (string) $p['kind'] : '';
-				if ( in_array( $kind, $content_kinds, true ) ) {
+				if ( in_array( $kind, $kinds, true ) ) {
 					return true;
 				}
 			}

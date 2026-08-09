@@ -241,16 +241,36 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 		 * @param bool   $ok                  Tool succeeded.
 		 * @param bool   $forced_tools_remain Forced queue still has tools.
 		 * @param bool   $has_content_work    Session is mid long-form content work.
+		 * @param string $forced_purpose      apply|batch|recipe (empty = not an apply finish).
 		 * @return bool True → try finish/idle before enqueueing another think.
 		 */
-		public static function should_try_finish_after_browser_resume( $ability, $ok, $forced_tools_remain, $has_content_work ) {
-			if ( $forced_tools_remain || ! $ok || $has_content_work ) {
+		public static function should_try_finish_after_browser_resume( $ability, $ok, $forced_tools_remain, $has_content_work, $forced_purpose = '' ) {
+			if ( $forced_tools_remain || ! $ok ) {
+				return false;
+			}
+			$ability = (string) $ability;
+			$purpose = (string) $forced_purpose;
+
+			// Finish Gate apply queue (set-blocks ± title) — even mid content_work.
+			if ( 'apply' === $purpose ) {
+				$set_blocks = class_exists( 'Ahentic_Abilities_Browser' )
+					? Ahentic_Abilities_Browser::SET_BLOCKS
+					: 'ahentic-browser/set-blocks';
+				$update_doc = class_exists( 'Ahentic_Abilities_Browser' )
+					? Ahentic_Abilities_Browser::UPDATE_POST_DOCUMENT
+					: 'ahentic-browser/update-post-document';
+				if ( $set_blocks === $ability || $update_doc === $ability ) {
+					return true;
+				}
+			}
+
+			if ( $has_content_work ) {
 				return false;
 			}
 			$attr_patch = class_exists( 'Ahentic_Abilities_Browser' )
 				? Ahentic_Abilities_Browser::UPDATE_BLOCK_ATTRIBUTES
 				: 'ahentic-browser/update-block-attributes';
-			return $attr_patch === (string) $ability;
+			return $attr_patch === $ability;
 		}
 
 		/**

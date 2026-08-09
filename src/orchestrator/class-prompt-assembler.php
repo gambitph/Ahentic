@@ -34,6 +34,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		const MAX_TOOL_RESULT_CHARS_SNAPSHOT = 12000;
 		/** Cap for tool results that already moved into chat history (before the latest user turn). */
 		const MAX_TOOL_RESULT_CHARS_HISTORY = 1500;
+		/** Cap when collapsing research get-content / list-content after a draft is staged. */
+		const MAX_TOOL_RESULT_CHARS_RESEARCH = 500;
 
 		/**
 		 * Soft per-prompt context budget (tokens). WP AI Client does not expose model windows yet.
@@ -120,7 +122,12 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			$entries = class_exists( 'Ahentic_Session_Repository' )
 				? Ahentic_Session_Repository::get_entries( $session_id )
 				: array();
-			$built   = self::build_chat_payload( is_array( $entries ) ? $entries : array() );
+			$built   = self::build_chat_payload(
+				is_array( $entries ) ? $entries : array(),
+				array(
+					'collapse_research' => self::session_should_collapse_research( $session_id ),
+				)
+			);
 			$overhead_chars = strlen( $system );
 			$built   = self::apply_context_compaction( $session_id, $built, $persist_compact, $overhead_chars );
 			$history = $built['history'];
@@ -442,10 +449,9 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			if ( $in_editor || $has_content_work || in_array( 'editor', $sticky, true ) ) {
 				$packs[] = 'editor';
 			}
-			// Media: editor screen / content work / media screen / sticky media abilities — not merely sticky editor.
+			// Media: editor screen / media admin / sticky media abilities — not every content_work think.
 			if (
 				$in_editor
-				|| $has_content_work
 				|| in_array( 'media', $sticky, true )
 				|| self::url_matches_any( $url, array( 'upload.php', 'media-new.php' ) )
 			) {
@@ -652,29 +658,18 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		private static function tool_routing_pack( $id ) {
 			switch ( (string) $id ) {
 				case 'core':
-					return 'Prefer ahentic/get-site-snapshot when you need the site name, theme, environment, active plugins, or admin_links. '
-						. 'Prefer ahentic/get-site-health for Site Health counts/issues; ahentic/get-option for allowlisted options (blog_public, blogdescription/tagline, permalink_structure, show_on_front, etc.). '
-						. 'When unsure about WordPress best practice — plugins vs custom code/theme edits, SEO plugin choice, cleanup, pre-launch gaps, or editor vs server content edits — '
-						. 'call ahentic/get-wordpress-guidance before inventing a risky approach. '
-						. 'Pass {"topic":"plugin-hygiene"} (ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, editor-leave-canvas, editor-wrap-blocks, web-image-fit, post-title-headings) '
-						. 'or {"query":"add google analytics"}; omit both to list the catalog. Follow the returned guidance, then use site tools for facts. '
-						. 'Tool priority: prefer server (ahentic/*) abilities when they can fully do the job. '
-						. 'Use ahentic-browser/* only when you need the live open tab, block editor APIs, or the user’s browser session — or when no server ability exists. '
-						. 'Never use the browser to simulate a server ability (e.g. do not click Install when ahentic/install-plugin exists). '
-						. 'Prefer ahentic/get-admin-context or ahentic-browser/get-current-page for screen identity (“which page am I on?”, white screen / broken admin URL). '
-						. 'Prefer ahentic-browser/get-visible-page when the user asks what is on the screen, to explain the UI, notices, buttons, or form fields currently visible. '
-						. 'To fill open-screen form inputs when no server write exists, use ahentic-browser/fill-fields after get-visible-page (HITL; does not submit — user clicks Save/Update). '
-						. 'Fill password fields only when the user explicitly asked. '
-						. 'Never invent a click/type/submit browser ability; prefer ahentic/* writes and editor-store tools for block canvas / document fields. '
-						. 'Active browser page context is attached to each turn when available (URL + is_block_editor / post_id / post_type / editor_title). '
-						. 'Trust the LATEST attached page context over earlier assumptions about where the user is; only re-call get-current-page / get-editor-state if you need a fresh read. '
-						. 'CRITICAL — never re-check your own writes: tool results are authoritative. After a successful mutate, do NOT call get-content, get-blocks, or any other readonly '
-						. 'ability to confirm it landed — the write result already reports what was persisted. Go straight to next="reply". '
-						. 'A page snapshot (get-visible-page / get-current-page) can never confirm a change made after it loaded — never use it to verify a write. '
-						. 'Always pass tools_planned as objects with input when a tool needs args (e.g. {"name":"ahentic/get-content","input":{"id":123}}), not bare ability name strings. '
-						. 'Use edit_url / view_url / media_library_url / plugins_url from tool results when linking the user. '
-						. 'Do not claim you ran a tool that is not in the available list. '
-						. 'Detailed routing for plugins, theme/settings, users, menus, and http-fetch is included only when that screen is open — otherwise use ability names from the available list + get-wordpress-guidance. ';
+					return 'Prefer ahentic/get-site-snapshot for site name/theme/plugins/admin_links; '
+						. 'ahentic/get-site-health for Site Health; ahentic/get-option for allowlisted options. '
+						. 'When unsure about WordPress practice (plugins vs code, SEO choice, cleanup, editor vs server), call ahentic/get-wordpress-guidance '
+						. '(topic ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, editor-leave-canvas, editor-wrap-blocks, web-image-fit, post-title-headings) '
+						. 'or {"query":"…"}; omit both to list the catalog. '
+						. 'Prefer server ahentic/* when it fully does the job; ahentic-browser/* only for the live tab / block editor / browser session. '
+						. 'Never simulate a server ability in the browser. '
+						. 'Screen identity: get-admin-context or get-current-page; visible UI: get-visible-page; fill-fields for open forms (HITL, no submit). '
+						. 'Trust the LATEST attached page context; re-call get-current-page only when stale. '
+						. 'CRITICAL — never re-check writes with readonly tools; go next="reply" after ok:true. '
+						. 'Always pass tools_planned as {"name","input"} objects when args are needed. '
+						. 'Use edit_url / view_url from tool results. Do not claim tools not in the available list. ';
 
 				case 'content':
 					return 'Prefer ahentic/search-content with {"query":"…"} to find posts/pages by phrase (title, body, or meta); '
@@ -701,13 +696,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. '(real block objects and/or browser tools) — do not claim the article was written. '
 						. 'CRITICAL — post title is the H1: when drafting or rewriting posts/pages, put the article title in the post title field '
 						. '(ahentic-browser/update-post-document while the editor is open; create-post / update-post title when not). '
+						. 'When staging a complete draft, include update-post-document (title) in the SAME tools_planned as apply — or set artifact title so forced apply can set it — do not open a new think only for the title. '
 						. 'Body headings start at core/heading level 2 — do not insert a level-1 heading that duplicates the title. '
 						. 'Call ahentic/get-wordpress-guidance with topic post-title-headings when unsure. '
-						. 'Prefer ahentic/list-terms / ahentic/get-term to browse or load a category/tag/custom taxonomy term; '
-						. 'ahentic/create-term to create a new term (never invent create via update-term); '
-						. 'ahentic/update-term only for an existing term (taxonomy + term_id or term, then name/slug/description/parent/meta); '
-						. 'ahentic/delete-term only when count is 0 (reassign posts first). '
-						. 'Assign terms on posts with create-post / update-post categories, tags, or tax_input (replace-per-taxonomy: present key = full set, omit = unchanged; missing names → create-term first). ';
+						. 'Terms: list-terms / get-term / create-term / update-term / delete-term; assign via create-post / update-post categories|tags|tax_input (replace-per-taxonomy). ';
 
 				case 'editor':
 					return 'CRITICAL — content routing by page context: '
@@ -830,9 +822,11 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * so the next think can observe them.
 		 *
 		 * @param array $entries Session entries.
+		 * @param array $opts    Optional. `collapse_research` (bool) collapses get-content / list-content.
 		 * @return array{history: array, user: string, clipped: array, superseded: int}
 		 */
-		public static function build_chat_payload( array $entries ) {
+		public static function build_chat_payload( array $entries, array $opts = array() ) {
+			$collapse_research = ! empty( $opts['collapse_research'] );
 			$latest_supersede  = self::latest_supersedable_tool_indexes( $entries );
 			$last_user_entry_i = self::last_user_entry_index( $entries );
 			$clipped           = array();
@@ -858,6 +852,16 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					if ( isset( $latest_supersede[ $ability ] ) && $latest_supersede[ $ability ] !== $i ) {
 						$body = '[Superseded — a newer ' . $ability . ' result appears below.]';
 						++$superseded;
+					} elseif ( $collapse_research && self::ability_is_research_body( $ability ) ) {
+						$raw_len = strlen( (string) $entry['content'] );
+						$body    = self::compact_research_tool_body( $ability, (string) $entry['content'] );
+						if ( $raw_len > strlen( $body ) ) {
+							$clipped[] = array(
+								'ability' => $ability,
+								'len'     => $raw_len,
+								'cap'     => self::MAX_TOOL_RESULT_CHARS_RESEARCH,
+							);
+						}
 					} else {
 						$raw_len     = strlen( (string) $entry['content'] );
 						$is_trailing = ( $last_user_entry_i < 0 ) || ( $i > $last_user_entry_i );
@@ -1332,10 +1336,102 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					'ahentic-browser/update-block-attributes',
 					'ahentic/get-wordpress-guidance',
 					'ahentic/list-content',
+					'ahentic/get-content',
+					'ahentic/get-content-summary',
 					'ahentic/list-plugins',
 					'ahentic/list-media',
 				),
 				true
+			);
+		}
+
+		/**
+		 * Abilities whose full bodies are research fuel (collapse after draft staged/applied).
+		 *
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function ability_is_research_body( $name ) {
+			return in_array(
+				(string) $name,
+				array(
+					'ahentic/get-content',
+					'ahentic/get-content-summary',
+					'ahentic/list-content',
+				),
+				true
+			);
+		}
+
+		/**
+		 * Collapse a research tool JSON body to id/title/url(+snippet) for the prompt.
+		 *
+		 * @param string $ability Ability name.
+		 * @param string $content Raw tool content.
+		 * @return string
+		 */
+		public static function compact_research_tool_body( $ability, $content ) {
+			$content = (string) $content;
+			$decoded = json_decode( $content, true );
+			if ( ! is_array( $decoded ) ) {
+				return self::truncate_tool_result_for_prompt( $content, self::MAX_TOOL_RESULT_CHARS_RESEARCH );
+			}
+
+			if ( 'ahentic/list-content' === (string) $ability && ! empty( $decoded['items'] ) && is_array( $decoded['items'] ) ) {
+				$items = array();
+				foreach ( array_slice( $decoded['items'], 0, 15 ) as $item ) {
+					if ( ! is_array( $item ) ) {
+						continue;
+					}
+					$items[] = array(
+						'id'       => isset( $item['id'] ) ? (int) $item['id'] : 0,
+						'title'    => isset( $item['title'] ) ? (string) $item['title'] : '',
+						'view_url' => isset( $item['view_url'] ) ? (string) $item['view_url'] : '',
+					);
+				}
+				$card = array(
+					'items'   => $items,
+					'note'    => 'Research collapsed — titles/urls only (draft already staged).',
+				);
+				$json = function_exists( 'wp_json_encode' )
+					? wp_json_encode( $card, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
+					: json_encode( $card, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+				return is_string( $json ) ? $json : self::truncate_tool_result_for_prompt( $content, self::MAX_TOOL_RESULT_CHARS_RESEARCH );
+			}
+
+			$card = array(
+				'id'       => isset( $decoded['id'] ) ? (int) $decoded['id'] : 0,
+				'title'    => isset( $decoded['title'] ) ? (string) $decoded['title'] : '',
+				'type'     => isset( $decoded['type'] ) ? (string) $decoded['type'] : '',
+				'status'   => isset( $decoded['status'] ) ? (string) $decoded['status'] : '',
+				'view_url' => isset( $decoded['view_url'] ) ? (string) $decoded['view_url'] : '',
+				'note'     => 'Research collapsed — body omitted (draft already staged).',
+			);
+			$json = function_exists( 'wp_json_encode' )
+				? wp_json_encode( $card, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
+				: json_encode( $card, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+			return is_string( $json ) ? $json : self::truncate_tool_result_for_prompt( $content, self::MAX_TOOL_RESULT_CHARS_RESEARCH );
+		}
+
+		/**
+		 * Whether research get-content / list-content bodies should collapse for this think.
+		 *
+		 * True when a content artifact is ready or already applied — research fuel is spent.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return bool
+		 */
+		public static function session_should_collapse_research( $session_id ) {
+			$session_id = (int) $session_id;
+			if ( $session_id < 1 || ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
+				return false;
+			}
+			return Ahentic_Session_Artifacts::has_content_artifact_status(
+				$session_id,
+				array(
+					Ahentic_Session_Artifacts::STATUS_READY,
+					Ahentic_Session_Artifacts::STATUS_APPLIED,
+				)
 			);
 		}
 

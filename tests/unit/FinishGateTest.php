@@ -80,6 +80,25 @@ class FinishGateTest extends TestCase {
 	}
 
 	/**
+	 * Artifact title from meta is queued with set-blocks (no PHP-invented copy).
+	 */
+	public function test_forced_apply_includes_document_title_when_known() {
+		$tools = Ahentic_Finish_Gate::forced_apply_tools_for_context(
+			array( 'draft_1' ),
+			array(
+				'is_block_editor' => true,
+				'post_id'         => 9,
+			),
+			array( 'draft_1' => 'Why private cars remain appealing' )
+		);
+
+		$this->assertCount( 2, $tools );
+		$this->assertSame( 'ahentic-browser/set-blocks', $tools[0]['name'] );
+		$this->assertSame( 'ahentic-browser/update-post-document', $tools[1]['name'] );
+		$this->assertSame( 'Why private cars remain appealing', $tools[1]['input']['title'] );
+	}
+
+	/**
 	 * No editor but post_id → update-post.
 	 */
 	public function test_forced_apply_update_post_when_post_known() {
@@ -97,6 +116,23 @@ class FinishGateTest extends TestCase {
 	}
 
 	/**
+	 * Known title rides on update-post input (no separate invent step).
+	 */
+	public function test_forced_apply_update_post_includes_title_when_known() {
+		$tools = Ahentic_Finish_Gate::forced_apply_tools_for_context(
+			array( 'draft_1' ),
+			array(
+				'is_block_editor' => false,
+				'post_id'         => 42,
+			),
+			array( 'draft_1' => 'Commute tips' )
+		);
+
+		$this->assertSame( 'ahentic/update-post', $tools[0]['name'] );
+		$this->assertSame( 'Commute tips', $tools[0]['input']['title'] );
+	}
+
+	/**
 	 * No editor and no post → create-post.
 	 */
 	public function test_forced_apply_create_post_when_no_post() {
@@ -107,6 +143,20 @@ class FinishGateTest extends TestCase {
 
 		$this->assertSame( 'ahentic/create-post', $tools[0]['name'] );
 		$this->assertSame( 'draft_1', $tools[0]['input']['from_memory'] );
+	}
+
+	/**
+	 * Known title rides on create-post input.
+	 */
+	public function test_forced_apply_create_post_includes_title_when_known() {
+		$tools = Ahentic_Finish_Gate::forced_apply_tools_for_context(
+			array( 'draft_1' ),
+			array(),
+			array( 'draft_1' => 'New piece' )
+		);
+
+		$this->assertSame( 'ahentic/create-post', $tools[0]['name'] );
+		$this->assertSame( 'New piece', $tools[0]['input']['title'] );
 	}
 
 	/**

@@ -309,7 +309,38 @@ class JobResumeTest extends TestCase {
 				true,
 				false,
 				false
-			)
+			),
+			'set-blocks without apply purpose must not auto-finish'
+		);
+		$this->assertTrue(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/set-blocks',
+				true,
+				false,
+				true,
+				'apply'
+			),
+			'Forced apply set-blocks should finish even during content work'
+		);
+		$this->assertTrue(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/update-post-document',
+				true,
+				false,
+				true,
+				'apply'
+			),
+			'Forced apply title follow-up should finish'
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/set-blocks',
+				true,
+				true,
+				true,
+				'apply'
+			),
+			'More apply tools remain (e.g. title) — keep going'
 		);
 		$this->assertFalse(
 			Ahentic_Job_Resume::should_try_finish_after_browser_resume(

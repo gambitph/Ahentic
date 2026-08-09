@@ -264,12 +264,7 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 			if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				return array();
 			}
-			$content_kinds = array(
-				Ahentic_Session_Artifacts::KIND_BLOCKS,
-				Ahentic_Session_Artifacts::KIND_HTML,
-				Ahentic_Session_Artifacts::KIND_MARKDOWN,
-				Ahentic_Session_Artifacts::KIND_POST_CONTENT,
-			);
+			$content_kinds = Ahentic_Session_Artifacts::content_kinds();
 			$keys = array();
 			foreach ( Ahentic_Session_Artifacts::list_pointers( $session_id ) as $p ) {
 				$status = isset( $p['status'] ) ? (string) $p['status'] : '';
@@ -294,8 +289,18 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 		 * @return array<int, array{name: string, input: array}>
 		 */
 		public static function build_forced_apply_tools( $session_id, array $keys ) {
-			$ctx = Ahentic_Session_Repository::get_page_context( $session_id );
-			return self::forced_apply_tools_for_context( $keys, is_array( $ctx ) ? $ctx : array() );
+			$ctx     = Ahentic_Session_Repository::get_page_context( $session_id );
+			$titles  = array();
+			if ( class_exists( 'Ahentic_Session_Artifacts' ) ) {
+				foreach ( Ahentic_Session_Artifacts::list_pointers( $session_id ) as $p ) {
+					$k = isset( $p['key'] ) ? (string) $p['key'] : '';
+					if ( '' === $k || empty( $p['title'] ) ) {
+						continue;
+					}
+					$titles[ $k ] = (string) $p['title'];
+				}
+			}
+			return self::forced_apply_tools_for_context( $keys, is_array( $ctx ) ? $ctx : array(), $titles );
 		}
 
 		/**
@@ -305,40 +310,56 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 		 * @param array              $ctx  Page context.
 		 * @return array<int, array{name: string, input: array}>
 		 */
-		public static function forced_apply_tools_for_context( array $keys, array $ctx ) {
+		public static function forced_apply_tools_for_context( array $keys, array $ctx, array $titles_by_key = array() ) {
 			if ( empty( $keys ) ) {
 				return array();
 			}
 			$key         = (string) $keys[0];
 			$editor_open = ! empty( $ctx['is_block_editor'] );
 			$post_id     = ! empty( $ctx['post_id'] ) ? (int) $ctx['post_id'] : 0;
+			$title       = isset( $titles_by_key[ $key ] ) ? trim( (string) $titles_by_key[ $key ] ) : '';
 
 			if ( $editor_open && class_exists( 'Ahentic_Abilities_Browser' ) ) {
-				return array(
+				$tools = array(
 					array(
 						'name'  => Ahentic_Abilities_Browser::SET_BLOCKS,
 						'input' => array( 'from_memory' => $key ),
 					),
 				);
+				if ( '' !== $title ) {
+					$tools[] = array(
+						'name'  => Ahentic_Abilities_Browser::UPDATE_POST_DOCUMENT,
+						'input' => array( 'title' => $title ),
+					);
+				}
+				return $tools;
 			}
 
 			if ( $post_id > 0 && class_exists( 'Ahentic_Abilities_Content' ) ) {
+				$input = array(
+					'id'          => $post_id,
+					'from_memory' => $key,
+				);
+				if ( '' !== $title ) {
+					$input['title'] = $title;
+				}
 				return array(
 					array(
 						'name'  => Ahentic_Abilities_Content::UPDATE,
-						'input' => array(
-							'id'          => $post_id,
-							'from_memory' => $key,
-						),
+						'input' => $input,
 					),
 				);
 			}
 
 			if ( class_exists( 'Ahentic_Abilities_Content' ) ) {
+				$input = array( 'from_memory' => $key );
+				if ( '' !== $title ) {
+					$input['title'] = $title;
+				}
 				return array(
 					array(
 						'name'  => Ahentic_Abilities_Content::CREATE,
-						'input' => array( 'from_memory' => $key ),
+						'input' => $input,
 					),
 				);
 			}

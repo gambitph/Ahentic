@@ -42,9 +42,13 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 			foreach ( $remaining as $call ) {
 				$names[] = isset( $call['name'] ) ? (string) $call['name'] : '';
 			}
-			$purpose = self::get_recipe( $session_id )
-				? Ahentic_Session_Repository::FORCED_PURPOSE_RECIPE
-				: Ahentic_Session_Repository::FORCED_PURPOSE_BATCH;
+			// Preserve Finish Gate apply purpose; otherwise batch/recipe for model queues.
+			$purpose = Ahentic_Session_Repository::get_forced_tools_purpose( $session_id );
+			if ( Ahentic_Session_Repository::FORCED_PURPOSE_APPLY !== $purpose ) {
+				$purpose = self::get_recipe( $session_id )
+					? Ahentic_Session_Repository::FORCED_PURPOSE_RECIPE
+					: Ahentic_Session_Repository::FORCED_PURPOSE_BATCH;
+			}
 			Ahentic_Session_Repository::set_forced_tools( $session_id, $remaining, $purpose );
 			Ahentic_Session_Repository::append_trace(
 				$session_id,

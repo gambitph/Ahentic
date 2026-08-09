@@ -153,6 +153,116 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertSame( 'Follow-up', $built['user'] );
 	}
 
+	/**
+	 * After research is done (ready draft), get-content bodies collapse to id/title/url cards.
+	 */
+	public function test_build_chat_payload_collapses_research_when_flagged() {
+		$fat_body = str_repeat( 'Paragraph about commuting. ', 200 );
+		$entries  = array(
+			array(
+				'role'    => 'user',
+				'content' => 'Write the article',
+			),
+			array(
+				'role'    => 'tool',
+				'content' => json_encode(
+					array(
+						'id'       => 1168,
+						'title'    => 'Commute tips',
+						'type'     => 'post',
+						'status'   => 'publish',
+						'view_url' => 'https://example.com/commute/',
+						'content'  => $fat_body,
+					)
+				),
+				'meta'    => array( 'ability' => 'ahentic/get-content' ),
+			),
+			array(
+				'role'    => 'tool',
+				'content' => '{"ok":true,"key":"article_draft","status":"ready"}',
+				'meta'    => array( 'ability' => 'ahentic/stage-artifact' ),
+			),
+		);
+
+		$full = Ahentic_Prompt_Assembler::build_chat_payload( $entries );
+		$this->assertStringContainsString( 'Paragraph about commuting', $full['user'] );
+
+		$collapsed = Ahentic_Prompt_Assembler::build_chat_payload(
+			$entries,
+			array( 'collapse_research' => true )
+		);
+		$this->assertStringContainsString( 'Commute tips', $collapsed['user'] );
+		$this->assertStringContainsString( '"id":1168', $collapsed['user'] );
+		$this->assertStringNotContainsString( 'Paragraph about commuting', $collapsed['user'] );
+		$this->assertLessThan(
+			Ahentic_Prompt_Assembler::MAX_TOOL_RESULT_CHARS_RESEARCH + 100,
+			strlen( self::extract_ability_result_body( $collapsed['user'], 'ahentic/get-content' ) )
+		);
+	}
+
+	/**
+	 * list-content research rows collapse to id/title/url (no fat excerpts).
+	 */
+	public function test_compact_research_tool_body_collapses_list_content() {
+		$items = array();
+		for ( $i = 1; $i <= 3; $i++ ) {
+			$items[] = array(
+				'id'       => $i,
+				'title'    => 'Post ' . $i,
+				'view_url' => 'https://example.com/' . $i . '/',
+				'excerpt'  => str_repeat( 'Long excerpt body. ', 80 ),
+			);
+		}
+		$raw = json_encode( array( 'items' => $items, 'total' => 3 ) );
+		$out = Ahentic_Prompt_Assembler::compact_research_tool_body( 'ahentic/list-content', $raw );
+
+		$this->assertStringContainsString( 'Post 1', $out );
+		$this->assertStringContainsString( '"id":1', $out );
+		$this->assertStringNotContainsString( 'Long excerpt body', $out );
+		$this->assertLessThanOrEqual(
+			Ahentic_Prompt_Assembler::MAX_TOOL_RESULT_CHARS_RESEARCH + 80,
+			strlen( $out )
+		);
+	}
+
+	/**
+	 * Research-collapse catalog stays aligned with get/list (+ summary) content reads.
+	 */
+	public function test_ability_is_research_body_catalog() {
+		$this->assertTrue( Ahentic_Prompt_Assembler::ability_is_research_body( 'ahentic/get-content' ) );
+		$this->assertTrue( Ahentic_Prompt_Assembler::ability_is_research_body( 'ahentic/list-content' ) );
+		$this->assertTrue( Ahentic_Prompt_Assembler::ability_is_research_body( 'ahentic/get-content-summary' ) );
+		$this->assertFalse( Ahentic_Prompt_Assembler::ability_is_research_body( 'ahentic/stage-artifact' ) );
+		$this->assertFalse( Ahentic_Prompt_Assembler::ability_is_research_body( 'ahentic-browser/get-blocks' ) );
+	}
+
+	/**
+	 * Collapse gate is off for invalid sessions (pointer walk needs a real session).
+	 */
+	public function test_session_should_collapse_research_rejects_invalid_session() {
+		$this->assertFalse( Ahentic_Prompt_Assembler::session_should_collapse_research( 0 ) );
+		$this->assertFalse( Ahentic_Prompt_Assembler::session_should_collapse_research( -1 ) );
+	}
+
+	/**
+	 * @param string $user    Assembled user payload.
+	 * @param string $ability Ability name.
+	 * @return string
+	 */
+	private static function extract_ability_result_body( $user, $ability ) {
+		$marker = '[Ability result: ' . $ability . "]\n";
+		$pos    = strpos( $user, $marker );
+		if ( false === $pos ) {
+			return '';
+		}
+		$start = $pos + strlen( $marker );
+		$next  = strpos( $user, "\n\n[Ability result:", $start );
+		if ( false === $next ) {
+			return substr( $user, $start );
+		}
+		return substr( $user, $start, $next - $start );
+	}
+
 	public function test_tool_result_cap_for_prompt_history_vs_trailing() {
 		$this->assertSame(
 			Ahentic_Prompt_Assembler::MAX_TOOL_RESULT_CHARS_HISTORY,
@@ -398,7 +508,7 @@ class PromptAssemblerTest extends TestCase {
 		$tokens   = Ahentic_Prompt_Assembler::chars_to_tokens( strlen( $guidance ) );
 
 		$this->assertSame( array( 'core', 'content', 'editor', 'media' ), $packs );
-		$this->assertLessThanOrEqual( 3200, $tokens );
+		$this->assertLessThanOrEqual( 2700, $tokens );
 		$this->assertStringNotContainsString( 'Prefer ahentic/list-users', $guidance );
 		$this->assertStringNotContainsString( 'Prefer ahentic/list-menus', $guidance );
 		$this->assertStringNotContainsString( 'Prefer ahentic/list-plugins', $guidance );
@@ -424,6 +534,7 @@ class PromptAssemblerTest extends TestCase {
 			true
 		);
 		$this->assertContains( 'editor', $packs );
-		$this->assertContains( 'media', $packs );
+		$this->assertContains( 'content', $packs );
+		$this->assertNotContains( 'media', $packs, 'content_work alone must not pull the media essay' );
 	}
 }

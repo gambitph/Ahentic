@@ -18,6 +18,18 @@ class ArtifactBytesTest extends TestCase {
 	}
 
 	/**
+	 * Content-kind catalog (shared by collapse + finish-gate ready lists).
+	 */
+	public function test_content_kinds_excludes_image() {
+		$kinds = Ahentic_Session_Artifacts::content_kinds();
+		$this->assertContains( Ahentic_Session_Artifacts::KIND_BLOCKS, $kinds );
+		$this->assertContains( Ahentic_Session_Artifacts::KIND_HTML, $kinds );
+		$this->assertContains( Ahentic_Session_Artifacts::KIND_MARKDOWN, $kinds );
+		$this->assertContains( Ahentic_Session_Artifacts::KIND_POST_CONTENT, $kinds );
+		$this->assertNotContains( Ahentic_Session_Artifacts::KIND_IMAGE, $kinds );
+	}
+
+	/**
 	 * Image kind uses filesize of the temp path when readable.
 	 */
 	public function test_image_bytes_use_filesize_not_pointer_json() {

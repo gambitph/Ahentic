@@ -1611,14 +1611,18 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
-		 * Read and clear forced tools.
+		 * Read forced tools and clear the queue list.
+		 *
+		 * Purpose meta is kept until clear_forced_tools() so browser-resume / remainder
+		 * can still finish an apply queue.
 		 *
 		 * @param int $session_id Session ID.
 		 * @return array<int, array{name: string, input: array}>
 		 */
 		public static function consume_forced_tools( $session_id ) {
 			$tools = self::get_forced_tools( $session_id );
-			self::clear_forced_tools( $session_id );
+			// Keep purpose meta so browser-resume / remainder can still finish apply queues.
+			delete_post_meta( $session_id, self::META_FORCED_TOOLS );
 			return $tools;
 		}
 
