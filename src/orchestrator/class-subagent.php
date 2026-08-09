@@ -42,13 +42,10 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 			foreach ( $remaining as $call ) {
 				$names[] = isset( $call['name'] ) ? (string) $call['name'] : '';
 			}
-			// Preserve Finish Gate apply purpose; otherwise batch/recipe for model queues.
-			$purpose = Ahentic_Session_Repository::get_forced_tools_purpose( $session_id );
-			if ( Ahentic_Session_Repository::FORCED_PURPOSE_APPLY !== $purpose ) {
-				$purpose = self::get_recipe( $session_id )
-					? Ahentic_Session_Repository::FORCED_PURPOSE_RECIPE
-					: Ahentic_Session_Repository::FORCED_PURPOSE_BATCH;
-			}
+			// Explicit apply meta only (Finish Gate). Empty meta must not default to apply —
+			// get_forced_tools_purpose() treats unset as apply, which mislabeled model batches.
+			$explicit = Ahentic_Session_Repository::get_forced_tools_purpose_raw( $session_id );
+			$purpose  = self::resolve_remainder_purpose( $explicit, (bool) self::get_recipe( $session_id ) );
 			Ahentic_Session_Repository::set_forced_tools( $session_id, $remaining, $purpose );
 			Ahentic_Session_Repository::append_trace(
 				$session_id,
@@ -61,6 +58,30 @@ if ( ! class_exists( 'Ahentic_Subagent' ) ) {
 				),
 				$step
 			);
+		}
+
+		/**
+		 * Purpose for a preserved remainder queue.
+		 *
+		 * Only an explicit "apply" meta (Finish Gate forced apply) stays apply.
+		 * Empty / unknown → batch, or recipe when a Subagent chain is active.
+		 *
+		 * @param string $explicit_purpose_meta Raw META_FORCED_TOOLS_PURPOSE (may be empty).
+		 * @param bool   $has_recipe            Active Subagent recipe/chain.
+		 * @return string apply|batch|recipe
+		 */
+		public static function resolve_remainder_purpose( $explicit_purpose_meta, $has_recipe ) {
+			$explicit = (string) $explicit_purpose_meta;
+			if ( 'apply' === $explicit ) {
+				return 'apply';
+			}
+			if ( 'batch' === $explicit ) {
+				return 'batch';
+			}
+			if ( 'recipe' === $explicit ) {
+				return 'recipe';
+			}
+			return $has_recipe ? 'recipe' : 'batch';
 		}
 
 		/**

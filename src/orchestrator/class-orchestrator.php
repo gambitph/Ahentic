@@ -561,6 +561,10 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				);
 
 				if ( in_array( $run['outcome'], array( 'paused_hitl', 'paused_browser' ), true ) ) {
+					// Keep the think's user-facing prose for finish-without-think after the batch.
+					if ( class_exists( 'Ahentic_Finish_Gate' ) ) {
+						Ahentic_Finish_Gate::stash_pending_final( $session_id, $result, $debug );
+					}
 					return false;
 				}
 
@@ -584,9 +588,8 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				Ahentic_Subagent::finalize_recipe_if_idle( $session_id );
 			}
 
-			// Forced apply/verify tools: finish with stashed reply only when purpose is apply
-			// and policy allows (batch/recipe always return to think; content-work apply
-			// failures also return to think — #3).
+			// Forced tools: finish with stashed reply when the queue succeeds (apply/batch/recipe).
+			// Failures during content-work apply (or any batch/recipe failure) return to think.
 			if ( $from_forced ) {
 				$has_content_work = class_exists( 'Ahentic_Session_Artifacts' )
 					? Ahentic_Session_Artifacts::session_has_content_work( $session_id )

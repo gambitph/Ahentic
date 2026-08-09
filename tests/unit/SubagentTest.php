@@ -118,6 +118,33 @@ class SubagentTest extends TestCase {
 		$this->assertSame( 3, $out['attachment_id'] );
 	}
 
+	/**
+	 * Model batch remainders are batch/recipe — empty purpose meta must not become apply.
+	 */
+	public function test_resolve_remainder_purpose_keeps_explicit_apply_only() {
+		$this->assertSame(
+			'apply',
+			Ahentic_Subagent::resolve_remainder_purpose( 'apply', false )
+		);
+		$this->assertSame(
+			'batch',
+			Ahentic_Subagent::resolve_remainder_purpose( '', false )
+		);
+		$this->assertSame(
+			'recipe',
+			Ahentic_Subagent::resolve_remainder_purpose( '', true )
+		);
+		$this->assertSame(
+			'batch',
+			Ahentic_Subagent::resolve_remainder_purpose( 'batch', true ),
+			'Explicit batch wins over recipe flag'
+		);
+		$this->assertSame(
+			'recipe',
+			Ahentic_Subagent::resolve_remainder_purpose( 'recipe', false )
+		);
+	}
+
 	public function test_compact_payload_keeps_only_safe_keys() {
 		$this->assertSame(
 			array(

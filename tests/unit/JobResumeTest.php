@@ -236,9 +236,9 @@ class JobResumeTest extends TestCase {
 
 	/**
 	 * Forced apply failure during content work must not finish the run.
-	 * Batch/recipe forced queues must never auto-finish (generate-image recipe remainder).
+	 * Successful batch/recipe queues finish without another think (stashed reply + Finish Gate).
 	 */
-	public function test_forced_tools_do_not_finish_on_content_work_failure() {
+	public function test_forced_tools_finish_policy() {
 		$this->assertFalse(
 			Ahentic_Job_Resume::should_finish_after_forced_tools( true, true, true )
 		);
@@ -251,13 +251,20 @@ class JobResumeTest extends TestCase {
 		$this->assertFalse(
 			Ahentic_Job_Resume::should_finish_after_forced_tools( false, true, true )
 		);
-		// Regression: scout/batch remainder after browser pause must return to think.
-		$this->assertFalse(
+		// Successful batch/recipe: finish without a wrap-up think (evaluate_reply still gates).
+		$this->assertTrue(
 			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, true, 'batch' )
 		);
-		// Regression: generate-image Recipe must return to think after upload/set-featured.
-		$this->assertFalse(
+		$this->assertTrue(
 			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, false, 'recipe' )
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_finish_after_forced_tools( true, true, false, 'batch' ),
+			'Failed batch must return to think'
+		);
+		$this->assertFalse(
+			Ahentic_Job_Resume::should_finish_after_forced_tools( true, true, false, 'recipe' ),
+			'Failed recipe must return to think'
 		);
 		$this->assertTrue(
 			Ahentic_Job_Resume::should_finish_after_forced_tools( true, false, false, 'apply' )
@@ -265,7 +272,7 @@ class JobResumeTest extends TestCase {
 	}
 
 	/**
-	 * Last update-block-attributes in a browser batch should try finish (no free think).
+	 * Last tool in a forced browser queue should try finish (no free wrap-up think).
 	 */
 	public function test_try_finish_after_browser_attr_batch() {
 		$this->assertTrue(
@@ -273,7 +280,8 @@ class JobResumeTest extends TestCase {
 				'ahentic-browser/update-block-attributes',
 				true,
 				false,
-				false
+				false,
+				'batch'
 			)
 		);
 		$this->assertFalse(
@@ -281,7 +289,8 @@ class JobResumeTest extends TestCase {
 				'ahentic-browser/update-block-attributes',
 				true,
 				true,
-				false
+				false,
+				'batch'
 			),
 			'More forced tools remain — keep the batch going'
 		);
@@ -290,27 +299,30 @@ class JobResumeTest extends TestCase {
 				'ahentic-browser/update-block-attributes',
 				false,
 				false,
-				false
+				false,
+				'batch'
 			),
 			'Failed patch needs another think'
 		);
-		$this->assertFalse(
+		$this->assertTrue(
 			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
 				'ahentic-browser/update-block-attributes',
 				true,
 				false,
-				true
+				true,
+				'batch'
 			),
-			'Long-form content work still needs think/verify'
+			'Successful link/attr batch finishes even mid content_work (no wrap-up think)'
 		);
 		$this->assertFalse(
 			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
 				'ahentic-browser/set-blocks',
 				true,
 				false,
-				false
+				false,
+				''
 			),
-			'set-blocks without apply purpose must not auto-finish'
+			'set-blocks without forced purpose must not auto-finish'
 		);
 		$this->assertTrue(
 			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
@@ -332,6 +344,16 @@ class JobResumeTest extends TestCase {
 			),
 			'Forced apply title follow-up should finish'
 		);
+		$this->assertTrue(
+			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
+				'ahentic-browser/set-featured-image',
+				true,
+				false,
+				true,
+				'recipe'
+			),
+			'Recipe last step (set-featured) finishes without wrap-up think'
+		);
 		$this->assertFalse(
 			Ahentic_Job_Resume::should_try_finish_after_browser_resume(
 				'ahentic-browser/set-blocks',
@@ -347,7 +369,8 @@ class JobResumeTest extends TestCase {
 				'ahentic-browser/get-blocks',
 				true,
 				false,
-				false
+				false,
+				''
 			)
 		);
 	}

@@ -205,11 +205,12 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 		}
 
 		/**
-		 * Whether the step loop should idle after forced apply/verify tools.
+		 * Whether the step loop should idle after forced tools complete successfully.
 		 *
 		 * Content-work apply failures must return to think instead of final_reply.
-		 * Batch remainders and Subagent recipes must always return to think — they are
-		 * not Finish Gate apply/verify queues.
+		 * Failed batch/recipe queues also return to think. Successful forced queues
+		 * (apply|batch|recipe) finish with the stashed reply — Finish Gate
+		 * evaluate_reply still blocks if work is unfinished (thin body, unapplied draft).
 		 *
 		 * @param bool   $from_forced       This step ran Orchestrator-forced tools.
 		 * @param bool   $any_tool_failed   At least one forced tool failed.
@@ -221,56 +222,51 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 			if ( ! $from_forced ) {
 				return false;
 			}
-			if ( 'apply' !== (string) $purpose ) {
+			if ( $any_tool_failed ) {
+				// Legacy: apply failure outside content work may still idle.
+				if ( 'apply' === (string) $purpose && ! $has_content_work ) {
+					return true;
+				}
 				return false;
 			}
-			if ( $any_tool_failed && $has_content_work ) {
-				return false;
-			}
-			return true;
+			// Successful apply/batch/recipe: skip the wrap-up think.
+			return in_array(
+				(string) $purpose,
+				array( 'apply', 'batch', 'recipe' ),
+				true
+			);
 		}
 
 		/**
 		 * After a browser pause resumes, whether to try finishing instead of a free LLM think.
 		 *
 		 * Forced browser tools pause one-at-a-time; when the last tool resumes the forced
-		 * queue is empty so should_finish_after_forced_tools never runs. Light attribute
-		 * patches (internal links, alt text) must not buy another think just to re-verify.
+		 * queue is empty so should_finish_after_forced_tools never runs. Successful end of
+		 * an apply/batch/recipe queue must not buy another think just to narrate “done.”
+		 * Finish Gate still blocks idle when verify/unapplied work remains.
 		 *
 		 * @param string $ability             Completed browser ability.
 		 * @param bool   $ok                  Tool succeeded.
 		 * @param bool   $forced_tools_remain Forced queue still has tools.
-		 * @param bool   $has_content_work    Session is mid long-form content work.
-		 * @param string $forced_purpose      apply|batch|recipe (empty = not an apply finish).
+		 * @param bool   $has_content_work    Session is mid long-form content work (unused; kept for call-site stability).
+		 * @param string $forced_purpose      apply|batch|recipe (empty = not a forced-queue finish).
 		 * @return bool True → try finish/idle before enqueueing another think.
 		 */
 		public static function should_try_finish_after_browser_resume( $ability, $ok, $forced_tools_remain, $has_content_work, $forced_purpose = '' ) {
+			unset( $has_content_work );
 			if ( $forced_tools_remain || ! $ok ) {
 				return false;
 			}
-			$ability = (string) $ability;
 			$purpose = (string) $forced_purpose;
-
-			// Finish Gate apply queue (set-blocks ± title) — even mid content_work.
-			if ( 'apply' === $purpose ) {
-				$set_blocks = class_exists( 'Ahentic_Abilities_Browser' )
-					? Ahentic_Abilities_Browser::SET_BLOCKS
-					: 'ahentic-browser/set-blocks';
-				$update_doc = class_exists( 'Ahentic_Abilities_Browser' )
-					? Ahentic_Abilities_Browser::UPDATE_POST_DOCUMENT
-					: 'ahentic-browser/update-post-document';
-				if ( $set_blocks === $ability || $update_doc === $ability ) {
-					return true;
-				}
+			if ( in_array( $purpose, array( 'apply', 'batch', 'recipe' ), true ) ) {
+				return true;
 			}
 
-			if ( $has_content_work ) {
-				return false;
-			}
+			// Legacy light path: attr patch with no purpose meta (pre-forced-queue).
 			$attr_patch = class_exists( 'Ahentic_Abilities_Browser' )
 				? Ahentic_Abilities_Browser::UPDATE_BLOCK_ATTRIBUTES
 				: 'ahentic-browser/update-block-attributes';
-			return $attr_patch === $ability;
+			return $attr_patch === (string) $ability;
 		}
 
 		/**

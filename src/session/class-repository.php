@@ -1566,12 +1566,14 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		/**
 		 * Purpose of the current forced-tools queue (apply|batch|recipe).
 		 *
+		 * Empty meta defaults to apply (Finish Gate / legacy callers).
+		 * Prefer get_forced_tools_purpose_raw() when empty must stay empty.
+		 *
 		 * @param int $session_id Session ID.
 		 * @return string
 		 */
 		public static function get_forced_tools_purpose( $session_id ) {
-			$raw = get_post_meta( $session_id, self::META_FORCED_TOOLS_PURPOSE, true );
-			$raw = is_string( $raw ) ? $raw : '';
+			$raw = self::get_forced_tools_purpose_raw( $session_id );
 			if ( self::FORCED_PURPOSE_BATCH === $raw || self::FORCED_PURPOSE_RECIPE === $raw ) {
 				return $raw;
 			}
@@ -1579,9 +1581,20 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
+		 * Raw forced-tools purpose meta (empty when unset — does not default to apply).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string apply|batch|recipe|'' 
+		 */
+		public static function get_forced_tools_purpose_raw( $session_id ) {
+			$raw = get_post_meta( $session_id, self::META_FORCED_TOOLS_PURPOSE, true );
+			return is_string( $raw ) ? $raw : '';
+		}
+
+		/**
 		 * @param int    $session_id Session ID.
 		 * @param array  $tools      List of { name, input }.
-		 * @param string $purpose    apply|batch|recipe — only apply may auto-finish the run.
+		 * @param string $purpose    apply|batch|recipe — successful queues may finish without a wrap-up think (Job Resume).
 		 */
 		public static function set_forced_tools( $session_id, array $tools, $purpose = self::FORCED_PURPOSE_APPLY ) {
 			$out = array();
