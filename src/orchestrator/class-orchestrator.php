@@ -490,6 +490,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 			$ran_any     = false;
 			$any_failed  = false;
+			$any_write   = false;
 			foreach ( $planned as $call_index => $call ) {
 				if ( Ahentic_Session_Repository::STATUS_RUNNING !== Ahentic_Session_Repository::get_status( $session_id ) ) {
 					return false;
@@ -497,6 +498,10 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 
 				$name  = $call['name'];
 				$input = $call['input'];
+
+				if ( ! Ahentic_Abilities::is_readonly( $name ) ) {
+					$any_write = true;
+				}
 
 				if ( ! in_array( $name, $available, true ) ) {
 					$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
@@ -661,9 +666,15 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				$has_content_work = class_exists( 'Ahentic_Session_Artifacts' )
 					? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
 					: Ahentic_Session_Repository::get_content_work( $session_id );
-				if ( Ahentic_Job_Resume::should_finish_after_forced_tools( true, $any_failed, $has_content_work, $forced_purpose ) ) {
+				$finish_forced = Ahentic_Job_Resume::should_finish_after_forced_tools( true, $any_failed, $has_content_work, $forced_purpose, $any_write );
+				if ( $finish_forced ) {
 					Ahentic_Session_Repository::clear_forced_tools( $session_id );
 					return self::try_finish_with_reply( $session_id, $result, $debug );
+				}
+				// Research-only remainder (get-blocks → search): drop the peel-think stash so a
+				// later idle does not publish “I’ll inspect…” as the final reply.
+				if ( ! $any_write ) {
+					Ahentic_Session_Repository::clear_pending_final( $session_id );
 				}
 				if ( empty( Ahentic_Session_Repository::get_forced_tools( $session_id ) ) ) {
 					Ahentic_Session_Repository::clear_forced_tools( $session_id );
@@ -1820,8 +1831,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$has_content_work = class_exists( 'Ahentic_Session_Artifacts' )
 				? Ahentic_Session_Artifacts::session_has_content_work( $session_id )
 				: Ahentic_Session_Repository::get_content_work( $session_id );
-			$forced_purpose = Ahentic_Session_Repository::get_forced_tools_purpose( $session_id );
-			if ( Ahentic_Job_Resume::should_try_finish_after_browser_resume( $name, $ok, $forced_remain, $has_content_work, $forced_purpose ) ) {
+			// Empty purpose must stay empty — get_forced_tools_purpose() defaults to apply and
+			// would falsely finish a lone get-blocks resume as a completed forced apply.
+			$forced_purpose_raw = Ahentic_Session_Repository::get_forced_tools_purpose_raw( $session_id );
+			$try_finish         = Ahentic_Job_Resume::should_try_finish_after_browser_resume( $name, $ok, $forced_remain, $has_content_work, $forced_purpose_raw );
+			if ( $try_finish ) {
 				$stashed = Ahentic_Session_Repository::get_pending_final( $session_id );
 				$result  = array(
 					'text'  => ( is_array( $stashed ) && ! empty( $stashed['text'] ) ) ? (string) $stashed['text'] : '',
@@ -1837,7 +1851,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 					array(
 						'ability' => $name,
 						'ok'      => $ok,
-						'purpose' => $forced_purpose,
+						'purpose' => $forced_purpose_raw,
 					),
 					$step
 				);
@@ -1845,6 +1859,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				if ( ! self::try_finish_with_reply( $session_id, $result, $debug ) ) {
 					return Ahentic_Session_Repository::to_rest( $session_id, true, 100 );
 				}
+			} elseif ( ! $forced_remain && class_exists( 'Ahentic_Abilities' ) && Ahentic_Abilities::is_readonly( $name ) ) {
+				// Lone research browser tool: do not keep a finish stash across the next think.
+				Ahentic_Session_Repository::clear_pending_final( $session_id );
 			}
 
 			Ahentic_Step_Queue::enqueue_step( $session_id );

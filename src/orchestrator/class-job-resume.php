@@ -208,17 +208,19 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 		 * Whether the step loop should idle after forced tools complete successfully.
 		 *
 		 * Content-work apply failures must return to think instead of final_reply.
-		 * Failed batch/recipe queues also return to think. Successful forced queues
-		 * (apply|batch|recipe) finish with the stashed reply — Finish Gate
-		 * evaluate_reply still blocks if work is unfinished (thin body, unapplied draft).
+		 * Failed batch/recipe queues also return to think. Successful apply always
+		 * finishes. Successful batch/recipe finish only when a write ran — a
+		 * research-only remainder (e.g. get-blocks → search-content) must return
+		 * to think so the model can plan the actual edits.
 		 *
 		 * @param bool   $from_forced       This step ran Orchestrator-forced tools.
 		 * @param bool   $any_tool_failed   At least one forced tool failed.
 		 * @param bool   $has_content_work  Session is mid long-form content work.
 		 * @param string $purpose           apply|batch|recipe (Repository FORCED_PURPOSE_*).
+		 * @param bool   $had_write         At least one non-readonly tool ran in this forced step.
 		 * @return bool True → finish with stashed reply; false → keep looping (or not forced).
 		 */
-		public static function should_finish_after_forced_tools( $from_forced, $any_tool_failed, $has_content_work, $purpose = 'apply' ) {
+		public static function should_finish_after_forced_tools( $from_forced, $any_tool_failed, $has_content_work, $purpose = 'apply', $had_write = true ) {
 			if ( ! $from_forced ) {
 				return false;
 			}
@@ -229,12 +231,15 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 				}
 				return false;
 			}
-			// Successful apply/batch/recipe: skip the wrap-up think.
-			return in_array(
-				(string) $purpose,
-				array( 'apply', 'batch', 'recipe' ),
-				true
-			);
+			$purpose = (string) $purpose;
+			if ( 'apply' === $purpose ) {
+				return true;
+			}
+			if ( in_array( $purpose, array( 'batch', 'recipe' ), true ) ) {
+				// Research-only forced remainder must not idle the run.
+				return (bool) $had_write;
+			}
+			return false;
 		}
 
 		/**
@@ -258,7 +263,14 @@ if ( ! class_exists( 'Ahentic_Job_Resume' ) ) {
 				return false;
 			}
 			$purpose = (string) $forced_purpose;
-			if ( in_array( $purpose, array( 'apply', 'batch', 'recipe' ), true ) ) {
+			if ( 'apply' === $purpose ) {
+				return true;
+			}
+			if ( in_array( $purpose, array( 'batch', 'recipe' ), true ) ) {
+				// Readonly last step (e.g. get-blocks) is not “job done”.
+				if ( class_exists( 'Ahentic_Abilities' ) && Ahentic_Abilities::is_readonly( $ability ) ) {
+					return false;
+				}
 				return true;
 			}
 
