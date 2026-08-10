@@ -382,26 +382,49 @@ class PromptAssemblerTest extends TestCase {
 		$dashboard = Ahentic_Prompt_Assembler::select_tool_routing_packs(
 			array(
 				'is_block_editor' => false,
+				'isAdmin'         => true,
 				'url'             => 'https://example.com/wp-admin/index.php',
 			),
 			false
 		);
-		// Dashboard: core only — content/editor essays are not always-on.
-		$this->assertSame( array( 'core' ), $dashboard );
+		// Dashboard: core + admin-forms — content/editor essays are not always-on.
+		$this->assertSame( array( 'core', 'admin-forms' ), $dashboard );
 		$this->assertNotContains( 'menus', $dashboard );
 		$this->assertNotContains( 'users', $dashboard );
 
 		$plugins = Ahentic_Prompt_Assembler::select_tool_routing_packs(
 			array(
 				'is_block_editor' => false,
+				'isAdmin'         => true,
 				'url'             => 'https://example.com/wp-admin/plugins.php',
 			),
 			false
 		);
 		$this->assertContains( 'plugins', $plugins );
 		$this->assertContains( 'core', $plugins );
+		$this->assertContains( 'admin-forms', $plugins );
 		$this->assertNotContains( 'editor', $plugins );
 		$this->assertNotContains( 'content', $plugins );
+	}
+
+	public function test_admin_forms_pack_skipped_in_block_editor() {
+		$packs = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			array(
+				'is_block_editor' => true,
+				'isAdmin'         => true,
+				'url'             => 'https://example.com/wp-admin/post.php?post=1&action=edit',
+			),
+			false
+		);
+		$this->assertNotContains( 'admin-forms', $packs );
+		$this->assertContains( 'editor', $packs );
+	}
+
+	public function test_admin_forms_pack_guidance_mentions_fill_first() {
+		$guidance = Ahentic_Prompt_Assembler::tool_routing_guidance_for_packs( array( 'admin-forms' ) );
+		$this->assertStringContainsString( 'get-visible-page', $guidance );
+		$this->assertStringContainsString( 'fill-fields', $guidance );
+		$this->assertStringContainsString( 'update-option', $guidance );
 	}
 
 	public function test_empty_page_context_bootstraps_content_not_editor_media() {
@@ -421,6 +444,7 @@ class PromptAssemblerTest extends TestCase {
 		);
 		$this->assertContains( 'core', $packs );
 		$this->assertContains( 'content', $packs );
+		$this->assertContains( 'admin-forms', $packs );
 		$this->assertNotContains( 'editor', $packs );
 	}
 

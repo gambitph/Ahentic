@@ -195,6 +195,9 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 					'abilityProgressLabels' => class_exists( 'Ahentic_Abilities' )
 						? Ahentic_Abilities::progress_labels_map()
 						: array(),
+					'fillFieldsOptionDenylist' => class_exists( 'Ahentic_Abilities_Browser' )
+						? Ahentic_Abilities_Browser::fill_fields_option_denylist()
+						: array(),
 					'context'               => array(
 						'wpVersion'  => get_bloginfo( 'version' ),
 						'phpVersion' => PHP_VERSION,

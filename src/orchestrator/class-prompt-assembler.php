@@ -688,6 +688,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				|| self::url_looks_like_block_editor( $url );
 			$on_content_screen = self::url_looks_like_content_screen( $url );
 			$sticky            = self::packs_suggested_by_recent_abilities( $recent_abilities );
+			$is_admin          = ! empty( $page_context['isAdmin'] )
+				|| self::url_looks_like_wp_admin( $url );
 
 			// Content essays: editor / posts screens / content work / unknown tab / sticky.
 			if ( $in_editor || $on_content_screen || $has_content_work || empty( $page_context ) || in_array( 'content', $sticky, true ) ) {
@@ -697,6 +699,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			// Editor: not on empty context alone — need editor signal, content work, or sticky tools.
 			if ( $in_editor || $has_content_work || in_array( 'editor', $sticky, true ) ) {
 				$packs[] = 'editor';
+			}
+			// Admin forms (classic Settings / plugin options): fill-first when not in the block editor.
+			if ( ( $is_admin && ! $in_editor ) || in_array( 'admin-forms', $sticky, true ) ) {
+				$packs[] = 'admin-forms';
 			}
 			// Media: sticky media abilities / media admin / media-ish goal — not bare editor.
 			if (
@@ -829,7 +835,31 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					$map[ Ahentic_Abilities_Site::DEBUG_LOG ] = 'http';
 				}
 			}
+			// Admin form-first tools sticky the admin-forms pack (not the editor essay).
+			if ( class_exists( 'Ahentic_Abilities_Browser' ) ) {
+				if ( defined( 'Ahentic_Abilities_Browser::FILL_FIELDS' ) ) {
+					$map[ Ahentic_Abilities_Browser::FILL_FIELDS ] = 'admin-forms';
+				}
+				if ( defined( 'Ahentic_Abilities_Browser::VISIBLE_PAGE' ) ) {
+					$map[ Ahentic_Abilities_Browser::VISIBLE_PAGE ] = 'admin-forms';
+				}
+				if ( defined( 'Ahentic_Abilities_Browser::CURRENT_PAGE' ) ) {
+					$map[ Ahentic_Abilities_Browser::CURRENT_PAGE ] = 'admin-forms';
+				}
+			}
 			return $map;
+		}
+
+		/**
+		 * @param string $url Page URL.
+		 * @return bool
+		 */
+		private static function url_looks_like_wp_admin( $url ) {
+			$url = (string) $url;
+			if ( '' === $url ) {
+				return false;
+			}
+			return false !== strpos( $url, '/wp-admin' );
 		}
 
 		/**
@@ -911,7 +941,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 */
 		private static function tool_routing_guidance() {
 			return self::tool_routing_guidance_for_packs(
-				array( 'core', 'content', 'editor', 'media', 'plugins', 'settings', 'users', 'menus', 'http' )
+				array( 'core', 'content', 'editor', 'admin-forms', 'media', 'plugins', 'settings', 'users', 'menus', 'http' )
 			);
 		}
 
@@ -929,9 +959,9 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'When unsure about WordPress practice (plugins vs code, SEO choice, cleanup, editor vs server), call ahentic/get-wordpress-guidance '
 						. '(topic ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, editor-leave-canvas, editor-wrap-blocks, web-image-fit, post-title-headings) '
 						. 'or {"query":"…"}; omit both to list the catalog. '
-						. 'Prefer server ahentic/* when it fully does the job; ahentic-browser/* only for the live tab / block editor / browser session. '
+						. 'Prefer server ahentic/* when it fully does the job; ahentic-browser/* for the live tab / block editor / open admin forms. '
 						. 'Never simulate a server ability in the browser. '
-						. 'Screen identity: get-admin-context or get-current-page; visible UI: get-visible-page; fill-fields for open forms (HITL, no submit). '
+						. 'Screen identity: get-admin-context or get-current-page; visible UI: get-visible-page; fill-fields for open forms (no submit; see admin-forms pack). '
 						. 'Trust the LATEST attached page context; re-call get-current-page only when stale. '
 						. 'CRITICAL — never re-check writes with readonly tools; go next="reply" after ok:true. '
 						. 'Always pass tools_planned as {"name","input"} objects when args are needed. '
@@ -983,6 +1013,16 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'Core attrs: heading content+level (2+ for posts); paragraph content; button text+url; image url/alt/id/caption; list-item content; html content. '
 						. 'Fuller cheatsheet attaches with page context when the editor is open. Prefer set-post-terms (term IDs) while editor open. ';
 
+				case 'admin-forms':
+					return 'On admin screens outside the block editor: call ahentic-browser/get-visible-page before changing options/settings that may appear as form fields. '
+						. 'If the control is on the open form, prefer ahentic-browser/fill-fields (does not submit — leave Save/Update for the user). '
+						. 'Ordinary fills need no Allow; password / email / role-like fields still require Allow. '
+						. 'Hard-denied options (siteurl, home, default_role, users_can_register, admin_email) cannot be filled. '
+						. 'After a successful fill, do NOT also call ahentic/update-option for the same change — same idea as leaving the editor canvas dirty. '
+						. 'If the field is not on this screen, ask once whether to open the right admin URL (markdown link) or apply via server abilities; if neither, stop. '
+						. 'Customizer / global styles / template parts stay on settings-pack server tools — not fill-fields. '
+						. 'Headless Agents without a browser keep using server writes. ';
+
 				case 'media':
 					return 'Post images: put ahentic/generate-image, ahentic/upload-media (from_memory), and ONE place '
 						. '(ahentic/set-featured-image or ahentic-browser/set-featured-image with attachment_id — use 0 as placeholder after upload, or from_upload with the image artifact key; inline: ahentic-browser/insert-blocks) '
@@ -1008,7 +1048,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. '({styles?,settings?,dry_run?}; HITL; merges into the user layer; strips styles.css / block css keys). '
 						. 'For header/footer HTML on block themes use ahentic/update-template-part (template_part_id theme//slug + blocks/content; HITL non-preallowable; creates a DB override decoupled from theme file updates). '
 						. 'When the Site Editor has that part open, use ahentic-browser block tools + save-post instead. '
-						. 'Change registered or vetted WordPress options with ahentic/update-option ({key,value,dry_run?}; HITL; '
+						. 'When the admin form for an option is open (see admin-forms pack), prefer fill-fields over update-option. '
+						. 'Otherwise change registered or vetted WordPress options with ahentic/update-option ({key,value,dry_run?}; HITL; '
 						. 'hard-denies siteurl/home/default_role/users_can_register/admin_email; refuses unregistered unschematized keys). ';
 
 				case 'users':

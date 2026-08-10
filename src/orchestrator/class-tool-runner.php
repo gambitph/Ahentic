@@ -62,10 +62,23 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 				$input = self::maybe_auto_stage_tool_input( $session_id, $name, $input, $step );
 			}
 
+			// fill-fields: refuse hard-denied option keys before HITL / browser pause.
+			if ( class_exists( 'Ahentic_Abilities_Browser' )
+				&& Ahentic_Abilities_Browser::FILL_FIELDS === $name ) {
+				$fill_gate = Ahentic_Abilities_Browser::fill_fields_preflight( $input );
+				if ( is_wp_error( $fill_gate ) ) {
+					self::append_tool_failure( $session_id, $name, $fill_gate, $step );
+					return array(
+						'outcome' => 'continued',
+						'ok'      => false,
+					);
+				}
+			}
+
 			// Session artifacts: validate from_memory early; expand only for PHP execute.
 			// Pending HITL / browser keep key only (PRD); REST expands for the browser runner.
 			$artifact_key = '';
-			$needs_hitl   = Ahentic_Abilities::requires_hitl( $name )
+			$needs_hitl   = Ahentic_Abilities::requires_hitl( $name, $input )
 				&& ! Ahentic_Session_Repository::hitl_is_preallowed( $session_id, $name )
 				&& ! $skip_hitl;
 			$needs_browser = Ahentic_Abilities::requires_browser_runtime( $name, $input );
@@ -122,7 +135,7 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 					$name          = (string) $preflight['fallback']['name'];
 					$input         = isset( $preflight['fallback']['input'] ) && is_array( $preflight['fallback']['input'] ) ? $preflight['fallback']['input'] : $input;
 					$needs_browser = false;
-					$needs_hitl    = Ahentic_Abilities::requires_hitl( $name )
+					$needs_hitl    = Ahentic_Abilities::requires_hitl( $name, $input )
 						&& ! Ahentic_Session_Repository::hitl_is_preallowed( $session_id, $name )
 						&& ! $skip_hitl;
 					if ( $needs_hitl ) {
@@ -489,14 +502,7 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 
 			$needs_editor = class_exists( 'Ahentic_Abilities_Browser' )
 				&& Ahentic_Abilities_Browser::is_browser( $name )
-				&& ! in_array(
-					$name,
-					array(
-						'ahentic-browser/get-current-page',
-						'ahentic-browser/get-visible-page',
-					),
-					true
-				);
+				&& ! Ahentic_Abilities_Browser::is_page_only( $name );
 
 			if ( $needs_editor && empty( $ctx['is_block_editor'] ) ) {
 				$fallback = self::server_fallback_for_browser( $name, $input, $ctx );

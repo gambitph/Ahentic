@@ -47,12 +47,14 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		private static function catalog() {
 			return array(
 				self::CURRENT_PAGE              => array(
-					'progress' => __( 'Reading the current page…', 'ahentic' ),
-					'summary'  => __( 'Read the current browser page', 'ahentic' ),
+					'page_only' => true,
+					'progress'  => __( 'Reading the current page…', 'ahentic' ),
+					'summary'   => __( 'Read the current browser page', 'ahentic' ),
 				),
 				self::VISIBLE_PAGE              => array(
-					'progress' => __( 'Reading what is on the screen…', 'ahentic' ),
-					'summary'  => __( 'Read what is visible on the page', 'ahentic' ),
+					'page_only' => true,
+					'progress'  => __( 'Reading what is on the screen…', 'ahentic' ),
+					'summary'   => __( 'Read what is visible on the page', 'ahentic' ),
 				),
 				self::EDITOR_STATE              => array(
 					'progress' => __( 'Reading the block editor…', 'ahentic' ),
@@ -164,12 +166,171 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				),
 				self::FILL_FIELDS               => array(
 					'write'            => true,
-					'hitl'             => true,
+					// HITL is input-aware (password / email / role); see requires_hitl().
+					'page_only'        => true,
 					'non_preallowable' => true,
 					'progress'         => __( 'Filling form fields…', 'ahentic' ),
 					'summary'          => __( 'Fill form fields on the open page', 'ahentic' ),
 				),
 			);
+		}
+
+		/**
+		 * Browser tools that run on any open tab (admin forms, front-end) — not editor-only.
+		 *
+		 * @return string[]
+		 */
+		public static function page_only_names() {
+			$out = array();
+			foreach ( self::catalog() as $name => $entry ) {
+				if ( ! empty( $entry['page_only'] ) ) {
+					$out[] = $name;
+				}
+			}
+			return $out;
+		}
+
+		/**
+		 * Whether the ability may run without an open block editor.
+		 *
+		 * @param string $name Ability name.
+		 * @return bool
+		 */
+		public static function is_page_only( $name ) {
+			return in_array( (string) $name, self::page_only_names(), true );
+		}
+
+		/**
+		 * Option keys that must never be filled via the open form (same as update-option denylist).
+		 *
+		 * @return string[]
+		 */
+		public static function fill_fields_option_denylist() {
+			if ( class_exists( 'Ahentic_Abilities_Settings' )
+				&& is_callable( array( 'Ahentic_Abilities_Settings', 'option_write_denylist' ) ) ) {
+				return Ahentic_Abilities_Settings::option_write_denylist();
+			}
+			return array(
+				'siteurl',
+				'home',
+				'default_role',
+				'users_can_register',
+				'admin_email',
+			);
+		}
+
+		/**
+		 * Whether a fill-fields target key is hard-denied.
+		 *
+		 * @param string $key Field name or id.
+		 * @return bool
+		 */
+		public static function fill_fields_key_is_denied( $key ) {
+			$key = (string) $key;
+			if ( '' === $key ) {
+				return false;
+			}
+			return in_array( $key, self::fill_fields_option_denylist(), true );
+		}
+
+		/**
+		 * Whether a fill-fields target is sensitive (HITL) — password / email / role-like.
+		 * Hard-denied keys are not "sensitive"; they are refused entirely.
+		 *
+		 * @param string $key   Field name, id, or label.
+		 * @param string $label Optional label text.
+		 * @return bool
+		 */
+		public static function fill_fields_key_is_sensitive( $key, $label = '' ) {
+			$key   = (string) $key;
+			$label = (string) $label;
+			if ( self::fill_fields_key_is_denied( $key ) ) {
+				return false;
+			}
+			$haystack = strtolower( trim( $key . ' ' . $label ) );
+			if ( '' === $haystack ) {
+				return false;
+			}
+			return (bool) preg_match(
+				'/pass(word|wd)?|user_pass|pwd|e-?mail|\brole\b|capabilit(y|ies)/i',
+				$haystack
+			);
+		}
+
+		/**
+		 * Collect name/id/label keys from a fill-fields input payload.
+		 *
+		 * @param array $input Ability input.
+		 * @return array{denied: string[], sensitive: bool}
+		 */
+		public static function fill_fields_classify_input( $input ) {
+			$input     = is_array( $input ) ? $input : array();
+			$fields    = isset( $input['fields'] ) && is_array( $input['fields'] ) ? $input['fields'] : array();
+			$denied    = array();
+			$sensitive = false;
+
+			foreach ( $fields as $field ) {
+				if ( ! is_array( $field ) ) {
+					continue;
+				}
+				$name  = isset( $field['name'] ) ? (string) $field['name'] : '';
+				$id    = isset( $field['id'] ) ? (string) $field['id'] : '';
+				$label = isset( $field['label'] ) ? (string) $field['label'] : '';
+
+				foreach ( array( $name, $id ) as $key ) {
+					if ( self::fill_fields_key_is_denied( $key ) ) {
+						$denied[] = $key;
+					}
+				}
+				if ( self::fill_fields_key_is_sensitive( $name, $label )
+					|| self::fill_fields_key_is_sensitive( $id, $label )
+					|| ( '' === $name && '' === $id && self::fill_fields_key_is_sensitive( '', $label ) ) ) {
+					$sensitive = true;
+				}
+			}
+
+			return array(
+				'denied'    => array_values( array_unique( $denied ) ),
+				'sensitive' => $sensitive,
+			);
+		}
+
+		/**
+		 * Refuse fill-fields when any target is on the option hard-denylist.
+		 *
+		 * @param array $input Ability input.
+		 * @return true|\WP_Error
+		 */
+		public static function fill_fields_preflight( $input = array() ) {
+			$classified = self::fill_fields_classify_input( $input );
+			if ( empty( $classified['denied'] ) ) {
+				return true;
+			}
+			$keys = implode( ', ', $classified['denied'] );
+			return new WP_Error(
+				'ahentic_option_denied',
+				sprintf(
+					/* translators: %s: comma-separated option keys */
+					__( 'Cannot fill hard-denied option field(s): %s. These cannot be changed through Ahentic (same denylist as ahentic/update-option).', 'ahentic' ),
+					$keys
+				),
+				array( 'keys' => $classified['denied'] )
+			);
+		}
+
+		/**
+		 * Whether fill-fields should pause for Allow given this input.
+		 *
+		 * @param array $input Ability input.
+		 * @return bool
+		 */
+		public static function fill_fields_input_requires_hitl( $input = array() ) {
+			$classified = self::fill_fields_classify_input( $input );
+			if ( ! empty( $classified['denied'] ) ) {
+				// Denied fields are refused in preflight; do not HITL them.
+				return false;
+			}
+			return ! empty( $classified['sensitive'] );
 		}
 
 		/**
@@ -234,11 +395,19 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 		/**
 		 * Whether the ability pauses for Allow/Deny before browser execution.
 		 *
-		 * @param string $name Ability name.
+		 * fill-fields is input-aware: ordinary fields run without HITL; password /
+		 * email / role-like targets still pause (hard-denied keys are refused instead).
+		 *
+		 * @param string $name  Ability name.
+		 * @param array  $input Optional tool input (used for fill-fields).
 		 * @return bool True when HITL is required.
 		 */
-		public static function requires_hitl( $name ) {
-			return in_array( (string) $name, self::hitl_names(), true );
+		public static function requires_hitl( $name, $input = array() ) {
+			$name = (string) $name;
+			if ( self::FILL_FIELDS === $name ) {
+				return self::fill_fields_input_requires_hitl( $input );
+			}
+			return in_array( $name, self::hitl_names(), true );
 		}
 
 		/**
@@ -813,7 +982,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				array(
 					'name'        => self::FILL_FIELDS,
 					'label'       => __( 'Fill fields', 'ahentic' ),
-					'description' => __( 'Fills visible form inputs on the open tab (name preferred, then id; label only to disambiguate). Use only when no server write ability covers the change — prefer ahentic/* settings/content tools and editor-store ahentic-browser/* for block canvas / document fields. Does NOT submit the form; the user clicks Save/Update. Requires human approval. Native input/select/textarea only — fill password fields only when the user explicitly asked. Runs in the browser.', 'ahentic' ),
+					'description' => __( 'Fills visible form inputs on the open tab (name preferred, then id; label only to disambiguate). On admin screens prefer this over ahentic/update-option when the control is already on the open form (inspect with get-visible-page first). Does NOT submit — the user clicks Save/Update. Ordinary fields need no Allow; password / email / role-like fields still require Allow. Hard-denied options (siteurl, home, default_role, users_can_register, admin_email) are refused. Native input/select/textarea only — prefer editor-store ahentic-browser/* for block canvas / document fields. Runs in the browser.', 'ahentic' ),
 					'meta'        => $mutate_meta,
 					'input'       => array(
 						'type'       => 'object',

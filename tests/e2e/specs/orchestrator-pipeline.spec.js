@@ -317,6 +317,209 @@ test.describe( 'Orchestrator tool pipeline (architecture characterization)', () 
 		expect( tools[ 0 ].meta?.ok ).not.toBe( false )
 	} )
 
+	test( 'fill-fields ordinary option skips HITL and pauses as awaiting_browser', async ( {
+		requestUtils,
+	} ) => {
+		const { sessionId } = await startRun( requestUtils, {
+			aiReplies: [
+				mockUseTools(
+					'Updating the site title on this form…',
+					[
+						{
+							name: 'ahentic-browser/fill-fields',
+							input: {
+								fields: [ { name: 'blogname', value: 'Acme E2E' } ],
+							},
+						},
+					],
+					{
+						plan: {
+							title: 'Update site title on form',
+							steps: [
+								{
+									id: '1', content: 'Inspect the open settings form', status: 'completed',
+								},
+								{
+									id: '2', content: 'Fill the Site Title field', status: 'in_progress',
+								},
+								{
+									id: '3', content: 'Leave Save for the user', status: 'pending',
+								},
+							],
+						},
+					}
+				),
+				mockReply( 'Filled the Site Title field — click Save Changes when ready.' ),
+			],
+			content: 'Change the site title to Acme E2E on this screen',
+			pageContext: {
+				...DEFAULT_PAGE_CONTEXT,
+				url: 'http://localhost:9400/wp-admin/options-general.php',
+				pathname: '/wp-admin/options-general.php',
+				title: 'General Settings',
+			},
+		} )
+
+		const paused = await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'awaiting_browser' || s.status === 'awaiting_human'
+		)
+
+		expect( paused.status ).toBe( 'awaiting_browser' )
+		expect( paused.pendingTool?.name ).toBe( 'ahentic-browser/fill-fields' )
+		expect( paused.pendingTool?.runtime ).toBe( 'browser' )
+
+		await postBrowserResult( requestUtils, sessionId, {
+			call_id: paused.pendingTool.call_id,
+			result: {
+				ok: true,
+				filled: [ { name: 'blogname', value: 'Acme E2E' } ],
+				skipped: [],
+				notes: [ 'Does not submit the form — user must click Save/Update.' ],
+			},
+		} )
+
+		const done = await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'idle'
+		)
+		expect( done.pendingTool ).toBeFalsy()
+		const tools = toolEntriesFor( done, 'ahentic-browser/fill-fields' )
+		expect( tools.length ).toBeGreaterThanOrEqual( 1 )
+		expect( tools[ 0 ].meta?.ok ).not.toBe( false )
+	} )
+
+	test( 'fill-fields password target pauses as awaiting_human first', async ( {
+		requestUtils,
+	} ) => {
+		const { sessionId } = await startRun( requestUtils, {
+			aiReplies: [
+				mockUseTools(
+					'Setting a password field…',
+					[
+						{
+							name: 'ahentic-browser/fill-fields',
+							input: {
+								fields: [ { name: 'pass1', value: 'hunter2' } ],
+							},
+						},
+					],
+					{
+						plan: {
+							title: 'Fill password field',
+							steps: [
+								{
+									id: '1', content: 'Request approval', status: 'in_progress',
+								},
+								{
+									id: '2', content: 'Fill the password field', status: 'pending',
+								},
+								{
+									id: '3', content: 'Leave Save for the user', status: 'pending',
+								},
+							],
+						},
+					}
+				),
+				mockReply( 'Password field filled after your approval.' ),
+			],
+			content: 'Fill the new password field',
+			pageContext: {
+				...DEFAULT_PAGE_CONTEXT,
+				url: 'http://localhost:9400/wp-admin/profile.php',
+				pathname: '/wp-admin/profile.php',
+			},
+		} )
+
+		const paused = await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'awaiting_human'
+		)
+
+		expect( paused.pendingTool?.name ).toBe( 'ahentic-browser/fill-fields' )
+		expect( paused.pendingTool?.non_preallowable ).toBe( true )
+
+		await postApproval( requestUtils, sessionId, 'allow_once' )
+
+		const browserPaused = await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'awaiting_browser' || s.status === 'idle'
+		)
+
+		if ( browserPaused.status === 'awaiting_browser' ) {
+			await postBrowserResult( requestUtils, sessionId, {
+				call_id: browserPaused.pendingTool.call_id,
+				result: {
+					ok: true,
+					filled: [ { name: 'pass1', value: '••••••' } ],
+					skipped: [],
+				},
+			} )
+			await waitForSession( requestUtils, sessionId, s => s.status === 'idle' )
+		}
+	} )
+
+	test( 'fill-fields hard-denied option fails without HITL or browser pause', async ( {
+		requestUtils,
+	} ) => {
+		const { sessionId } = await startRun( requestUtils, {
+			aiReplies: [
+				mockUseTools(
+					'Trying to change the site URL…',
+					[
+						{
+							name: 'ahentic-browser/fill-fields',
+							input: {
+								fields: [ { name: 'siteurl', value: 'https://evil.example' } ],
+							},
+						},
+					],
+					{
+						plan: {
+							title: 'Change site URL',
+							steps: [
+								{
+									id: '1', content: 'Attempt fill', status: 'in_progress',
+								},
+								{
+									id: '2', content: 'Handle refusal', status: 'pending',
+								},
+								{
+									id: '3', content: 'Explain to user', status: 'pending',
+								},
+							],
+						},
+					}
+				),
+				mockReply( 'That option is hard-denied and cannot be filled.' ),
+			],
+			content: 'Change the WordPress Address (URL)',
+			pageContext: {
+				...DEFAULT_PAGE_CONTEXT,
+				url: 'http://localhost:9400/wp-admin/options-general.php',
+				pathname: '/wp-admin/options-general.php',
+			},
+		} )
+
+		const done = await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'idle' || s.status === 'awaiting_human' || s.status === 'awaiting_browser'
+		)
+
+		expect( done.status ).toBe( 'idle' )
+		expect( done.pendingTool ).toBeFalsy()
+		const tools = toolEntriesFor( done, 'ahentic-browser/fill-fields' )
+		expect( tools.length ).toBeGreaterThanOrEqual( 1 )
+		expect( tools[ 0 ].meta?.ok ).toBe( false )
+		const body = String( tools[ 0 ].content || '' )
+		expect( body ).toMatch( /ahentic_option_denied|siteurl|hard-denied/i )
+	} )
+
 	test( 'Ask mode blocks a write tool without entering awaiting_human', async ( {
 		requestUtils,
 	} ) => {
