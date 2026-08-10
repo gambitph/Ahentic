@@ -18,7 +18,7 @@ import CapabilityRequestCard from './capability-request-card'
 import HitlApprovalCard from './hitl-approval-card'
 import SuggestedActions from './suggested-actions'
 import { MessageBody } from './message-body'
-import PlanCard from './plan-card'
+import PlanCard, { shouldShowPlanCard } from './plan-card'
 
 /**
  * Suggested empty-state prompts (translated at call time).
@@ -554,7 +554,7 @@ export default function TabContent( {
 					)
 				} ) }
 
-				{ plan && Array.isArray( plan.steps ) && plan.steps.length ? (
+				{ shouldShowPlanCard( plan ) ? (
 					<div className="ahentic-plan-wrap">
 						<PlanCard
 							key={ plan.updatedAt || `plan-${ plan.steps.length }` }

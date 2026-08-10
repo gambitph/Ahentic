@@ -153,6 +153,8 @@ One spec file per subsystem / module, not one per ability — see
 | `specs/sidebar-tabs.spec.js` | Multi-tab agent strip |
 | `specs/sidebar-multi-window.spec.js` | Controller vs viewer lock UI |
 | `specs/sidebar-chrome.spec.js` | Open/resize/float snap/Ask mode/debugger |
+| `specs/sidebar-access.spec.js` | Admin-bar presence + editor/visitor gating |
+| `specs/sidebar-persistence.spec.js` | Refresh keeps open/closed, tabs, transcripts |
 | `specs/*.spec.js` | Module-grouped specs |
 | `.auth/` | Gitignored; written by global setup |
 
@@ -165,6 +167,10 @@ One spec file per subsystem / module, not one per ability — see
   it (`lsof -i :9400`) and re-run.
 - **`browserType.launch: Executable doesn't exist`** — run
   `npx playwright install chromium` once per machine.
+- **Anonymous / visitor browser contexts still look logged in** — Playground
+  auto-logs cookie-less browsers in as admin. `visitorContext()` in
+  `utils/access-client.js` sets Playground's logout/auto-login guard cookies so
+  specs can assert a real logged-out front end.
 - **A browser-driven spec times out with the composer stuck disabled** —
   confirm `pre_ahentic_ai_status` is still hooked in
   `tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php` and that the mu-plugin

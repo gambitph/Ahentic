@@ -117,7 +117,7 @@ Live status shows “Keep this tab visible while this runs” under the awaiting
 - **Composer attach / mic:** markup kept in `composer.js` but **visually hidden** (`hidden` + `.ahentic-composer__affordance--deferred`). Attach = free v3 ([future-prompt-file-attachments.md](../../../../pro__premium_only/docs/future-prompt-file-attachments.md)); voice = Premium v3 ([future-prompt-voice-input.md](../../../../pro__premium_only/docs/future-prompt-voice-input.md)) — grill before either.
 - **Context usage ring:** `context-usage.js` in composer footer (left of Send/Stop). Fill % vs 200k soft budget + technical buckets; see [Sidebar PRD](../../../../pro__premium_only/docs/prd/sidebar.md).
 - **Live status:** progress label + trace-derived label while busy.
-- **Plans:** server `_ahentic_plan` → `plan-card.js`.
+- **Plans:** server `_ahentic_plan` → `plan-card.js` (card renders only when the checklist has ≥3 steps; see `MIN_VISIBLE_PLAN_STEPS`).
 - **Stale polls:** fingerprint / meta checks avoid clobbering in-flight sends or optimistic messages.
 - **Busy lock:** after send, local meta is floored to `running` and the tab stays on the poll list until a real terminal status arrives — so a raced idle snapshot cannot blank the live status or skip `awaiting_browser` resume.
 
