@@ -148,7 +148,7 @@ class AhenticSidebar {
 	 * @param {string} [options.title]
 	 * @param {Array} [options.tabs]
 	 * @param {boolean} [options.waitHydrated] Wait for GET session when open.
-	 * @param {boolean} [options.clearRunnerLock] Clear session-runner lock in localStorage.
+	 * @param {boolean} [options.clearRunnerLock] Clear runner lock in localStorage before hydrate.
 	 * @return {Promise<void>}
 	 */
 	async gotoWithStorage( {
