@@ -7,20 +7,20 @@
 
 /**
  * @typedef {Object} SessionRecord
- * @property {Array}       messages     Mapped chat messages for the tab.
- * @property {string}      status       Session run status.
- * @property {Object|null} progress     Live progress / heartbeat snapshot.
- * @property {Object|null} pendingTool  HITL or browser pending tool.
- * @property {Object|null} plan         Agent plan payload.
- * @property {Object|null} thought      Ephemeral thought-process text.
- * @property {Array}       trace        Debugger trace events.
- * @property {string}      approving    In-flight HITL decision, if any.
- * @property {boolean}     pollWatch    Keep polling after send even if status flickers.
- * @property {number}      tokensIn     Cumulative input tokens.
- * @property {number}      tokensOut    Cumulative output tokens.
- * @property {number}      tokensUsed   Cumulative total tokens.
- * @property {Object|null} contextUsage Soft context budget snapshot from REST.
- * @property {boolean}     jobResumable Continue can resume this job after failure/partial.
+ * @property {Array}       messages      Mapped chat messages for the tab.
+ * @property {string}      status        Session run status.
+ * @property {Object|null} progress      Live progress / heartbeat snapshot.
+ * @property {Object|null} pendingTool   HITL or browser pending tool.
+ * @property {Object|null} plan          Agent plan payload.
+ * @property {Object|null} thought       Ephemeral thought-process text.
+ * @property {Array}       trace         Debugger trace events.
+ * @property {string}      approving     In-flight HITL decision, if any.
+ * @property {boolean}     pollWatch     Keep polling after send even if status flickers.
+ * @property {number}      tokensIn      Cumulative input tokens.
+ * @property {number}      tokensOut     Cumulative output tokens.
+ * @property {number}      tokensUsed    Cumulative total tokens.
+ * @property {Object|null} contextUsage  Soft context budget snapshot from REST.
+ * @property {boolean}     jobResumable  Continue can resume this job after failure/partial.
  * @property {string}      lastErrorCode Continuable / limit code when paused (e.g. session soft budget).
  */
 /**
