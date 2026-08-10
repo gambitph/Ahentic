@@ -29,4 +29,11 @@ class ReplaceInContentTest extends TestCase {
 			Ahentic_Abilities_Content::apply_literal_replace( 'http://a http://b', 'http://', 'https://' )
 		);
 	}
+
+	public function test_validate_find_rejects_short_and_common_terms() {
+		$short = Ahentic_Site_Locator::validate_query( 'ab', 'literal' );
+		$this->assertTrue( is_wp_error( $short ) );
+		$common = Ahentic_Site_Locator::validate_query( 'content', 'literal' );
+		$this->assertTrue( is_wp_error( $common ) );
+	}
 }

@@ -93,4 +93,15 @@ class ContentAbilityCatalogTest extends TestCase {
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( $name ) );
 		$this->assertSame( 'ahentic/get-content-summary', Ahentic_Abilities_Content::GET_SUMMARY );
 	}
+
+	/**
+	 * search-site is catalogued as readonly discovery.
+	 */
+	public function test_search_site_is_readonly_not_hitl() {
+		$name = 'ahentic/search-site';
+		$this->assertContains( $name, Ahentic_Abilities_Content::names() );
+		$this->assertTrue( Ahentic_Abilities_Content::is_readonly( $name ) );
+		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( $name ) );
+		$this->assertSame( 'ahentic/search-site', Ahentic_Abilities_Content::SEARCH_SITE );
+	}
 }

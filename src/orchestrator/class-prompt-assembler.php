@@ -938,11 +938,14 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'Use edit_url / view_url from tool results. Do not claim tools not in the available list. ';
 
 				case 'content':
-					return 'Prefer ahentic/search-content with {"query":"…"} or {"queries":["…","…"]} (up to 5 phrases in ONE call); '
+					return 'Prefer ahentic/search-site with {"query":"…"} (optional mode:"regex") when finding or changing a string whose storage is unknown '
+						. '(phone, email, address, footer/header text) — covers posts/template parts, post meta, and options/widgets/theme mods; returns identifiers + match + snippets. '
+						. 'Refuse common/short queries (min 3 chars). Prefer ahentic/search-content with {"query":"…"} or {"queries":["…","…"]} (up to 5 phrases in ONE call) for normal post/page research; '
 						. 'ahentic/list-content to browse by type/status (prefer per_page 10–20, default 15, max 25 — use page:2+ or a tighter search/type when you need more). '
-						. 'Research: put every list-content / search-content you need in the FIRST tools_planned, then draft or reply — '
+						. 'Research: put every list-content / search-content / search-site you need in the FIRST tools_planned, then draft or reply — '
 						. 'do NOT open a second think to re-list the same filters; do NOT re-call list-content in the same run if Ability results already include a usable list unless post_type/status/search changed. '
 						. 'ahentic/get-content to read one post (body + safe meta). '
+						. 'For find/replace in post bodies use ahentic/replace-in-content (dry_run:true first; mode literal|regex) — not a second search-site loop. '
 						. 'Internal linking: search-content or list-content for targets (title + view_url is enough for posts); '
 						. 'ONE compact get-blocks (includes HTML content on paragraphs/headings) then batch ahentic-browser/update-block-attributes with final <a href> HTML in ONE tools_planned — then reply; do not get-blocks again to verify. '
 						. 'For long non-posts, prefer ahentic/get-content-summary before get-content; never get-content solely to pick a link target. '
