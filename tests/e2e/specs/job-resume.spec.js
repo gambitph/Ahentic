@@ -38,6 +38,9 @@ const ARTICLE_PLAN = {
 		{
 			id: '2', content: 'Draft and stage the article', status: 'pending',
 		},
+		{
+			id: '3', content: 'Polish and finalize', status: 'pending',
+		},
 	],
 }
 
@@ -83,7 +86,7 @@ test.describe( 'Job resume mid-failure (Session REST)', () => {
 
 		expect( failed.jobResumable ).toBe( true )
 		expect( failed.contentWork ).toBe( true )
-		expect( failed.plan?.steps?.length ).toBeGreaterThanOrEqual( 2 )
+		expect( failed.plan?.steps?.length ).toBeGreaterThanOrEqual( 3 )
 		expect( failed.plan.steps.every( s => s.status === 'cancelled' ) ).toBe( false )
 
 		const diag = await getDiagnostics( requestUtils, sessionId )

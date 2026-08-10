@@ -505,7 +505,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				. 'If tools are already known, batch them in tools_planned instead (Recipe — no hop). '
 				. 'If the job needs full history, omit mini_job. '
 				. 'ability_needed: required when next is missing_ability. '
-				. 'plan: Agent mode MUST include plan.steps when intending 2+ tools OR any write; one readonly tool may omit; omit for simple Ask. '
+				. 'plan: Agent mode MUST include plan.steps (≥3 steps) when intending 2+ tools OR any write; one readonly tool may omit; omit for simple Ask. '
 				. 'Coarse user-facing steps; exactly one in_progress; on later thinks re-send the FULL plan (keep completed ids). '
 				. 'Plan is silent UI metadata — not a substitute for thinking/chat. '
 				. 'Close with AHENTIC_DEBUG>>> then a short user-visible reply (even when next is use_tools). Never mention the debug block.';

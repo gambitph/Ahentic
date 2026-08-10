@@ -1,6 +1,6 @@
 # Agent completion requires a plan; writes verify themselves
 
-Ask mode ends when a good answer is delivered. Agent mode requires an explicit plan for multi-step work (≥2 tools or any write). Humans gate danger via HITL policy, not ordinary completion.
+Ask mode ends when a good answer is delivered. Agent mode requires an explicit plan (≥3 checklist steps) for multi-step work (≥2 tools or any write). Humans gate danger via HITL policy, not ordinary completion.
 
 Completion does **not** require reading a write back. Write abilities already report what they persisted — server content abilities reload the post and return `content_text_chars`, editor abilities read the live block store back and return `text_chars` for the whole document — so a readonly re-check can only repeat what the orchestrator was already told. Calling one costs an extra LLM turn (browser reads cost two) and taught the model to re-read screens that cannot answer the question, most visibly by re-reading a stale admin page after a plugin change.
 

@@ -15,8 +15,23 @@ const {
 
 test.describe.configure( { mode: 'serial', timeout: 90_000 } )
 
-const TWO_STEP_PLAN = {
+const THREE_STEP_PLAN = {
 	title: 'Site check',
+	steps: [
+		{
+			id: '1', content: 'Snapshot the site', status: 'in_progress',
+		},
+		{
+			id: '2', content: 'Review recent posts', status: 'pending',
+		},
+		{
+			id: '3', content: 'Summarize findings', status: 'pending',
+		},
+	],
+}
+
+const TWO_STEP_PLAN = {
+	title: 'Short check',
 	steps: [
 		{
 			id: '1', content: 'Snapshot the site', status: 'in_progress',
@@ -54,6 +69,37 @@ test.describe( 'Sidebar plan card + live status', () => {
 		await expect( ahenticSidebar.planCard ).toHaveCount( 0 )
 	} )
 
+	test( 'two-step plan does not show the plan card', async ( {
+		ahenticSidebar,
+		requestUtils,
+	} ) => {
+		await ahenticSidebar.seedAiResponses( [
+			mockUseTools(
+				'Quick look…',
+				[
+					{ name: 'ahentic/get-site-snapshot', input: {} },
+					{ name: 'ahentic/list-content', input: { post_type: 'post', per_page: 3 } },
+				],
+				{ plan: TWO_STEP_PLAN }
+			),
+			mockReply( 'Short plan stays off the card.' ),
+		] )
+
+		const session = await ahenticSidebar.openWithSession()
+		await ahenticSidebar.sendMessage( 'Quick inspection.' )
+
+		await waitForSession(
+			requestUtils,
+			session.id,
+			s => s.status === 'idle' && ( s.messages || [] ).some(
+				m => m.role === 'assistant' && String( m.content || '' ).includes( 'Short plan stays off' )
+			)
+		)
+
+		await expect( ahenticSidebar.message( 'assistant' ) ).toContainText( 'Short plan stays off the card.' )
+		await expect( ahenticSidebar.planCard ).toHaveCount( 0 )
+	} )
+
 	test( 'multi-step mocked loop shows live status then a plan and final reply', async ( {
 		ahenticSidebar,
 		requestUtils,
@@ -65,7 +111,7 @@ test.describe( 'Sidebar plan card + live status', () => {
 					{ name: 'ahentic/get-site-snapshot', input: {} },
 					{ name: 'ahentic/list-content', input: { post_type: 'post', per_page: 5 } },
 				],
-				{ plan: TWO_STEP_PLAN }
+				{ plan: THREE_STEP_PLAN }
 			),
 			mockReply( 'Loop finished — here is the summary.' ),
 		] )
@@ -111,7 +157,10 @@ test.describe( 'Sidebar plan card + live status', () => {
 								id: '1', content: 'Create the draft', status: 'in_progress',
 							},
 							{
-								id: '2', content: 'Confirm', status: 'pending',
+								id: '2', content: 'Review the draft', status: 'pending',
+							},
+							{
+								id: '3', content: 'Confirm', status: 'pending',
 							},
 						],
 					},
@@ -138,7 +187,7 @@ test.describe( 'Sidebar plan card + live status', () => {
 		await expect( ahenticSidebar.planEyebrow ).toContainText( /Plan stopped/i, {
 			timeout: 15_000,
 		} )
-		await expect( ahenticSidebar.planCard.locator( '.ahentic-plan__step.is-cancelled' ) ).toHaveCount( 2 )
+		await expect( ahenticSidebar.planCard.locator( '.ahentic-plan__step.is-cancelled' ) ).toHaveCount( 3 )
 	} )
 
 	test( 're-prompting while idle clears the previous plan card', async ( {
@@ -152,7 +201,7 @@ test.describe( 'Sidebar plan card + live status', () => {
 					{ name: 'ahentic/get-site-snapshot', input: {} },
 					{ name: 'ahentic/list-content', input: { post_type: 'post', per_page: 3 } },
 				],
-				{ plan: TWO_STEP_PLAN }
+				{ plan: THREE_STEP_PLAN }
 			),
 			mockReply( 'First pass done.' ),
 		] )
@@ -197,7 +246,7 @@ test.describe( 'Sidebar plan card + live status', () => {
 			mockUseTools(
 				'Looking at recent posts…',
 				[ { name: 'ahentic/get-site-snapshot', input: {} } ],
-				{ plan: TWO_STEP_PLAN }
+				{ plan: THREE_STEP_PLAN }
 			),
 			mockAiError(),
 		] )
