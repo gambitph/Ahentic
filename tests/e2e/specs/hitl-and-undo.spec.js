@@ -241,4 +241,196 @@ test.describe( 'Sidebar HITL approval card', () => {
 		} )
 		expect( Array.isArray( listed ) && listed.length ).toBeGreaterThanOrEqual( 1 )
 	} )
+
+	test( 'Skip on the HITL card cancels the write and returns to idle', async ( {
+		ahenticSidebar,
+		requestUtils,
+	} ) => {
+		const title = `E2E UI HITL skip ${ Date.now() }`
+
+		await ahenticSidebar.seedAiResponses( [
+			mockUseTools(
+				'Creating a draft…',
+				[ { name: 'ahentic/create-post', input: { title, post_type: 'post' } } ],
+				{
+					plan: {
+						title: 'Create draft',
+						steps: [
+							{
+								id: '1', content: 'Create the draft', status: 'in_progress',
+							},
+							{
+								id: '2', content: 'Confirm', status: 'pending',
+							},
+						],
+					},
+				}
+			),
+			mockReply( 'Skipped the draft as requested.' ),
+		] )
+
+		const session = await ahenticSidebar.openWithSession()
+		await ahenticSidebar.sendMessage( `Create a draft titled ${ title }` )
+
+		await waitForSession(
+			requestUtils,
+			session.id,
+			s => s.status === 'awaiting_human' && s.pendingTool?.name === 'ahentic/create-post'
+		)
+
+		await expect( ahenticSidebar.hitlCard ).toBeVisible( { timeout: 15_000 } )
+		await expect( ahenticSidebar.hitlCard.getByRole( 'button', { name: /Allow for this chat/i } ) ).toBeVisible()
+		// Re-seed the post-deny reply: reused Playground instances can leave a stale
+		// ahentic_e2e_ai_queue entry that races the original second mock.
+		await ahenticSidebar.seedAiResponses( [
+			mockReply( 'Skipped the draft as requested.' ),
+		] )
+		await ahenticSidebar.decideHitl( 'deny' )
+
+		await waitForSession(
+			requestUtils,
+			session.id,
+			s => s.status === 'idle' && ( s.messages || [] ).some(
+				m => m.role === 'assistant' && String( m.content || '' ).includes( 'Skipped the draft' )
+			)
+		)
+		await expect( ahenticSidebar.hitlCard ).toBeHidden( { timeout: 15_000 } )
+		await expect( ahenticSidebar.message( 'assistant' ) ).toContainText( 'Skipped the draft', {
+			timeout: 15_000,
+		} )
+
+		const listed = await requestUtils.rest( {
+			path: '/wp/v2/posts',
+			params: { search: title, status: 'draft' },
+		} )
+		expect( Array.isArray( listed ) ? listed.length : 0 ).toBe( 0 )
+	} )
+
+	test( 'Allow for this chat preallows a later create-post without a second card', async ( {
+		ahenticSidebar,
+		requestUtils,
+	} ) => {
+		const title1 = `E2E UI HITL session A ${ Date.now() }`
+		const title2 = `E2E UI HITL session B ${ Date.now() }`
+
+		await ahenticSidebar.seedAiResponses( [
+			mockUseTools(
+				'Creating first draft…',
+				[ { name: 'ahentic/create-post', input: { title: title1, post_type: 'post' } } ],
+				{
+					plan: {
+						title: 'Create drafts',
+						steps: [
+							{
+								id: '1', content: 'Create first', status: 'in_progress',
+							},
+							{
+								id: '2', content: 'Create second', status: 'pending',
+							},
+						],
+					},
+				}
+			),
+			mockReply( 'First draft allowed for this chat.' ),
+		] )
+
+		const session = await ahenticSidebar.openWithSession()
+		await ahenticSidebar.sendMessage( `Create ${ title1 }` )
+
+		await waitForSession(
+			requestUtils,
+			session.id,
+			s => s.status === 'awaiting_human' && s.pendingTool?.name === 'ahentic/create-post'
+		)
+		await expect( ahenticSidebar.hitlCard ).toBeVisible( { timeout: 15_000 } )
+		await ahenticSidebar.decideHitl( 'allow_session' )
+		await waitForSession( requestUtils, session.id, s => s.status === 'idle' )
+		await expect( ahenticSidebar.message( 'assistant' ) ).toContainText( 'First draft allowed', {
+			timeout: 15_000,
+		} )
+
+		await ahenticSidebar.seedAiResponses( [
+			mockUseTools(
+				'Creating second draft…',
+				[ { name: 'ahentic/create-post', input: { title: title2, post_type: 'post' } } ],
+				{
+					plan: {
+						title: 'Create drafts',
+						steps: [
+							{
+								id: '1', content: 'Create first', status: 'completed',
+							},
+							{
+								id: '2', content: 'Create second', status: 'in_progress',
+							},
+						],
+					},
+				}
+			),
+			mockReply( 'Second draft needed no approval.' ),
+		] )
+		await ahenticSidebar.sendMessage( `Create ${ title2 }` )
+
+		await waitForSession( requestUtils, session.id, s => s.status === 'idle' )
+		await expect( ahenticSidebar.hitlCard ).toHaveCount( 0 )
+		await expect( ahenticSidebar.message( 'assistant' ) ).toContainText( 'Second draft needed no approval.', {
+			timeout: 15_000,
+		} )
+	} )
+
+	test( 'non-preallowable HITL hides Allow for this chat', async ( {
+		ahenticSidebar,
+		requestUtils,
+	} ) => {
+		const suffix = Date.now()
+		const username = `ahentic_hitl_${ suffix }`
+		const email = `ahentic-hitl-${ suffix }@example.com`
+
+		await ahenticSidebar.seedAiResponses( [
+			mockUseTools(
+				'Creating a subscriber…',
+				[ {
+					name: 'ahentic/create-user',
+					input: {
+						username, email, role: 'subscriber', display_name: `HITL ${ suffix }`,
+					},
+				} ],
+				{
+					plan: {
+						title: 'Create user',
+						steps: [
+							{
+								id: '1', content: 'Create the user', status: 'in_progress',
+							},
+							{
+								id: '2', content: 'Confirm', status: 'pending',
+							},
+						],
+					},
+				}
+			),
+			mockReply( 'User created after Allow once.' ),
+		] )
+
+		const session = await ahenticSidebar.openWithSession()
+		await ahenticSidebar.sendMessage( `Create subscriber ${ username }` )
+
+		await waitForSession(
+			requestUtils,
+			session.id,
+			s => s.status === 'awaiting_human' && s.pendingTool?.name === 'ahentic/create-user'
+		)
+
+		await expect( ahenticSidebar.hitlCard ).toBeVisible( { timeout: 15_000 } )
+		await expect( ahenticSidebar.hitlCard ).toContainText( 'ahentic/create-user' )
+		await expect( ahenticSidebar.hitlCard.getByRole( 'button', { name: /Allow once/i } ) ).toBeVisible()
+		await expect( ahenticSidebar.hitlCard.getByRole( 'button', { name: /Allow for this chat/i } ) ).toHaveCount( 0 )
+		await expect( ahenticSidebar.hitlCard.getByRole( 'button', { name: /Skip/i } ) ).toBeVisible()
+
+		await ahenticSidebar.decideHitl( 'allow_once' )
+		await waitForSession( requestUtils, session.id, s => s.status === 'idle' )
+		await expect( ahenticSidebar.message( 'assistant' ) ).toContainText( 'User created after Allow once.', {
+			timeout: 15_000,
+		} )
+	} )
 } )

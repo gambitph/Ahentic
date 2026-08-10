@@ -147,7 +147,12 @@ One spec file per subsystem / module, not one per ability — see
 | `fixtures/ahentic-sidebar.js` | `AhenticSidebar` fixture (open a session, send a message, HITL decisions) + `mockReply()` |
 | `fixtures/test.js` | Extends `@wordpress/e2e-test-utils-playwright`'s `test` with the `ahenticSidebar` fixture |
 | `specs/orchestrator-pipeline.spec.js` | Tool pipeline characterization (HITL / browser / Ask) for architecture refactors |
-| `specs/hitl-and-undo.spec.js` | Browser HITL card + undo / settings snapshot surface |
+| `specs/hitl-and-undo.spec.js` | Browser HITL card matrix + undo / settings snapshot surface |
+| `specs/sidebar-chat.spec.js` | Browser smoke: composer → mocked assistant bubble |
+| `specs/sidebar-plan-and-status.spec.js` | Plan card + live status / loop chrome / Continue cue |
+| `specs/sidebar-tabs.spec.js` | Multi-tab agent strip |
+| `specs/sidebar-multi-window.spec.js` | Controller vs viewer lock UI |
+| `specs/sidebar-chrome.spec.js` | Open/resize/float snap/Ask mode/debugger |
 | `specs/*.spec.js` | Module-grouped specs |
 | `.auth/` | Gitignored; written by global setup |
 
