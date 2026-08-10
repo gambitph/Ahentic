@@ -4,6 +4,9 @@
  * Admins (`manage_options`) get the admin-bar toggle and sidebar on wp-admin
  * and the front end. Editors and anonymous visitors must not see the button,
  * mount root, or open Ahentic via Cmd/Ctrl+I.
+ *
+ * Classic Customizer: mount in the controls parent (customize.php), never inside
+ * the theme preview iframe.
  */
 const { test, expect } = require( '../fixtures/test' )
 const {
@@ -80,6 +83,34 @@ test.describe( 'Ahentic access: admin bar + roles', () => {
 
 		await ahenticSidebar.toggleViaShortcut()
 		await expect( ahenticSidebar.sidebar ).toBeVisible()
+	} )
+
+	test( 'Customizer controls frame mounts Ahentic; preview iframe does not', async ( {
+		page,
+		ahenticSidebar,
+	} ) => {
+		// Classic Customizer (and block-theme Additional CSS Customizer) use a
+		// controls parent + theme preview iframe. Ahentic must mount only in the
+		// parent so the agent can see Customizer chrome — not inside the preview.
+		await gotoFresh( page, '/wp-admin/customize.php' )
+		await expect( page.locator( 'body.wp-customizer' ) ).toBeVisible( { timeout: 30_000 } )
+		await expect( page.locator( '#customize-controls' ) ).toBeVisible( { timeout: 30_000 } )
+
+		await expect( page.locator( AHENTIC_ROOT ) ).toHaveCount( 1 )
+
+		const previewIframe = page.locator( '#customize-preview iframe' )
+		await expect( previewIframe ).toBeAttached( { timeout: 30_000 } )
+		const preview = page.frameLocator( '#customize-preview iframe' )
+		await expect( preview.locator( 'body' ) ).toBeAttached( { timeout: 30_000 } )
+		await expect( preview.locator( AHENTIC_ROOT ) ).toHaveCount( 0 )
+		await expect( preview.locator( ADMIN_BAR_NODE ) ).toHaveCount( 0 )
+
+		// No admin bar on the controls chrome — edge launcher opens Ahentic here.
+		await expect( page.locator( '.ahentic-launcher' ) ).toBeVisible( { timeout: 15_000 } )
+		await page.locator( '.ahentic-launcher' ).click()
+		await expect( ahenticSidebar.sidebar ).toBeVisible()
+		await expect( ahenticSidebar.composer ).toBeVisible()
+		await expect( preview.locator( 'aside.ahentic-sidebar.is-open' ) ).toHaveCount( 0 )
 	} )
 
 	test( 'editor does not see Ahentic on admin or front end, and shortcut does nothing', async ( {

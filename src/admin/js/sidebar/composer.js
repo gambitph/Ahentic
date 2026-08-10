@@ -34,9 +34,9 @@ function isTokenLimitError( code ) {
  * @param {Function}    props.onSubmit
  * @param {boolean}     props.focusSignal
  * @param {string}      props.shortcutLabel
- * @param {boolean}     [props.disabled]      Blocked (no AI / connector) — whole composer inert.
- * @param {boolean}     [props.inputDisabled] Textarea/mode locked while a run is active.
- * @param {boolean}     [props.canStop]       Show stop (replaces send) for the active run.
+ * @param {boolean}     [props.disabled]        Blocked (no AI / connector) — whole composer inert.
+ * @param {boolean}     [props.inputDisabled]   Textarea/mode locked while a run is active.
+ * @param {boolean}     [props.canStop]         Show stop (replaces send) for the active run.
  * @param {Function}    [props.onStop]
  * @param {boolean}     [props.stopping]
  * @param {string}      [props.disabledHint]
@@ -44,10 +44,10 @@ function isTokenLimitError( code ) {
  * @param {string}      [props.blockedCtaLabel] Override for the blocked-state CTA label.
  * @param {string}      [props.placeholder]
  * @param {string}      [props.error]
- * @param {string}      [props.errorCode]     REST error code (e.g. token limit).
- * @param {string}      [props.settingsUrl]   Ahentic settings admin URL.
+ * @param {string}      [props.errorCode]       REST error code (e.g. token limit).
+ * @param {string}      [props.settingsUrl]     Ahentic settings admin URL.
  * @param {Function}    [props.onClearError]
- * @param {Object|null} [props.contextUsage]  Soft context budget snapshot.
+ * @param {Object|null} [props.contextUsage]    Soft context budget snapshot.
  * @param {number}      [props.tokensIn]
  * @param {number}      [props.tokensOut]
  * @param {number}      [props.tokensUsed]

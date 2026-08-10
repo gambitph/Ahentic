@@ -36,6 +36,9 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 			add_action( 'admin_footer', array( __CLASS__, 'render_root' ) );
 			add_action( 'wp_footer', array( __CLASS__, 'render_root' ) );
 			add_action( 'admin_bar_menu', array( __CLASS__, 'register_admin_bar_node' ), 80 );
+			// customize.php skips admin_enqueue_scripts / admin_footer and resets $wp_scripts.
+			add_action( 'customize_controls_enqueue_scripts', array( __CLASS__, 'enqueue_sidebar_assets' ) );
+			add_action( 'customize_controls_print_footer_scripts', array( __CLASS__, 'render_root' ) );
 		}
 
 		/**
@@ -50,8 +53,11 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 		/**
 		 * Whether to bootstrap the sidebar in this document.
 		 *
-		 * Skips the Classic Customizer preview iframe so the workspace mounts
-		 * only in the controls parent (customize.php), where settings UI lives.
+		 * Skips the Classic Customizer preview iframe (front-end with
+		 * is_customize_preview) so the workspace mounts in the controls parent
+		 * (customize.php) instead. Note: is_customize_preview() is also true on
+		 * the controls frame — gate with ! is_admin() so only the iframe is skipped.
+		 * Controls-frame assets use customize_controls_* hooks (admin_* do not run).
 		 *
 		 * @return bool
 		 */
@@ -60,8 +66,12 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 				return false;
 			}
 
-			// Preview iframe only — controls frame still loads via admin hooks.
-			if ( function_exists( 'is_customize_preview' ) && is_customize_preview() ) {
+			// Preview iframe only — customize.php is is_admin() and must still load.
+			if (
+				! is_admin()
+				&& function_exists( 'is_customize_preview' )
+				&& is_customize_preview()
+			) {
 				return false;
 			}
 
