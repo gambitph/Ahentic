@@ -165,8 +165,12 @@ class AhenticSidebar {
 			sessionId, mode, open, width, placement, floatRect, title, tabs,
 		} )
 
-		await this.page.addInitScript(
-			( { storageKey, payload, runnerLockKey, clearRunnerLock: clearLock } ) => {
+		// Seed via evaluate + reload, not addInitScript. Init scripts re-run on every
+		// navigation/reload and would overwrite tabs the UI wrote to localStorage
+		// (breaks sidebar-persistence multi-tab refresh).
+		await this.page.goto( path )
+		await this.page.evaluate(
+			( { storageKey, payload, runnerLockKey, clearLock } ) => {
 				window.localStorage.setItem( storageKey, JSON.stringify( payload ) )
 				// Only when starting a fresh session — clearing on openSecondWindow
 				// would wipe the controller's live claim.
@@ -178,7 +182,7 @@ class AhenticSidebar {
 				storageKey: STORAGE_KEY,
 				payload: storage,
 				runnerLockKey: 'ahentic.session-runner.v1',
-				clearRunnerLock,
+				clearLock: clearRunnerLock,
 			}
 		)
 
@@ -186,7 +190,7 @@ class AhenticSidebar {
 			? waitForSessionHydration( this.page, sessionId )
 			: null
 
-		await this.page.goto( path )
+		await this.page.reload()
 
 		if ( hydrated ) {
 			await Promise.all( [
@@ -457,13 +461,46 @@ class AhenticSidebar {
 	}
 
 	/**
-	 * Open the sidebar via the admin-bar toggle (sidebar must start closed).
+	 * Reload the page and wait for sidebar chrome to settle from localStorage.
 	 *
+	 * @param {Object} [options]
+	 * @param {string|number} [options.sessionId] Session to wait for when open (defaults to active tab).
+	 * @param {boolean} [options.expectOpen=true] Whether the sidebar should be open after reload.
 	 * @return {Promise<void>}
 	 */
-	async openViaAdminBar() {
-		await this.page.locator( ADMIN_BAR_TOGGLE ).click()
-		await this.sidebar.waitFor( { state: 'visible' } )
+	async reloadPreservingSidebar( { sessionId, expectOpen = true } = {} ) {
+		let hydrateId = sessionId
+		if ( expectOpen && ( hydrateId === undefined || hydrateId === null || hydrateId === '' ) ) {
+			hydrateId = await this.page.evaluate( storageKey => {
+				try {
+					const raw = window.localStorage.getItem( storageKey )
+					const parsed = raw ? JSON.parse( raw ) : null
+					return parsed?.activeTabId || parsed?.tabs?.[ 0 ]?.id || null
+				} catch ( _err ) {
+					return null
+				}
+			}, STORAGE_KEY )
+		}
+
+		const hydrated = expectOpen && hydrateId
+			? waitForSessionHydration( this.page, hydrateId )
+			: null
+
+		await this.page.reload()
+
+		if ( expectOpen ) {
+			await Promise.all( [
+				hydrated || Promise.resolve(),
+				this.sidebar.waitFor( { state: 'visible' } ),
+			] )
+			await this.composer.waitFor( { state: 'visible' } )
+			return
+		}
+
+		await this.page.locator( '#ahentic-root' ).waitFor( { state: 'attached' } )
+		await this.page.waitForFunction( () => {
+			return ! document.querySelector( 'aside.ahentic-sidebar.is-open' )
+		} )
 	}
 
 	/**

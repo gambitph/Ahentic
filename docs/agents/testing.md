@@ -131,6 +131,8 @@ per-ability specs are too granular to maintain.
 | `sidebar-tabs.spec.js` | Multi-tab new / switch / close / clear all / title update |
 | `sidebar-multi-window.spec.js` | Controller vs viewer overlay, viewer Stop, viewer progress |
 | `sidebar-chrome.spec.js` | Admin-bar / shortcut open, resize, float snap-back, Ask mode UI, debugger |
+| `sidebar-access.spec.js` | Admin-bar presence across admin + front end; editor / visitor gating |
+| `sidebar-persistence.spec.js` | Refresh keeps open/closed chrome, tabs, and transcripts |
 
 Add new `describe()` blocks to the relevant existing spec file for each new
 ability rather than creating a new file per ability.
