@@ -9,8 +9,12 @@ const base = require( '@wordpress/e2e-test-utils-playwright' )
 const { AhenticSidebar } = require( './ahentic-sidebar' )
 
 const test = base.test.extend( {
-	ahenticSidebar: async ( { page, requestUtils, context }, use ) => {
-		await use( new AhenticSidebar( { page, requestUtils, context } ) )
+	ahenticSidebar: async ( {
+		page, requestUtils, context,
+	}, use ) => {
+		await use( new AhenticSidebar( {
+			page, requestUtils, context,
+		} ) )
 	},
 } )
 
