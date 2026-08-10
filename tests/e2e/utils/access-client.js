@@ -13,8 +13,8 @@ const AHENTIC_ROOT = '#ahentic-root'
 const SIDEBAR_OPEN = 'aside.ahentic-sidebar.is-open'
 
 /**
- * @param {import('@playwright/test').Page} page
- * @return {Promise<void>}
+ * @param {import('@playwright/test').Page} page Playwright page.
+ * @return {Promise<void>} Resolves when the shortcut has been pressed.
  */
 async function pressAhenticShortcut( page ) {
 	const meta = process.platform === 'darwin' ? 'Meta' : 'Control'

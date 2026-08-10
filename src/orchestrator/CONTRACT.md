@@ -35,7 +35,7 @@
 - Agent writes / multi-step: tool success is the verification. Must **not** call a readonly ability to confirm a write, and must not treat a page snapshot as proof of any change.
 - Long-form content runs: must not `idle` while a write payload reports a body under the long-form floor. One repair think, then an honest partial finish.
 - Never summarize as done while `awaiting_human` or `awaiting_browser`.
-- **Finish gate module:** `Ahentic_Finish_Gate` owns thin-body `assess_write_payload` (called from the Tool runner) and `evaluate_reply` before idle (unapplied artifacts → forced apply; verify repair / honest partial). The Orchestrator must not reimplement those ADR-0003 rules at call sites.
+- **Finish gate module:** `Ahentic_Finish_Gate` owns thin-body `assess_write_payload` (called from the Tool runner) and continue/finish disposition via `decide_continue` / `evaluate_reply` for both **pre-idle** and **post-tools** (unapplied artifacts → forced apply; verify repair / honest partial only on pre-idle). The Orchestrator must not rebuild Ready→`build_forced_apply_tools` at call sites — it obeys the disposition and still executes forced tools through the Tool runner. Job Resume remains the finish-after-forced owner.
 
 ## Tool branches
 
