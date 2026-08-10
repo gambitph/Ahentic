@@ -138,8 +138,107 @@ add_action(
 				),
 			)
 		);
+
+		register_rest_route(
+			'ahentic-e2e/v1',
+			'/usage-limits',
+			array(
+				'methods'             => array( 'GET', 'POST' ),
+				'callback'            => 'ahentic_e2e_usage_limits',
+				'permission_callback' => 'ahentic_e2e_permission_check',
+			)
+		);
 	}
 );
+
+/**
+ * Read / mutate site-wide token limit state for usage-limit e2e specs.
+ *
+ * GET  → Ahentic_Usage::get_status() + quiet may_spend check.
+ * POST → action: reset | set_limits | set_today_used | raise_daily.
+ *
+ * @param WP_REST_Request $request Incoming request.
+ * @return WP_REST_Response
+ */
+function ahentic_e2e_usage_limits( WP_REST_Request $request ) {
+	if ( ! class_exists( 'Ahentic_Usage' ) ) {
+		return new WP_REST_Response(
+			array(
+				'ok'      => false,
+				'error'   => 'ahentic_e2e_usage_missing',
+				'message' => 'Ahentic_Usage is not loaded.',
+			),
+			200
+		);
+	}
+
+	if ( 'POST' === $request->get_method() ) {
+		$action = sanitize_key( (string) $request->get_param( 'action' ) );
+
+		if ( 'reset' === $action ) {
+			delete_option( Ahentic_Usage::OPTION_LIMITS );
+			delete_option( Ahentic_Usage::OPTION_SITE_TZ );
+			delete_option( Ahentic_Usage::OPTION_KEY );
+		} elseif ( 'set_limits' === $action ) {
+			$limits = $request->get_param( 'limits' );
+			if ( ! is_array( $limits ) ) {
+				return new WP_REST_Response(
+					array(
+						'ok'      => false,
+						'error'   => 'ahentic_e2e_usage_bad_limits',
+						'message' => 'limits must be an object.',
+					),
+					200
+				);
+			}
+			Ahentic_Usage::save_limits_state( $limits );
+		} elseif ( 'set_today_used' === $action ) {
+			$total = max( 0, (int) $request->get_param( 'total' ) );
+			$day   = Ahentic_Usage::site_tz_day();
+			$stats = get_option( Ahentic_Usage::OPTION_SITE_TZ, array() );
+			if ( ! is_array( $stats ) ) {
+				$stats = array();
+			}
+			$stats[ $day ] = array(
+				'in'    => 0,
+				'out'   => 0,
+				'total' => $total,
+			);
+			update_option( Ahentic_Usage::OPTION_SITE_TZ, $stats, false );
+		} elseif ( 'raise_daily' === $action ) {
+			$limit = (int) $request->get_param( 'daily_limit' );
+			Ahentic_Usage::save_limits_state(
+				Ahentic_Usage::with_daily_limit( Ahentic_Usage::get_limits_state(), $limit )
+			);
+		} else {
+			return new WP_REST_Response(
+				array(
+					'ok'      => false,
+					'error'   => 'ahentic_e2e_usage_bad_action',
+					'message' => 'Unknown action.',
+				),
+				200
+			);
+		}
+	}
+
+	$status    = Ahentic_Usage::get_status();
+	$may_spend = Ahentic_Usage::check_may_spend();
+	$limits    = Ahentic_Usage::get_limits_state();
+
+	return new WP_REST_Response(
+		array(
+			'ok'              => true,
+			'status'          => $status,
+			'limits'          => $limits,
+			'may_spend'       => ! is_wp_error( $may_spend ),
+			'may_spend_code'  => is_wp_error( $may_spend ) ? $may_spend->get_error_code() : '',
+			'default_daily'   => Ahentic_Usage::DEFAULT_DAILY_LIMIT,
+			'option_present'  => false !== get_option( Ahentic_Usage::OPTION_LIMITS, false ),
+		),
+		200
+	);
+}
 
 /**
  * Inspect an attachment's status / metadata / on-disk file for media e2e asserts.

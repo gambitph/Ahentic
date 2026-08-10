@@ -133,6 +133,7 @@ per-ability specs are too granular to maintain.
 | `sidebar-chrome.spec.js` | Admin-bar / shortcut open, resize, float snap-back, Ask mode UI, debugger |
 | `sidebar-access.spec.js` | Admin-bar presence across admin + front end; editor / visitor gating |
 | `sidebar-persistence.spec.js` | Refresh keeps open/closed chrome, tabs, and transcripts |
+| `token-usage-limits.spec.js` | Site-wide daily token limit defaults (1M) + sticky temp-boost raise regression |
 
 Add new `describe()` blocks to the relevant existing spec file for each new
 ability rather than creating a new file per ability.

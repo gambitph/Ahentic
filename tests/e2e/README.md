@@ -140,7 +140,7 @@ One spec file per subsystem / module, not one per ability — see
 | --- | --- |
 | `../../playwright.config.js` | Boots `@wp-playground/cli` as Playwright's `webServer`; auth/`baseURL`/storage state wiring |
 | `playground-blueprint.json` | WordPress Playground blueprint: logs in as `admin`, activates the plugin |
-| `mu-plugins/ahentic-e2e-ability-runner.php` | Test-only REST routes: `run-ability`, `seed-ai-responses`, `seed`, `reset`, `health` |
+| `mu-plugins/ahentic-e2e-ability-runner.php` | Test-only REST routes: `run-ability`, `seed-ai-responses`, `seed`, `reset`, `health`, `usage-limits` |
 | `global-setup.js` | Cookie-authenticates via `RequestUtils.setup()`, persists `storageState` |
 | `utils/ability-client.js` | `runAbility()` / `seedAiResponses()` / `seed()` / `resetAiResponses()` helpers |
 | `utils/session-client.js` | REST-direct orchestrator helpers: `startRun` / `waitForSession` / approvals / browser-results |

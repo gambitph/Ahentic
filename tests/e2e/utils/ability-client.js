@@ -117,6 +117,32 @@ async function seedAiStatusFlake( requestUtils, count = 1 ) {
 	} )
 }
 
+/**
+ * Read / mutate site-wide daily token limit state (e2e-only).
+ *
+ * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} requestUtils Fixture.
+ * @param {Object}                                                      [body]        POST body (`action`, …). Omit for GET.
+ * @return {Promise<Object>} Usage-limits payload.
+ */
+async function usageLimits( requestUtils, body ) {
+	if ( body ) {
+		return requestUtils.rest( {
+			path: '/ahentic-e2e/v1/usage-limits',
+			method: 'POST',
+			data: body,
+		} )
+	}
+	return requestUtils.rest( {
+		path: '/ahentic-e2e/v1/usage-limits',
+	} )
+}
+
 module.exports = {
-	runAbility, seedAiResponses, seed, resetAiResponses, inspectAttachment, seedAiStatusFlake,
+	runAbility,
+	seedAiResponses,
+	seed,
+	resetAiResponses,
+	inspectAttachment,
+	seedAiStatusFlake,
+	usageLimits,
 }

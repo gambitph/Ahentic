@@ -97,6 +97,9 @@ if ( ! class_exists( 'Ahentic_Usage' ) ) {
 		/**
 		 * Effective daily cap for a site-tz day (includes same-day temporary boost).
 		 *
+		 * A same-day temp boost can only raise the cap — never pin it below the
+		 * permanent daily_limit (e.g. after the user raises the settings field).
+		 *
 		 * @param array       $limits    Normalized limits.
 		 * @param string|null $today_ymd Optional Y-m-d (defaults to today).
 		 * @return int
@@ -104,14 +107,15 @@ if ( ! class_exists( 'Ahentic_Usage' ) ) {
 		public static function effective_daily_limit( array $limits, $today_ymd = null ) {
 			$limits    = self::normalize_limits_state( $limits );
 			$today_ymd = null === $today_ymd ? self::site_tz_day() : (string) $today_ymd;
+			$permanent = (int) $limits['daily_limit'];
 			if (
 				'' !== $limits['temp_limit_day']
 				&& $limits['temp_limit_day'] === $today_ymd
 				&& (int) $limits['temp_limit'] > 0
 			) {
-				return (int) $limits['temp_limit'];
+				return max( $permanent, (int) $limits['temp_limit'] );
 			}
-			return (int) $limits['daily_limit'];
+			return $permanent;
 		}
 
 		/**
@@ -224,6 +228,9 @@ if ( ! class_exists( 'Ahentic_Usage' ) ) {
 		/**
 		 * Set daily limit without clearing runaway lock.
 		 *
+		 * Clears an obsolete same-day temp boost when the new permanent limit
+		 * already meets or exceeds it (temp is only meaningful as a raise).
+		 *
 		 * @param array $limits Normalized limits.
 		 * @param int   $limit  New daily limit.
 		 * @return array
@@ -235,6 +242,10 @@ if ( ! class_exists( 'Ahentic_Usage' ) ) {
 				$limit = self::DEFAULT_DAILY_LIMIT;
 			}
 			$limits['daily_limit'] = $limit;
+			if ( (int) $limits['temp_limit'] > 0 && $limit >= (int) $limits['temp_limit'] ) {
+				$limits['temp_limit']     = 0;
+				$limits['temp_limit_day'] = '';
+			}
 			return $limits;
 		}
 
