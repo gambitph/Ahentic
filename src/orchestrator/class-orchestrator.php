@@ -683,31 +683,18 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return true;
 			}
 
-			// After staging a ready draft without applying it in this batch, skip the next free
-			// LLM think and force from_memory apply (saves a full debug-retry cycle).
-			if ( 'agent' === $mode && class_exists( 'Ahentic_Session_Artifacts' ) ) {
-				$unapplied = Ahentic_Finish_Gate::ready_unapplied_content_artifacts( $session_id );
-				if ( ! empty( $unapplied ) && ! Ahentic_Finish_Gate::planned_includes_artifact_apply( $planned, $unapplied ) ) {
-					$apply_tools = Ahentic_Finish_Gate::build_forced_apply_tools( $session_id, $unapplied );
-					if ( ! empty( $apply_tools ) ) {
-						Ahentic_Finish_Gate::stash_pending_final( $session_id, $result, $debug );
-						Ahentic_Session_Repository::set_forced_tools(
-							$session_id,
-							$apply_tools,
-							Ahentic_Session_Repository::FORCED_PURPOSE_APPLY
-						);
-						Ahentic_Session_Repository::append_trace(
-							$session_id,
-							'apply_required',
-							'Ready artifacts staged — forcing apply',
-							array(
-								'keys'  => $unapplied,
-								'tools' => $apply_tools,
-							),
-							(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
-						);
-					}
-				}
+			// After staging a ready draft without applying it in this batch, Finish Gate may
+			// force from_memory apply (skip the next free LLM think). Verify stays pre-idle.
+			if ( class_exists( 'Ahentic_Finish_Gate' ) ) {
+				Ahentic_Finish_Gate::decide_continue(
+					$session_id,
+					array(
+						'phase'   => Ahentic_Finish_Gate::PHASE_POST_TOOLS,
+						'result'  => $result,
+						'debug'   => $debug,
+						'planned' => $planned,
+					)
+				);
 			}
 
 			// Keep the last tool / intention label visible while the next think step starts.

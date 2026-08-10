@@ -2,8 +2,9 @@
 /**
  * Finish / verify gate for agent completion (ADR-0003).
  *
- * Owns thin-body assessment at tool time and the decide-before-idle path
- * (unapplied artifacts → forced apply, verify repair think, honest partial).
+ * Owns thin-body assessment at tool time and continue/finish disposition for both
+ * pre-idle and post-tools (unapplied artifacts → forced apply; verify repair /
+ * honest partial only on pre-idle).
  */
 
 // Exit if accessed directly.
@@ -13,11 +14,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 	/**
-	 * Deep module: may this Session idle with this reply?
+	 * Deep module: may this Session continue for apply/verify, or idle?
 	 *
-	 * Primary interface: evaluate_reply() and assess_write_payload().
-	 * Pure helpers (planned_includes_artifact_apply, forced_apply_tools_for_context,
-	 * payload_body_is_thin, write_payload_looks_like_measure_failure) are part of the test surface.
+	 * Primary interface: decide_continue() / evaluate_reply() and assess_write_payload().
+	 * Pure helpers (should_force_apply, planned_includes_artifact_apply,
+	 * forced_apply_tools_for_context, payload_body_is_thin,
+	 * write_payload_looks_like_measure_failure) are part of the test surface.
 	 */
 	class Ahentic_Finish_Gate {
 
@@ -27,69 +29,48 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 		/** Plain-text characters a long-form body must reach before the agent may finish. */
 		const LONG_FORM_MIN_CHARS = 2000;
 
+		/** Disposition before idle (verify + apply). */
+		const PHASE_PRE_IDLE = 'pre_idle';
+
+		/** Disposition after a tool batch (apply-only; no verify). */
+		const PHASE_POST_TOOLS = 'post_tools';
+
 		/**
-		 * Decide whether the run may idle after a reply (Agent mode gates).
+		 * Continue / finish disposition for pre-idle and post-tools.
 		 *
-		 * Side effects on continue: stash pending final, set forced tools, progress/thought/traces.
-		 * On idle: may rewrite result/debug for an honest partial finish.
+		 * Side effects on apply-continue: stash pending final, set forced tools,
+		 * progress / thought / traces. Pre-idle may also run verify / honest partial.
+		 * Post-tools is apply-only (Job Resume still owns finish-after-forced).
 		 *
 		 * @param int   $session_id Session ID.
-		 * @param array $result     LLM result.
-		 * @param array $debug      Control-block debug.
+		 * @param array $ctx {
+		 *     @type string $phase   self::PHASE_PRE_IDLE|self::PHASE_POST_TOOLS.
+		 *     @type array  $result  LLM result.
+		 *     @type array  $debug   Control-block debug.
+		 *     @type array  $planned Normalized tools_planned (post_tools only).
+		 * }
 		 * @return array {
-		 *   @type bool  $continue True when another step should run.
+		 *   @type bool  $continue True when another step should run (forced apply / verify).
 		 *   @type array $result   Possibly adjusted LLM result (for idle path).
 		 *   @type array $debug    Possibly adjusted debug (for idle path).
 		 * }
 		 */
-		public static function evaluate_reply( $session_id, array $result, $debug = array() ) {
+		public static function decide_continue( $session_id, array $ctx = array() ) {
 			$session_id = (int) $session_id;
-			$debug      = is_array( $debug ) ? $debug : array();
+			$phase      = isset( $ctx['phase'] ) ? (string) $ctx['phase'] : self::PHASE_PRE_IDLE;
+			$result     = isset( $ctx['result'] ) && is_array( $ctx['result'] ) ? $ctx['result'] : array();
+			$debug      = isset( $ctx['debug'] ) && is_array( $ctx['debug'] ) ? $ctx['debug'] : array();
+			$planned    = isset( $ctx['planned'] ) && is_array( $ctx['planned'] ) ? $ctx['planned'] : array();
 			$mode       = Ahentic_Session_Repository::get_mode( $session_id );
 
 			if ( 'agent' === $mode ) {
 				$unapplied = self::ready_unapplied_content_artifacts( $session_id );
-				if ( ! empty( $unapplied ) ) {
-					self::stash_pending_final( $session_id, $result, $debug );
-					$apply_tools = self::build_forced_apply_tools( $session_id, $unapplied );
-					if ( ! empty( $apply_tools ) ) {
-						Ahentic_Session_Repository::set_forced_tools(
-							$session_id,
-							$apply_tools,
-							Ahentic_Session_Repository::FORCED_PURPOSE_APPLY
-						);
-					}
-					$keys = implode( ', ', $unapplied );
-					Ahentic_Session_Repository::set_progress(
-						$session_id,
-						__( 'Applying staged draft…', 'ahentic' )
-					);
-					Ahentic_Session_Repository::set_thought(
-						$session_id,
-						sprintf(
-							/* translators: %s: artifact keys */
-							__( 'A draft is staged (%s) but not applied yet — applying via from_memory before finishing.', 'ahentic' ),
-							$keys
-						)
-					);
-					Ahentic_Session_Repository::append_trace(
-						$session_id,
-						'apply_required',
-						'Ready artifacts not applied — continuing',
-						array(
-							'keys'  => $unapplied,
-							'tools' => $apply_tools,
-						),
-						(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
-					);
-					return array(
-						'continue' => true,
-						'result'   => $result,
-						'debug'    => $debug,
-					);
+				if ( self::should_force_apply( $phase, $mode, $unapplied, $planned ) ) {
+					return self::force_apply_continue( $session_id, $result, $debug, $unapplied );
 				}
 
-				if ( ! empty( Ahentic_Session_Repository::get_verify_pending( $session_id ) ) ) {
+				if ( self::PHASE_PRE_IDLE === $phase
+					&& ! empty( Ahentic_Session_Repository::get_verify_pending( $session_id ) ) ) {
 					$gate = self::run_verification_gate( $session_id, $result, $debug );
 					if ( 'continue' === $gate ) {
 						return array(
@@ -110,6 +91,53 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 				'result'   => $result,
 				'debug'    => $debug,
 			);
+		}
+
+		/**
+		 * Decide whether the run may idle after a reply (Agent mode gates).
+		 *
+		 * Thin wrapper over decide_continue( PHASE_PRE_IDLE ) for existing callers.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $result     LLM result.
+		 * @param array $debug      Control-block debug.
+		 * @return array {
+		 *   @type bool  $continue True when another step should run.
+		 *   @type array $result   Possibly adjusted LLM result (for idle path).
+		 *   @type array $debug    Possibly adjusted debug (for idle path).
+		 * }
+		 */
+		public static function evaluate_reply( $session_id, array $result, $debug = array() ) {
+			return self::decide_continue(
+				$session_id,
+				array(
+					'phase'  => self::PHASE_PRE_IDLE,
+					'result' => $result,
+					'debug'  => is_array( $debug ) ? $debug : array(),
+				)
+			);
+		}
+
+		/**
+		 * Whether Ready content artifacts should force an apply continue for this phase.
+		 *
+		 * Pure / testable: post_tools skips when the batch already planned apply.
+		 *
+		 * @param string             $phase     self::PHASE_*.
+		 * @param string             $mode      Session mode.
+		 * @param array<int, string> $unapplied Ready unapplied content artifact keys.
+		 * @param array              $planned   Normalized tools_planned (post_tools).
+		 * @return bool
+		 */
+		public static function should_force_apply( $phase, $mode, array $unapplied, array $planned = array() ) {
+			if ( 'agent' !== (string) $mode || empty( $unapplied ) ) {
+				return false;
+			}
+			if ( self::PHASE_POST_TOOLS === (string) $phase
+				&& self::planned_includes_artifact_apply( $planned, $unapplied ) ) {
+				return false;
+			}
+			return true;
 		}
 
 		/**
@@ -365,6 +393,57 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 			}
 
 			return array();
+		}
+
+		/**
+		 * Apply Ready artifacts: stash closing prose, queue forced tools, progress UI.
+		 *
+		 * Shared by pre-idle and post-tools so both paths cannot diverge.
+		 *
+		 * @param int                $session_id Session ID.
+		 * @param array              $result     LLM result.
+		 * @param array              $debug      Debug meta.
+		 * @param array<int, string> $unapplied  Ready artifact keys.
+		 * @return array{continue: bool, result: array, debug: array}
+		 */
+		private static function force_apply_continue( $session_id, array $result, $debug, array $unapplied ) {
+			self::stash_pending_final( $session_id, $result, $debug );
+			$apply_tools = self::build_forced_apply_tools( $session_id, $unapplied );
+			if ( ! empty( $apply_tools ) ) {
+				Ahentic_Session_Repository::set_forced_tools(
+					$session_id,
+					$apply_tools,
+					Ahentic_Session_Repository::FORCED_PURPOSE_APPLY
+				);
+			}
+			$keys = implode( ', ', $unapplied );
+			Ahentic_Session_Repository::set_progress(
+				$session_id,
+				__( 'Applying staged draft…', 'ahentic' )
+			);
+			Ahentic_Session_Repository::set_thought(
+				$session_id,
+				sprintf(
+					/* translators: %s: artifact keys */
+					__( 'A draft is staged (%s) but not applied yet — applying via from_memory before finishing.', 'ahentic' ),
+					$keys
+				)
+			);
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'apply_required',
+				'Ready artifacts not applied — continuing',
+				array(
+					'keys'  => $unapplied,
+					'tools' => $apply_tools,
+				),
+				(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
+			);
+			return array(
+				'continue' => true,
+				'result'   => $result,
+				'debug'    => $debug,
+			);
 		}
 
 		/**

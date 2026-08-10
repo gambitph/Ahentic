@@ -13,8 +13,8 @@ const AHENTIC_ROOT = '#ahentic-root'
 const SIDEBAR_OPEN = 'aside.ahentic-sidebar.is-open'
 
 /**
- * @param {import('@playwright/test').Page} page
- * @return {Promise<void>}
+ * @param {import('@playwright/test').Page} page Playwright page.
+ * @return {Promise<void>} Resolves when the shortcut has been pressed.
  */
 async function pressAhenticShortcut( page ) {
 	const meta = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -23,7 +23,7 @@ async function pressAhenticShortcut( page ) {
 
 /**
  * @param {import('@playwright/test').Page} page
- * @return {{ bar: import('@playwright/test').Locator, root: import('@playwright/test').Locator, sidebar: import('@playwright/test').Locator }}
+ * @return {{ bar: import('@playwright/test').Locator, root: import('@playwright/test').Locator, sidebar: import('@playwright/test').Locator }} Admin-bar, root, and open-sidebar locators.
  */
 function ahenticLocators( page ) {
 	return {
@@ -40,7 +40,7 @@ function ahenticLocators( page ) {
  * @param {Object} user
  * @param {string} user.username
  * @param {string} user.password
- * @return {Promise<{ context: import('@playwright/test').BrowserContext, page: import('@playwright/test').Page }>}
+ * @return {Promise<{ context: import('@playwright/test').BrowserContext, page: import('@playwright/test').Page }>} Fresh context and logged-in page.
  */
 async function loginInFreshContext( browser, { username, password } ) {
 	const context = await browser.newContext( {
@@ -65,7 +65,7 @@ async function loginInFreshContext( browser, { username, password } ) {
  * `playground_auto_login_already_happened` is set. A true anonymous visitor
  * session needs those guard cookies (and no WP auth cookies).
  *
- * @return {import('@playwright/test').BrowserContextOptions['storageState']}
+ * @return {import('@playwright/test').BrowserContextOptions['storageState']} Storage state with Playground auto-login guard cookies.
  */
 function anonymousPlaygroundStorageState() {
 	const base = process.env.WP_BASE_URL || 'http://127.0.0.1:9400'
@@ -102,7 +102,7 @@ function anonymousPlaygroundStorageState() {
  * Anonymous visitor context (no WP auth cookies).
  *
  * @param {import('@playwright/test').Browser} browser
- * @return {Promise<{ context: import('@playwright/test').BrowserContext, page: import('@playwright/test').Page }>}
+ * @return {Promise<{ context: import('@playwright/test').BrowserContext, page: import('@playwright/test').Page }>} Fresh anonymous context and page.
  */
 async function visitorContext( browser ) {
 	const context = await browser.newContext( {
@@ -121,7 +121,7 @@ async function visitorContext( browser ) {
  * @param {string} [options.username]
  * @param {string} [options.password]
  * @param {string} [options.email]
- * @return {Promise<{ id: number, username: string, password: string }>}
+ * @return {Promise<{ id: number, username: string, password: string }>} Editor user credentials.
  */
 async function ensureEditorUser( requestUtils, {
 	username = 'ahentic_e2e_editor',
@@ -169,7 +169,7 @@ async function ensureEditorUser( requestUtils, {
  * @param {string} options.username
  * @param {string} options.password
  * @param {string} options.storageStatePath
- * @return {Promise<import('@wordpress/e2e-test-utils-playwright').RequestUtils>}
+ * @return {Promise<import('@wordpress/e2e-test-utils-playwright').RequestUtils>} Request utils bound to the user storage state.
  */
 async function setupUserStorageState( {
 	username, password, storageStatePath,
