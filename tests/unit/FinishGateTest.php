@@ -1,8 +1,9 @@
 <?php
 /**
- * Finish gate pure helpers: artifact apply detection, forced tools, thin-body arithmetic.
+ * Finish gate pure helpers: artifact apply detection, forced tools, thin-body arithmetic,
+ * and phase disposition for forced apply (post_tools vs pre_idle).
  *
- * Full evaluate_reply / assess_write_payload paths stay in e2e (session meta).
+ * Full decide_continue / evaluate_reply / assess_write_payload paths stay in e2e (session meta).
  *
  * @package Ahentic
  */
@@ -59,6 +60,105 @@ class FinishGateTest extends TestCase {
 
 		$this->assertFalse(
 			Ahentic_Finish_Gate::planned_includes_artifact_apply( $planned, array( 'draft_a' ) )
+		);
+	}
+
+	/**
+	 * Pre-idle forces apply whenever Ready keys exist (planned batch irrelevant).
+	 */
+	public function test_should_force_apply_pre_idle_ignores_planned() {
+		$planned = array(
+			array(
+				'name'  => 'ahentic-browser/set-blocks',
+				'input' => array( 'from_memory' => 'draft_a' ),
+			),
+		);
+
+		$this->assertTrue(
+			Ahentic_Finish_Gate::should_force_apply(
+				Ahentic_Finish_Gate::PHASE_PRE_IDLE,
+				'agent',
+				array( 'draft_a' ),
+				$planned
+			)
+		);
+	}
+
+	/**
+	 * Post-tools skips force when the batch already planned apply for a Ready key.
+	 */
+	public function test_should_force_apply_post_tools_skips_when_planned() {
+		$planned = array(
+			array(
+				'name'  => 'ahentic-browser/set-blocks',
+				'input' => array( 'from_memory' => 'draft_a' ),
+			),
+		);
+
+		$this->assertFalse(
+			Ahentic_Finish_Gate::should_force_apply(
+				Ahentic_Finish_Gate::PHASE_POST_TOOLS,
+				'agent',
+				array( 'draft_a' ),
+				$planned
+			)
+		);
+	}
+
+	/**
+	 * Post-tools forces apply when Ready keys exist and the batch did not apply them.
+	 */
+	public function test_should_force_apply_post_tools_when_unapplied() {
+		$planned = array(
+			array(
+				'name'  => 'ahentic/create-artifact',
+				'input' => array(),
+			),
+		);
+
+		$this->assertTrue(
+			Ahentic_Finish_Gate::should_force_apply(
+				Ahentic_Finish_Gate::PHASE_POST_TOOLS,
+				'agent',
+				array( 'draft_a' ),
+				$planned
+			)
+		);
+	}
+
+	/**
+	 * Ask mode never forces apply (either phase).
+	 */
+	public function test_should_force_apply_false_in_ask_mode() {
+		$this->assertFalse(
+			Ahentic_Finish_Gate::should_force_apply(
+				Ahentic_Finish_Gate::PHASE_POST_TOOLS,
+				'ask',
+				array( 'draft_a' ),
+				array()
+			)
+		);
+		$this->assertFalse(
+			Ahentic_Finish_Gate::should_force_apply(
+				Ahentic_Finish_Gate::PHASE_PRE_IDLE,
+				'ask',
+				array( 'draft_a' ),
+				array()
+			)
+		);
+	}
+
+	/**
+	 * Empty Ready set → no force.
+	 */
+	public function test_should_force_apply_false_without_unapplied() {
+		$this->assertFalse(
+			Ahentic_Finish_Gate::should_force_apply(
+				Ahentic_Finish_Gate::PHASE_POST_TOOLS,
+				'agent',
+				array(),
+				array()
+			)
 		);
 	}
 

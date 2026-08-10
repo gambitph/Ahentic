@@ -112,7 +112,9 @@ class AhenticSidebar {
 	 * @param {import('@wordpress/e2e-test-utils-playwright').RequestUtils} deps.requestUtils The `requestUtils` fixture.
 	 * @param {import('@playwright/test').BrowserContext}                   [deps.context]    Browser context (multi-window).
 	 */
-	constructor( { page, requestUtils, context } ) {
+	constructor( {
+		page, requestUtils, context,
+	} ) {
 		this.page = page
 		this.requestUtils = requestUtils
 		this.context = context || page.context()
@@ -146,6 +148,7 @@ class AhenticSidebar {
 	 * @param {string} [options.title]
 	 * @param {Array} [options.tabs]
 	 * @param {boolean} [options.waitHydrated] Wait for GET session when open.
+	 * @param {boolean} [options.clearRunnerLock] Clear session-runner lock in localStorage.
 	 * @return {Promise<void>}
 	 */
 	async gotoWithStorage( {
@@ -170,7 +173,9 @@ class AhenticSidebar {
 		// (breaks sidebar-persistence multi-tab refresh).
 		await this.page.goto( path )
 		await this.page.evaluate(
-			( { storageKey, payload, runnerLockKey, clearLock } ) => {
+			( {
+				storageKey, payload, runnerLockKey, clearLock,
+			} ) => {
 				window.localStorage.setItem( storageKey, JSON.stringify( payload ) )
 				// Only when starting a fresh session — clearing on openSecondWindow
 				// would wipe the controller's live claim.
