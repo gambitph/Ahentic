@@ -25,9 +25,10 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 	class Ahentic_Plan {
 		/**
 		 * Minimum plan steps for a new plan card when the run needs a plan
-		 * (≥2 tools or any write). Single-step write plans are allowed.
+		 * (≥2 tools or any write). Shorter first plans are ignored; the sidebar
+		 * also hides plans with fewer than this many steps.
 		 */
-		const MIN_PLAN_STEPS = 1;
+		const MIN_PLAN_STEPS = 3;
 		/** Cap plan length so it cannot outgrow a single run. */
 		const MAX_PLAN_STEPS = 12;
 
@@ -64,7 +65,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 * Persist multi-step plan from the control block (orchestrator state, not a tool).
 		 *
 		 * Plans are orchestrator state (not abilities). A new plan is shown when
-		 * it has at least one step; later thinks may update statuses.
+		 * it has at least MIN_PLAN_STEPS steps; later thinks may update statuses.
 		 * Completed steps from a prior plan are preserved if the model omits them.
 		 *
 		 * @param int   $session_id Session ID.
@@ -88,7 +89,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 			$existing = Ahentic_Session_Repository::get_plan( $session_id );
 			$step_n   = count( $normalized['steps'] );
 
-			// First visible plan requires ≥ MIN_PLAN_STEPS (1); updates may refine.
+			// First visible plan requires ≥ MIN_PLAN_STEPS (3); updates may refine.
 			if ( null === $existing && $step_n < self::MIN_PLAN_STEPS ) {
 				return;
 			}
@@ -544,6 +545,12 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 					'status'  => 'in_progress',
 				);
 			}
+
+			// Do not invent a short checklist — the sidebar card requires ≥ MIN_PLAN_STEPS.
+			if ( count( $steps ) < self::MIN_PLAN_STEPS ) {
+				return;
+			}
+
 			$plan = array(
 				'title' => $intention ? $intention : __( 'Working plan', 'ahentic' ),
 				'steps' => $steps,

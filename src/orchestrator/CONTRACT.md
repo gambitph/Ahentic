@@ -24,10 +24,10 @@
 
 | Condition | Requirement |
 | --- | --- |
-| Agent mode and (≥2 tools planned **or** any non-readonly tool) | Persist a plan; hold later thinks to it |
+| Agent mode and (≥2 tools planned **or** any non-readonly tool) | Persist a plan with **≥3 checklist steps**; hold later thinks to it. The sidebar plan card renders only when the checklist has ≥3 steps. |
 | Ask mode or single readonly tool | Plan optional |
 
-**Gap note:** Older how-it-works may say “plan when ≥3 steps.” **This contract + Agent runtime PRD win** — implementers must align code to ≥2 tools or any write.
+**Note:** Trigger for requiring a plan remains ≥2 tools or any write. The **first** persisted / visible plan must still meet `Ahentic_Plan::MIN_PLAN_STEPS` (3).
 
 ## Completion & verification
 

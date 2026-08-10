@@ -1,11 +1,28 @@
 /**
  * Multi-step plan card — live checklist from orchestrator session state.
+ *
+ * Visible only when the plan has at least {@link MIN_VISIBLE_PLAN_STEPS} steps.
+ * Shorter checklists stay in session state for the orchestrator but do not render.
  */
 
 import { __ } from '@wordpress/i18n'
 import {
 	Check, Circle, LoaderCircle, Minus,
 } from 'lucide-react'
+
+/** Minimum checklist length before the sidebar plan card is shown. */
+export const MIN_VISIBLE_PLAN_STEPS = 3
+
+/**
+ * Whether the plan payload is long enough to show the plan card.
+ *
+ * @param {Object|null|undefined} plan Session plan payload.
+ * @return {boolean} True when the card should render.
+ */
+export function shouldShowPlanCard( plan ) {
+	const steps = Array.isArray( plan?.steps ) ? plan.steps : []
+	return steps.length >= MIN_VISIBLE_PLAN_STEPS
+}
 
 /**
  * Presentation state for the plan card header / chrome.
@@ -16,17 +33,19 @@ import {
  * @param {Object}  plan
  * @param {Object}  [options]
  * @param {boolean} [options.busy] Session still working (live status visible).
- * @return {{ done: number, total: number, showComplete: boolean, wrappingUp: boolean, stopped: boolean, stateClass: string, eyebrow: string, steps: Array }} Result.
+ * @return {{ done: number, total: number, showComplete: boolean, wrappingUp: boolean, stopped: boolean, stateClass: string, eyebrow: string, steps: Array, visible: boolean }} Result.
  */
 export function resolvePlanCardPresentation( plan, { busy = false } = {} ) {
 	const rawSteps = Array.isArray( plan?.steps ) ? plan.steps : []
+	const visible = rawSteps.length >= MIN_VISIBLE_PLAN_STEPS
 	const done = rawSteps.filter( step => step.status === 'completed' ).length
 	const total = rawSteps.length
-	const stepsAllDone = done === total && total > 0
+	const stepsAllDone = visible && done === total && total > 0
 	// Checklist finished on paper, but the agent is still wrapping up.
 	const wrappingUp = stepsAllDone && busy
 	const showComplete = stepsAllDone && ! busy
-	const stopped = ! showComplete &&
+	const stopped = visible &&
+		! showComplete &&
 		! busy &&
 		rawSteps.some( step => step.status === 'cancelled' ) &&
 		! rawSteps.some( step => step.status === 'in_progress' )
@@ -70,6 +89,7 @@ export function resolvePlanCardPresentation( plan, { busy = false } = {} ) {
 		stateClass,
 		eyebrow,
 		steps,
+		visible,
 	}
 }
 
@@ -79,8 +99,7 @@ export function resolvePlanCardPresentation( plan, { busy = false } = {} ) {
  * @param {boolean} [props.busy] Whether the session is still actively working.
  */
 export default function PlanCard( { plan, busy = false } ) {
-	const rawSteps = Array.isArray( plan?.steps ) ? plan.steps : []
-	if ( ! rawSteps.length ) {
+	if ( ! shouldShowPlanCard( plan ) ) {
 		return null
 	}
 

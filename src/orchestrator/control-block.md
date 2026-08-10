@@ -3,7 +3,7 @@
 Protocol between the **LLM** and the **orchestrator**. Ahentic does **not** use native provider tool-calling. The model must emit a structured `AHENTIC_DEBUG` block; the orchestrator parses it and drives tools / reply / HITL.
 
 > **Canonical should:** [Agent runtime PRD](../../pro__premium_only/docs/prd/agent-runtime.md) · **Contract:** [CONTRACT.md](./CONTRACT.md)  
-> **Plan rule (product law):** require a plan in Agent mode when ≥2 tools are planned **or** any write runs. Older “≥3 coarse steps” guidance below describes **current prompt heuristics** and must be aligned to the contract.
+> **Plan rule (product law):** require a plan in Agent mode when ≥2 tools are planned **or** any write runs. That plan must include **≥3 checklist steps** before it is persisted or shown as the sidebar plan card.
 
 **Verification:** Agent writes verify themselves from their own return payload — never a readonly follow-up. Long-form runs must not idle with a body under the floor — see Agent runtime PRD.
 
@@ -96,11 +96,12 @@ Supported apply targets today: `set-blocks`, `create-post`, `update-post`. Do no
 
 Rules enforced in prompt + merge logic:
 
+- First plan must include **≥3** checklist steps (`Ahentic_Plan::MIN_PLAN_STEPS`); shorter first plans are ignored and the sidebar card stays hidden
 - Re-send the **full** plan each think (including completed steps)
 - Exactly one `in_progress` at a time
 - Cap length (`Ahentic_Plan::MAX_PLAN_STEPS`)
 - Plan is UI/orchestrator state — **not** a substitute for `thinking` / chat narration
-- If the model skips a required plan, the orchestrator retries once then synthesizes a minimal plan
+- If the model skips a required plan, the orchestrator retries once then synthesizes a plan only when it can build ≥3 steps (otherwise no card)
 
 ---
 
