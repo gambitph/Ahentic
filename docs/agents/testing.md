@@ -121,12 +121,16 @@ per-ability specs are too granular to maintain.
 | --- | --- |
 | `orchestrator-pipeline.spec.js` | Characterization of the tool pipeline (readonly tools, HITL allow/deny/allow_session, browser pause/resume, Ask-mode write block) — safety net for ToolRunner / HITL-policy architecture work |
 | `job-resume.spec.js` | Mid-failure Continue / composer resume / forced-apply retry / new-message after failure (Session REST seam for #3) |
-| `hitl-and-undo.spec.js` | Browser HITL card wiring + non-preallowable HITL, settings snapshot, `undo-last-actions` |
+| `hitl-and-undo.spec.js` | Browser HITL card wiring (Allow once / Allow for this chat / Skip / non-preallowable) + settings snapshot / undo REST |
 | `content-and-plugins.spec.js` | Content/plugin/site abilities + `list-post-types`, `analyze-plugins`, `list-themes`, `replace-in-content`, revisions |
 | `settings-abilities.spec.js` | Settings discovery + theme/global-styles/template-part/option writes and their undo paths |
 | `users-abilities.spec.js` | User list/create/update/delete |
 | `media-abilities.spec.js` | Media writes + describe/generate-image |
-| `sidebar-chat.spec.js` | Browser-driven smoke: composer → mocked assistant bubble |
+| `sidebar-chat.spec.js` | Browser smoke: composer → mocked assistant bubble + Send/Stop |
+| `sidebar-plan-and-status.spec.js` | Plan card lifecycle, live status / mocked loop chrome, Continue cue, browser-resume hint |
+| `sidebar-tabs.spec.js` | Multi-tab new / switch / close / clear all / title update |
+| `sidebar-multi-window.spec.js` | Controller vs viewer overlay, viewer Stop, viewer progress |
+| `sidebar-chrome.spec.js` | Admin-bar / shortcut open, resize, float snap-back, Ask mode UI, debugger |
 
 Add new `describe()` blocks to the relevant existing spec file for each new
 ability rather than creating a new file per ability.

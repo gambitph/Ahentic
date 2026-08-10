@@ -259,6 +259,43 @@ function ahentic_e2e_run_ability( WP_REST_Request $request ) {
 
 /** Option name backing the mocked-AI response queue. Not autoloaded. */
 const AHENTIC_E2E_AI_QUEUE_OPTION = 'ahentic_e2e_ai_queue';
+
+/**
+ * Read the mocked-AI queue (supports legacy bare arrays and { generation, items }).
+ *
+ * @return array{generation:int,items:array} Normalized queue document.
+ */
+function ahentic_e2e_ai_queue_read() {
+	$raw = get_option( AHENTIC_E2E_AI_QUEUE_OPTION, array() );
+	if ( is_array( $raw ) && array_key_exists( 'items', $raw ) ) {
+		return array(
+			'generation' => isset( $raw['generation'] ) ? (int) $raw['generation'] : 0,
+			'items'      => is_array( $raw['items'] ) ? array_values( $raw['items'] ) : array(),
+		);
+	}
+	return array(
+		'generation' => 0,
+		'items'      => is_array( $raw ) ? array_values( $raw ) : array(),
+	);
+}
+
+/**
+ * Persist the mocked-AI queue document.
+ *
+ * @param array{generation:int,items:array} $doc Queue document.
+ * @return void
+ */
+function ahentic_e2e_ai_queue_write( array $doc ) {
+	update_option(
+		AHENTIC_E2E_AI_QUEUE_OPTION,
+		array(
+			'generation' => isset( $doc['generation'] ) ? (int) $doc['generation'] : 0,
+			'items'      => isset( $doc['items'] ) && is_array( $doc['items'] ) ? array_values( $doc['items'] ) : array(),
+		),
+		false
+	);
+}
+
 const AHENTIC_E2E_AI_STATUS_FALSE_REMAINING = 'ahentic_e2e_ai_status_false_remaining';
 
 /**
@@ -298,15 +335,19 @@ function ahentic_e2e_seed_ai_responses( WP_REST_Request $request ) {
 	$responses = $request->get_param( 'responses' );
 	$responses = is_array( $responses ) ? $responses : array();
 
-	// Replace (do not append): parallel specs must not share a growing global
-	// queue. Each seedAiResponses() / startRun() owns the full upcoming turn
-	// sequence; beforeEach reset + replace keeps the contract explicit.
+	// Replace (do not append): bump generation so in-flight pops from a stale
+	// read cannot rewrite a newer seed on reused Playground instances.
+	$doc   = ahentic_e2e_ai_queue_read();
 	$queue = array();
 	foreach ( $responses as $response ) {
 		$queue[] = $response;
 	}
-
-	update_option( AHENTIC_E2E_AI_QUEUE_OPTION, $queue, false );
+	ahentic_e2e_ai_queue_write(
+		array(
+			'generation' => (int) $doc['generation'] + 1,
+			'items'      => $queue,
+		)
+	);
 
 	return new WP_REST_Response(
 		array(
@@ -401,13 +442,23 @@ function ahentic_e2e_ai_override( $override ) {
 		return $override;
 	}
 
-	$queue = get_option( AHENTIC_E2E_AI_QUEUE_OPTION, array() );
-	if ( ! is_array( $queue ) || empty( $queue ) ) {
+	$doc = ahentic_e2e_ai_queue_read();
+	if ( empty( $doc['items'] ) ) {
 		return null;
 	}
 
-	$next = array_shift( $queue );
-	update_option( AHENTIC_E2E_AI_QUEUE_OPTION, $queue, false );
+	$generation = (int) $doc['generation'];
+	$next       = array_shift( $doc['items'] );
+	// Re-read: if a seed bumped generation mid-flight, do not clobber the new queue.
+	$latest = ahentic_e2e_ai_queue_read();
+	if ( (int) $latest['generation'] === $generation ) {
+		ahentic_e2e_ai_queue_write(
+			array(
+				'generation' => $generation,
+				'items'      => $doc['items'],
+			)
+		);
+	}
 
 	// Specs may queue a transport-style failure without falling through to a real provider.
 	if ( is_array( $next ) && isset( $next['__wp_error'] ) && is_array( $next['__wp_error'] ) ) {

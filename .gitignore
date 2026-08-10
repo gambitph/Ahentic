@@ -13,6 +13,7 @@ vendor/
 /playwright-report/
 /blob-report/
 /tests/e2e/.auth/
+.playwright-browsers/
 
 # WordPress build files
 src/**/*.map
