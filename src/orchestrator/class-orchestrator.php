@@ -79,6 +79,20 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return $may_spend;
 			}
 
+			// Soft session spend pause: Continue/Stop only — no new goals or resume cues.
+			if (
+				Ahentic_Session_Repository::get_job_resumable( $session_id )
+				&& Ahentic_Usage::CODE_SESSION_SOFT_BUDGET === Ahentic_Session_Repository::get_last_error_code( $session_id )
+			) {
+				$threshold = Ahentic_Session_Repository::get_soft_token_budget_acked( $session_id )
+					+ Ahentic_Usage::SESSION_SOFT_BUDGET_TOKENS;
+				return new WP_Error(
+					Ahentic_Usage::CODE_SESSION_SOFT_BUDGET,
+					Ahentic_Usage::session_soft_budget_message( $threshold ),
+					array( 'status' => 409 )
+				);
+			}
+
 			$content = trim( wp_unslash( (string) $content ) );
 			if ( '' === $content ) {
 				return new WP_Error( 'ahentic_empty_message', __( 'Message cannot be empty.', 'ahentic' ), array( 'status' => 400 ) );
@@ -209,6 +223,16 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				return $may_spend;
 			}
 
+			// Continue after a soft session-spend pause raises the watermark for the next boundary.
+			if ( Ahentic_Usage::CODE_SESSION_SOFT_BUDGET === Ahentic_Session_Repository::get_last_error_code( $session_id ) ) {
+				Ahentic_Session_Repository::set_soft_token_budget_acked(
+					$session_id,
+					Ahentic_Usage::ack_session_soft_budget(
+						Ahentic_Session_Repository::get_tokens_used( $session_id )
+					)
+				);
+			}
+
 			$resumed = Ahentic_Job_Resume::begin_resume( $session_id );
 
 			$mode_now = Ahentic_Session_Repository::get_mode( $session_id );
@@ -290,6 +314,25 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			}
 
 			Ahentic_Session_Repository::touch_heartbeat( $session_id );
+
+			$soft_budget = Ahentic_Usage::evaluate_session_soft_budget(
+				Ahentic_Session_Repository::get_tokens_used( $session_id ),
+				Ahentic_Session_Repository::get_soft_token_budget_acked( $session_id )
+			);
+			if ( empty( $soft_budget['ok'] ) ) {
+				$threshold = isset( $soft_budget['threshold'] )
+					? (int) $soft_budget['threshold']
+					: Ahentic_Usage::SESSION_SOFT_BUDGET_TOKENS;
+				Ahentic_Session_Repository::set_job_resumable( $session_id, true );
+				self::fail_run(
+					$session_id,
+					new WP_Error(
+						Ahentic_Usage::CODE_SESSION_SOFT_BUDGET,
+						Ahentic_Usage::session_soft_budget_message( $threshold )
+					)
+				);
+				return false;
+			}
 
 			$steps     = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
 			$max_steps = self::max_steps_for_session( $session_id );
@@ -1189,7 +1232,11 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @param \WP_Error $error     Error.
 		 */
 		private static function fail_run( $session_id, $error ) {
-			Ahentic_Session_Repository::set_error( $session_id, $error->get_error_message() );
+			Ahentic_Session_Repository::set_error(
+				$session_id,
+				$error->get_error_message(),
+				$error->get_error_code()
+			);
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(
@@ -1218,6 +1265,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'Run idle after error (job resumable)',
 				array(
 					'reason'        => 'error',
+					'code'          => $error->get_error_code(),
 					'job_resumable' => true,
 				)
 			);
@@ -1226,11 +1274,20 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		/**
 		 * User-facing copy for a failed LLM / run step.
 		 *
+		 * Intentional Continuable pauses already carry full user copy on the WP_Error —
+		 * pass those through. Transport / model failures get the generic wrapper.
+		 *
 		 * @param \WP_Error $error Error.
 		 * @return string
 		 */
 		private static function fail_run_user_message( $error ) {
+			$code   = $error->get_error_code();
 			$detail = $error->get_error_message();
+
+			if ( self::fail_run_code_is_user_copy( $code ) ) {
+				return $detail;
+			}
+
 			// Timeouts are transport failures — not missing connectors.
 			if ( self::error_looks_like_timeout( $detail ) ) {
 				return sprintf(
@@ -1243,6 +1300,24 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				/* translators: %s: error message */
 				__( 'Sorry — I could not complete that request (%s). Use Continue to resume, or check that WordPress AI / a model connector is configured.', 'ahentic' ),
 				$detail
+			);
+		}
+
+		/**
+		 * Whether a fail_run code's message is already the sidebar-facing Continuable copy.
+		 *
+		 * @param string $code WP_Error code.
+		 * @return bool
+		 */
+		private static function fail_run_code_is_user_copy( $code ) {
+			$code = (string) $code;
+			return in_array(
+				$code,
+				array(
+					'ahentic_max_steps',
+					Ahentic_Usage::CODE_SESSION_SOFT_BUDGET,
+				),
+				true
 			);
 		}
 
@@ -1506,7 +1581,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			Ahentic_Session_Repository::set_pending_tool( $session_id, null );
 			Ahentic_Step_Queue::release_run( $session_id );
 			Ahentic_Plan::cancel_on_stop( $session_id );
-			Ahentic_Session_Repository::set_error( $session_id, $message );
+			Ahentic_Session_Repository::set_error( $session_id, $message, $code );
 			Ahentic_Session_Repository::append_entry(
 				$session_id,
 				array(

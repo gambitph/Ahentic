@@ -131,8 +131,8 @@ Requires `status === awaiting_browser`. Mismatched `call_id` → `409`.
 | `traceCount` | Total events recorded, so the poll can order payloads even though `trace` is a window |
 | `tokensIn`, `tokensOut`, `tokensUsed`, `stepCount` | Usage |
 | `contextUsage` | Soft context budget fill + technical buckets ([Sidebar PRD](../../pro__premium_only/docs/prd/sidebar.md)) |
-| `lastError`, `summaryStatus` | Errors / summary job |
-| `jobResumable` | Continue can resume mid-failure / honest partial |
+| `lastError`, `lastErrorCode`, `summaryStatus` | Errors / Continuable pause code / summary job |
+| `jobResumable` | Continue can resume mid-failure / honest partial / session soft spend pause |
 | `contentWork` | Long-form intent flag (budgets / verify) |
 | `createdAt`, `modifiedAt` | ISO timestamps |
 

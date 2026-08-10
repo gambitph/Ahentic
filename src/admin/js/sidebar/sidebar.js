@@ -798,9 +798,14 @@ export default function Sidebar() {
 	const isJobResumable = Boolean( activeSession.jobResumable ) &&
 		! isBusy &&
 		! isViewerSession
+	const sessionSoftBudgetCode = window.ahentic?.tokenLimitCodes?.sessionSoft || 'ahentic_session_token_budget'
+	const isSessionSoftBudgetPause = isJobResumable &&
+		activeSession.lastErrorCode === sessionSoftBudgetCode
 	const continueLiveness = isHeartbeatDead && ! isViewerSession
 		? 'stuck'
-		: ( isJobResumable ? 'resumable' : '' )
+		: ( isSessionSoftBudgetPause
+			? 'token_budget'
+			: ( isJobResumable ? 'resumable' : '' ) )
 	// Existing session tabs show a spinner until fetched; only while the sidebar is open.
 	const isSessionLoading = useMemo(
 		() => open && isSessionId( activeTabId ) && ! hydratedRef.current.has( activeTabId ),
@@ -1175,6 +1180,7 @@ export default function Sidebar() {
 			status: 'running',
 			pollWatch: true,
 			jobResumable: false,
+			lastErrorCode: '',
 			progress: {
 				label: __( 'Planning next steps…', 'ahentic' ),
 				updatedAt: new Date().toISOString(),
@@ -1213,6 +1219,8 @@ export default function Sidebar() {
 			progress: null,
 			pendingTool: null,
 			approving: '',
+			jobResumable: false,
+			lastErrorCode: '',
 			plan: cancelIncompletePlanSteps( record.plan ),
 		} ) ) )
 		setSending( false )
@@ -1490,7 +1498,8 @@ export default function Sidebar() {
 							Boolean( activeApproving ) ||
 							activeStatus === 'running' ||
 							activeStatus === 'awaiting_browser' ||
-							isViewerSession
+							isViewerSession ||
+							isSessionSoftBudgetPause
 						}
 						canStop={
 							isSessionId( activeTabId ) &&

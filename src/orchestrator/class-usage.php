@@ -1,6 +1,6 @@
 <?php
 /**
- * Daily token usage rollup + site-wide spend limits.
+ * Daily token usage rollup + site-wide spend limits + soft session spend pause helpers.
  */
 
 // Exit if accessed directly.
@@ -34,6 +34,17 @@ if ( ! class_exists( 'Ahentic_Usage' ) ) {
 
 		const CODE_DAILY_LIMIT  = 'ahentic_daily_token_limit';
 		const CODE_RUNAWAY_LOCK = 'ahentic_runaway_token_lock';
+
+		/**
+		 * Soft per-session cumulative spend pause (not the soft context-fill budget).
+		 *
+		 * Every SESSION_SOFT_BUDGET_TOKENS of session `tokensUsed`, the orchestrator
+		 * Continuable-pauses so a human can Continue or Stop. Site daily limits remain
+		 * the hard spend backstop.
+		 */
+		const SESSION_SOFT_BUDGET_TOKENS = 200000;
+
+		const CODE_SESSION_SOFT_BUDGET = 'ahentic_session_token_budget';
 
 		/**
 		 * Default limits option shape (fresh install).
@@ -129,6 +140,85 @@ if ( ! class_exists( 'Ahentic_Usage' ) ) {
 			}
 
 			return array( 'ok' => true );
+		}
+
+		/**
+		 * Whether a session may keep spending against its soft cumulative budget.
+		 *
+		 * Pure seam: pause when tokensUsed reaches the next boundary after the
+		 * human-acked watermark (0 → 200k → 400k → …).
+		 *
+		 * @param int $tokens_used    Session cumulative tokensUsed.
+		 * @param int $acked_through  Highest soft-budget boundary the user Continued past.
+		 * @return array{ok:bool,code?:string,threshold:int}
+		 */
+		public static function evaluate_session_soft_budget( $tokens_used, $acked_through = 0 ) {
+			$tokens_used   = max( 0, (int) $tokens_used );
+			$acked_through = max( 0, (int) $acked_through );
+			$step          = self::SESSION_SOFT_BUDGET_TOKENS;
+			$threshold     = $acked_through + $step;
+
+			if ( $tokens_used >= $threshold ) {
+				return array(
+					'ok'        => false,
+					'code'      => self::CODE_SESSION_SOFT_BUDGET,
+					'threshold' => $threshold,
+				);
+			}
+
+			return array(
+				'ok'        => true,
+				'threshold' => $threshold,
+			);
+		}
+
+		/**
+		 * Raise the soft-budget watermark to the highest crossed boundary.
+		 *
+		 * Call on Continue after a session soft-budget pause so the next pause
+		 * is one full SESSION_SOFT_BUDGET_TOKENS later.
+		 *
+		 * @param int $tokens_used Session cumulative tokensUsed at Continue time.
+		 * @return int New acked_through value (multiple of SESSION_SOFT_BUDGET_TOKENS).
+		 */
+		public static function ack_session_soft_budget( $tokens_used ) {
+			$tokens_used = max( 0, (int) $tokens_used );
+			$step        = self::SESSION_SOFT_BUDGET_TOKENS;
+			if ( $step < 1 ) {
+				return 0;
+			}
+			return (int) ( floor( $tokens_used / $step ) * $step );
+		}
+
+		/**
+		 * User-facing Continuable copy for a session soft-budget pause.
+		 *
+		 * @param int $threshold Boundary that was hit (e.g. 200000, 400000).
+		 * @return string
+		 */
+		public static function session_soft_budget_message( $threshold ) {
+			$threshold = max( self::SESSION_SOFT_BUDGET_TOKENS, (int) $threshold );
+			$approx    = self::format_soft_budget_count( $threshold );
+
+			return sprintf(
+				/* translators: %s: approximate token count like 200k */
+				__( 'This chat has used ~%s tokens. That can mean a lot of work, or a loop. Continue to keep going, or Stop.', 'ahentic' ),
+				$approx
+			);
+		}
+
+		/**
+		 * Compact token count for soft-budget copy (200000 → 200k).
+		 *
+		 * @param int $tokens Token count.
+		 * @return string
+		 */
+		public static function format_soft_budget_count( $tokens ) {
+			$tokens = max( 0, (int) $tokens );
+			if ( $tokens >= 1000 ) {
+				return (string) (int) round( $tokens / 1000 ) . 'k';
+			}
+			return (string) $tokens;
 		}
 
 		/**

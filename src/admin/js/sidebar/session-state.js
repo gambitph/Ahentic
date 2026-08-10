@@ -21,6 +21,7 @@
  * @property {number}      tokensUsed   Cumulative total tokens.
  * @property {Object|null} contextUsage Soft context budget snapshot from REST.
  * @property {boolean}     jobResumable Continue can resume this job after failure/partial.
+ * @property {string}      lastErrorCode Continuable / limit code when paused (e.g. session soft budget).
  */
 /**
  * Empty per-session UI record.
@@ -43,6 +44,7 @@ export function createEmptySessionRecord() {
 		tokensUsed: 0,
 		contextUsage: null,
 		jobResumable: false,
+		lastErrorCode: '',
 	}
 }
 
@@ -445,6 +447,9 @@ export function mergeServerSessionIntoRecord( session, current, pendingById, map
 			? session.contextUsage
 			: ( base.contextUsage || null ),
 		jobResumable,
+		lastErrorCode: typeof session.lastErrorCode === 'string'
+			? session.lastErrorCode
+			: ( jobResumable ? ( base.lastErrorCode || '' ) : '' ),
 	}
 }
 

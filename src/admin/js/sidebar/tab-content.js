@@ -94,7 +94,7 @@ async function installAiPlugin() {
  * @param {string}      [props.approvingDecision] HITL decision in flight (hides card, shows live status).
  * @param {Function}    props.onApproval
  * @param {Function}    props.onSuggestedAction
- * @param {string}      [props.liveness]          '' | 'stuck' | 'resumable'
+ * @param {string}      [props.liveness]          '' | 'stuck' | 'resumable' | 'token_budget'
  * @param {Function}    [props.onContinue]
  * @param {Function}    [props.onCancelRun]
  */
@@ -583,11 +583,12 @@ export default function TabContent( {
 				) : null }
 
 				{ ( ( busy && ( progressLabel || liveness === 'stuck' ) && ( sessionStatus !== 'awaiting_human' || Boolean( approvingDecision ) ) ) ||
-					( ! busy && liveness === 'resumable' && typeof onContinue === 'function' ) ) ? (
+					( ! busy && ( liveness === 'resumable' || liveness === 'token_budget' ) && typeof onContinue === 'function' ) ) ? (
 						<div
 							className={ classnames(
 								'ahentic-live-status',
 								liveness === 'stuck' && 'is-stuck',
+								liveness === 'token_budget' && 'is-stuck',
 								liveness === 'resumable' && 'is-resumable'
 							) }
 							role="status"
@@ -596,13 +597,20 @@ export default function TabContent( {
 							<span className="ahentic-live-status__text">
 								{ liveness === 'stuck'
 									? __( 'This run may be stuck', 'ahentic' )
-									: liveness === 'resumable'
-										? __( 'This job can be continued', 'ahentic' )
-										: progressLabel }
+									: liveness === 'token_budget'
+										? __( 'This chat is using a lot of tokens', 'ahentic' )
+										: liveness === 'resumable'
+											? __( 'This job can be continued', 'ahentic' )
+											: progressLabel }
 							</span>
 							{ liveness === 'stuck' && progressLabel ? (
 								<span className="ahentic-live-status__hint">
 									{ progressLabel }
+								</span>
+							) : null }
+							{ liveness === 'token_budget' ? (
+								<span className="ahentic-live-status__hint">
+									{ __( 'That can mean a lot of work, or a loop. Continue to keep going, or Stop.', 'ahentic' ) }
 								</span>
 							) : null }
 							{ liveness === 'resumable' ? (
@@ -610,12 +618,12 @@ export default function TabContent( {
 									{ __( 'Resume the same goal, plan, and drafts without retyping.', 'ahentic' ) }
 								</span>
 							) : null }
-							{ liveness !== 'stuck' && liveness !== 'resumable' && progressHint ? (
+							{ liveness !== 'stuck' && liveness !== 'resumable' && liveness !== 'token_budget' && progressHint ? (
 								<span className="ahentic-live-status__hint">
 									{ progressHint }
 								</span>
 							) : null }
-							{ liveness === 'stuck' || liveness === 'resumable' ? (
+							{ liveness === 'stuck' || liveness === 'resumable' || liveness === 'token_budget' ? (
 								<div className="ahentic-live-status__actions">
 									{ typeof onContinue === 'function' ? (
 										<button
@@ -626,13 +634,15 @@ export default function TabContent( {
 											{ __( 'Continue', 'ahentic' ) }
 										</button>
 									) : null }
-									{ liveness === 'stuck' && typeof onCancelRun === 'function' ? (
+									{ ( liveness === 'stuck' || liveness === 'token_budget' ) && typeof onCancelRun === 'function' ? (
 										<button
 											type="button"
 											className="ahentic-live-status__cancel"
 											onClick={ () => onCancelRun() }
 										>
-											{ __( 'Cancel', 'ahentic' ) }
+											{ liveness === 'token_budget'
+												? __( 'Stop', 'ahentic' )
+												: __( 'Cancel', 'ahentic' ) }
 										</button>
 									) : null }
 								</div>

@@ -62,7 +62,11 @@ _Avoid_: chat thread (prefer session when meaning the persisted workspace), conv
 
 **Context budget**:
 Ahentic’s soft per-prompt fill cap (**200k** estimated tokens) for compaction and the composer context ring — not the provider’s model window and not cumulative session spend.
-_Avoid_: daily token limit (that’s site-wide spend), context window (provider/model term when known)
+_Avoid_: daily token limit (that’s site-wide spend), context window (provider/model term when known), session soft spend pause (that’s cumulative `tokensUsed`)
+
+**Session soft spend pause**:
+Continuable pause every **200k** cumulative session `tokensUsed` (code `ahentic_session_token_budget`) so a human can Continue or Stop when spend is high or the agent may be looping — not the context-fill ring and not the site daily limit.
+_Avoid_: context budget, daily token limit, runaway lock
 
 **Control block**:
 The structured JSON the model must emit so the orchestrator knows intention, plan, tools, and next action.

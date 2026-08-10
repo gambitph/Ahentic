@@ -89,9 +89,10 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 - Default / content-aware step and max-output budgets per Agent runtime PRD (24 / 48 steps; 8k / 16k staging).
 - Soft per-prompt **context budget** (200k tokens estimated; compact at ≥85% fill) per Agent runtime PRD + [Sidebar PRD](../../pro__premium_only/docs/prd/sidebar.md). Not a hard stop — daily site tokens remain the spend backstop.
+- Soft **session spend pause**: every 200k cumulative session `tokensUsed` (includes Subagent / recipe / tool hops), Continuable-pause before the next think with code `ahentic_session_token_budget`. Sidebar Continue raises the watermark to the next boundary; new messages are rejected until Continue or Stop. Applies to free sidebar and Premium headless Agents (pause until a human Continues). Not configurable in Settings; site daily limits remain the hard backstop.
 - Hitting a ceiling mid-job: honest partial + allow Continue; never fake long-form completion.
 - Mid-run context compaction may summarize older turns/tools; must retain plan, artifact keys, latest user goal.
-- Session REST includes `contextUsage` (fill % + technical buckets) for the composer ring; never present cumulative `tokensUsed` as context fill %.
+- Session REST includes `contextUsage` (fill % + technical buckets) for the composer ring; never present cumulative `tokensUsed` as context fill %. Continuable soft-spend pauses expose `lastErrorCode` (`ahentic_session_token_budget`) separately from context fill.
 
 ## Modes
 
