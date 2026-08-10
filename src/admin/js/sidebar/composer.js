@@ -41,6 +41,7 @@ function isTokenLimitError( code ) {
  * @param {boolean}     [props.stopping]
  * @param {string}      [props.disabledHint]
  * @param {string}      [props.connectorsUrl]
+ * @param {string}      [props.blockedCtaLabel] Override for the blocked-state CTA label.
  * @param {string}      [props.placeholder]
  * @param {string}      [props.error]
  * @param {string}      [props.errorCode]     REST error code (e.g. token limit).
@@ -64,6 +65,7 @@ export default function Composer( {
 	stopping = false,
 	disabledHint = '',
 	connectorsUrl = '',
+	blockedCtaLabel = '',
 	placeholder = 'Plan, Build, / for skills, @ for context',
 	error = '',
 	errorCode = '',
@@ -144,7 +146,7 @@ export default function Composer( {
 							className="ahentic-composer__blocked-cta"
 							href={ connectorsUrl }
 						>
-							Open Connectors
+							{ blockedCtaLabel || __( 'Open Connectors', 'ahentic' ) }
 						</a>
 					) : null }
 				</div>

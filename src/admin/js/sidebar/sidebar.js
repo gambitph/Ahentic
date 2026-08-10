@@ -257,6 +257,7 @@ export default function Sidebar() {
 	const aiPlugin = window.ahentic?.aiPlugin || {}
 	const canGenerate = aiReady && hasConnector
 	const connectorsUrl = aiPlugin.connectorsUrl || ''
+	const pluginInstalled = Boolean( aiPlugin.pluginInstalled )
 
 	/**
 	 * One-shot AI/connector status reconcile over REST.
@@ -1508,9 +1509,12 @@ export default function Sidebar() {
 							canGenerate || activeMessages.length === 0
 								? ''
 								: ( ! aiReady
-									? 'Install WordPress AI to start chatting.'
+									? ( pluginInstalled
+										? __( 'Activate WordPress AI to continue chatting.', 'ahentic' )
+										: __( 'Install WordPress AI to start chatting.', 'ahentic' )
+									)
 									: ( ! hasConnector
-										? 'Add an AI connector in Settings → Connectors to start chatting.'
+										? __( 'Add an AI connector in Settings → Connectors to start chatting.', 'ahentic' )
 										: ''
 									)
 								)
@@ -1518,6 +1522,14 @@ export default function Sidebar() {
 						connectorsUrl={
 							! canGenerate && activeMessages.length > 0 && ! hasConnector
 								? connectorsUrl
+								: ''
+						}
+						blockedCtaLabel={
+							! canGenerate && activeMessages.length > 0 && ! aiReady
+								? ( pluginInstalled
+									? __( 'Activate', 'ahentic' )
+									: __( 'Install & Activate', 'ahentic' )
+								)
 								: ''
 						}
 					/>
