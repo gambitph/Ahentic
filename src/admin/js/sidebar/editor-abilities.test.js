@@ -3,12 +3,16 @@
  */
 
 import {
+	assertBlocksApplied,
 	blockTextChars,
+	convertBlocks,
+	getBlockType,
 	getBlocks,
 	measureEditorTextChars,
 	plainTextCharsFromHtml,
 	prepareBlocksPayload,
 	resolveTargetClientIds,
+	setBlocks,
 	updateBlockAttributes,
 } from './editor-abilities'
 import { resetBlockRefs, syncFromBlocks } from './block-ref-registry'
@@ -434,6 +438,181 @@ describe( 'getBlocks scoped refs', () => {
 	} )
 } )
 
+/**
+ * Soft-fail when the editor store never commits (e.g. backgrounded tab):
+ * dispatch is called, applied payload still has the article text, but live
+ * getBlocks() is unchanged — Ahentic must not report ok:true / fat text_chars.
+ */
+describe( 'setBlocks soft-fail when store does not commit', () => {
+	beforeEach( () => {
+		resetBlockRefs()
+		global.window = global.window || {}
+	} )
+
+	afterEach( () => {
+		delete global.window.wp
+	} )
+
+	it( 'returns ok:false when resetBlocks is a no-op (user: tab out → success, canvas empty)', () => {
+		const article = 'Metro Manila commuting is rarely a simple trip. '.repeat( 50 )
+		const liveRoot = []
+		let resetCalled = false
+
+		global.window.wp = {
+			blocks: {
+				createBlock: ( name, attributes = {}, innerBlocks = [] ) => ( {
+					name,
+					attributes,
+					innerBlocks,
+					clientId: `cid_${ name }_${ Math.random().toString( 36 ).slice( 2, 8 ) }`,
+				} ),
+			},
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => liveRoot,
+							getBlock: () => null,
+							getSelectedBlockClientIds: () => [],
+							getBlockOrder: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return {
+							getCurrentPostId: () => 1,
+							getEditedPostContent: () => '',
+						}
+					}
+					return {}
+				},
+				dispatch: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							// Simulate background-tab / throttled editor: call succeeds,
+							// store never updates (user tabs away mid-write).
+							resetBlocks: () => {
+								resetCalled = true
+							},
+						}
+					}
+					return {}
+				},
+			},
+		}
+
+		const result = setBlocks( {
+			blocks: [
+				{
+					name: 'core/paragraph',
+					attributes: { content: article },
+					innerBlocks: [],
+				},
+			],
+		} )
+
+		expect( resetCalled ).toBe( true )
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'write_not_applied' )
+		expect( liveRoot ).toHaveLength( 0 )
+	} )
+
+	it( 'returns ok:true when resetBlocks commits the applied clientIds', () => {
+		const article = 'A committed write lands in the live store.'
+		let liveRoot = []
+
+		global.window.wp = {
+			blocks: {
+				createBlock: ( name, attributes = {}, innerBlocks = [] ) => ( {
+					name,
+					attributes,
+					innerBlocks,
+					clientId: 'cid_committed',
+				} ),
+			},
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => liveRoot,
+							getBlock: id => liveRoot.find( b => b.clientId === id ) || null,
+							getSelectedBlockClientIds: () => [],
+							getBlockOrder: () => liveRoot.map( b => b.clientId ),
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return {
+							getCurrentPostId: () => 1,
+							getEditedPostContent: () => '',
+						}
+					}
+					return {}
+				},
+				dispatch: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							resetBlocks: next => {
+								liveRoot = next
+							},
+						}
+					}
+					return {}
+				},
+			},
+		}
+
+		const result = setBlocks( {
+			blocks: [
+				{
+					name: 'core/paragraph',
+					attributes: { content: article },
+					innerBlocks: [],
+				},
+			],
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( liveRoot ).toHaveLength( 1 )
+		expect( result.text_chars ).toBe( article.length )
+	} )
+} )
+
+describe( 'assertBlocksApplied', () => {
+	it( 'fails when applied clientIds are absent from live', () => {
+		const result = assertBlocksApplied(
+			[ {
+				clientId: 'a',
+				name: 'core/paragraph',
+				attributes: {},
+				innerBlocks: [],
+			} ],
+			[]
+		)
+		expect( result ).toEqual( expect.objectContaining( {
+			ok: false,
+			error: 'write_not_applied',
+		} ) )
+	} )
+
+	it( 'passes when applied clientIds are present (including nested)', () => {
+		const applied = [
+			{
+				clientId: 'parent',
+				name: 'core/group',
+				attributes: {},
+				innerBlocks: [
+					{
+						clientId: 'child',
+						name: 'core/paragraph',
+						attributes: {},
+						innerBlocks: [],
+					},
+				],
+			},
+		]
+		expect( assertBlocksApplied( applied, applied ).ok ).toBe( true )
+	} )
+} )
+
 describe( 'measureEditorTextChars (fallbacks)', () => {
 	it( 'prefers serialize when attr walk cannot see third-party copy', () => {
 		const live = [
@@ -504,5 +683,259 @@ describe( 'measureEditorTextChars (fallbacks)', () => {
 		} )
 		expect( measured.text_chars ).toBe( plainTextCharsFromHtml( `<p>${ body }</p>` ) )
 		expect( measured.text_chars_source ).toBe( 'edited_post' )
+	} )
+} )
+
+describe( 'convertBlocks target', () => {
+	beforeEach( () => {
+		resetBlockRefs()
+		global.window = global.window || {}
+	} )
+
+	afterEach( () => {
+		delete global.window.wp
+	} )
+
+	function installEditor( {
+		blocksById,
+		root,
+		replaced = [],
+		transforms = {},
+		blockTypes = [],
+	} ) {
+		syncFromBlocks( root, 1 )
+		global.window.wp = {
+			blocks: {
+				createBlock: ( name, attributes = {}, innerBlocks = [] ) => ( {
+					name,
+					attributes,
+					innerBlocks,
+					clientId: `cid_new_${ name }_${ Math.random().toString( 16 ).slice( 2, 8 ) }`,
+				} ),
+				getBlockType: name => blockTypes.find( t => t.name === name ) || null,
+				getBlockTypes: () => blockTypes,
+				getPossibleBlockTransformations: blocks => {
+					const from = blocks?.[ 0 ]?.name
+					return ( transforms[ from ] || [] ).map( name => ( { name } ) )
+				},
+				switchToBlockType: ( block, dest ) => {
+					const allowed = transforms[ block.name ] || []
+					if ( ! allowed.includes( dest ) ) {
+						return null
+					}
+					return [ {
+						clientId: `cid_switched_${ dest }`,
+						name: dest,
+						attributes: { ...( block.attributes || {} ), ported: true },
+						innerBlocks: block.innerBlocks || [],
+					} ]
+				},
+			},
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+							getBlockParents: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: store => {
+					if ( store !== 'core/block-editor' ) {
+						return {}
+					}
+					return {
+						replaceBlocks: ( ids, next ) => {
+							replaced.push( { ids, next } )
+						},
+					}
+				},
+			},
+		}
+		return { replaced }
+	}
+
+	it( 'skips core blocks when target is core (default)', () => {
+		const blocksById = {
+			cid_a: {
+				clientId: 'cid_a',
+				name: 'core/paragraph',
+				attributes: { content: 'Hello' },
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_a ]
+		const { replaced } = installEditor( { blocksById, root } )
+
+		const result = convertBlocks( { refs: [ 'b1' ] } )
+		expect( result.ok ).toBe( true )
+		expect( result.target ).toBe( 'core' )
+		expect( result.converted_count ).toBe( 0 )
+		expect( result.skipped[ 0 ].reason ).toBe( 'already_target' )
+		expect( replaced ).toHaveLength( 0 )
+	} )
+
+	it( 'converts core paragraph to a plugin namespace via switchToBlockType', () => {
+		const blocksById = {
+			cid_a: {
+				clientId: 'cid_a',
+				name: 'core/paragraph',
+				attributes: { content: 'Private cars remain useful.' },
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_a ]
+		const { replaced } = installEditor( {
+			blocksById,
+			root,
+			transforms: {
+				'core/paragraph': [ 'stackable/text', 'core/heading' ],
+			},
+			blockTypes: [
+				{ name: 'stackable/text', attributes: { text: { type: 'string' } } },
+			],
+		} )
+
+		const result = convertBlocks( { refs: [ 'b1' ], target: 'stackable' } )
+		expect( result.ok ).toBe( true )
+		expect( result.target ).toBe( 'stackable' )
+		expect( result.converted_count ).toBe( 1 )
+		expect( result.converted[ 0 ] ).toMatchObject( {
+			from: 'core/paragraph',
+			to: 'stackable/text',
+			method: 'switchToBlockType',
+		} )
+		expect( replaced ).toHaveLength( 1 )
+		expect( replaced[ 0 ].next[ 0 ].name ).toBe( 'stackable/text' )
+	} )
+
+	it( 'honors an exact target block name', () => {
+		const blocksById = {
+			cid_a: {
+				clientId: 'cid_a',
+				name: 'core/paragraph',
+				attributes: { content: 'Heading-worthy copy' },
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_a ]
+		installEditor( {
+			blocksById,
+			root,
+			transforms: {
+				'core/paragraph': [ 'stackable/text', 'core/heading' ],
+			},
+		} )
+
+		const result = convertBlocks( { refs: [ 'b1' ], target: 'core/heading' } )
+		expect( result.converted_count ).toBe( 1 )
+		expect( result.converted[ 0 ].to ).toBe( 'core/heading' )
+	} )
+
+	it( 'dry_run reports conversions without replacing blocks', () => {
+		const blocksById = {
+			cid_a: {
+				clientId: 'cid_a',
+				name: 'core/paragraph',
+				attributes: { content: 'Dry run me' },
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_a ]
+		const { replaced } = installEditor( {
+			blocksById,
+			root,
+			transforms: { 'core/paragraph': [ 'stackable/text' ] },
+		} )
+
+		const result = convertBlocks( {
+			refs: [ 'b1' ],
+			target: 'stackable',
+			dry_run: true,
+		} )
+		expect( result.dry_run ).toBe( true )
+		expect( result.converted_count ).toBe( 1 )
+		expect( replaced ).toHaveLength( 0 )
+	} )
+
+	it( 'falls back to heuristic createBlock when no transform exists', () => {
+		const blocksById = {
+			cid_a: {
+				clientId: 'cid_a',
+				name: 'core/paragraph',
+				attributes: { content: 'Heuristic port' },
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_a ]
+		const { replaced } = installEditor( {
+			blocksById,
+			root,
+			transforms: {},
+			blockTypes: [
+				{
+					name: 'acme/text',
+					attributes: {
+						text: { type: 'string' },
+						theme: { type: 'object' },
+					},
+				},
+			],
+		} )
+
+		const result = convertBlocks( { refs: [ 'b1' ], target: 'acme' } )
+		expect( result.converted_count ).toBe( 1 )
+		expect( result.converted[ 0 ].method ).toBe( 'heuristic' )
+		expect( result.converted[ 0 ].to ).toBe( 'acme/text' )
+		expect( replaced[ 0 ].next[ 0 ].attributes.text ).toContain( 'Heuristic' )
+	} )
+} )
+
+describe( 'getBlockType fields', () => {
+	beforeEach( () => {
+		global.window = global.window || {}
+	} )
+
+	afterEach( () => {
+		delete global.window.wp
+	} )
+
+	it( 'returns slim convert schema without design attrs', () => {
+		global.window.wp = {
+			blocks: {
+				getBlockType: () => ( {
+					name: 'stackable/text',
+					title: 'Text',
+					category: 'stackable',
+					description: 'Long description',
+					attributes: {
+						text: { type: 'string', source: 'html' },
+						uniqueId: { type: 'string' },
+						blockMargin: { type: 'object' },
+						showText: { type: 'boolean', default: true },
+					},
+					supports: { spacing: true },
+				} ),
+				getBlockVariations: () => [ { name: 'default', title: 'Default' } ],
+			},
+		}
+
+		const full = getBlockType( { name: 'stackable/text' } )
+		expect( full.attributes.blockMargin ).toBeTruthy()
+		expect( full.supports ).toBeTruthy()
+
+		const slim = getBlockType( { name: 'stackable/text', fields: 'convert' } )
+		expect( slim.fields ).toBe( 'convert' )
+		expect( slim.attributes.text ).toBeTruthy()
+		expect( slim.attributes.blockMargin ).toBeUndefined()
+		expect( slim.attributes.uniqueId ).toBeUndefined()
+		expect( slim.supports ).toBeUndefined()
+		expect( slim.description ).toBe( '' )
 	} )
 } )

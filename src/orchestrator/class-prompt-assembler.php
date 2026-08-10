@@ -972,6 +972,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'Move out of body (featured image, excerpt, title) via destination ability then usually delete-blocks. '
 						. 'Long articles: stage-artifact then set-blocks/create-post from_memory — do not re-paste huge drafts into tools_planned. '
 						. 'get-block-type only for third-party blocks or after unknown-key failures — never first for core/paragraph|heading|button. Input is {name}, not a ref. '
+						. 'Library conversion (core↔Stackable/other plugins): ahentic-browser/convert-blocks with target (namespace or exact name), not get-block-type×N + set-blocks rewrites. '
+						. 'Use dry_run:true to preview; on skipped no_transform, get-block-type fields:"convert" once per unique type only. '
 						. 'Rich-text attrs are HTML strings. Compact get-blocks includes capped HTML on the primary content_attr — for internal links/light text edits, ONE get-blocks then batch update-block-attributes; do not loop get-blocks → patch → get-blocks. '
 						. 'Refs are short (b1, b2, …) from get-blocks/get-selection — copy exactly; never invent clientId hashes. missing refs → re-call get-blocks. '
 						. 'Scoped re-read: get-blocks {"refs":[…]} when you need blocks not in the last compact tree. '

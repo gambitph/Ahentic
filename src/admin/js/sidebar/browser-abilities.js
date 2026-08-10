@@ -289,6 +289,9 @@ function installE2EHooks() {
 	window.__ahenticE2E = {
 		auditAccessibility,
 		updateBlockAttributes,
+		convertBlocks,
+		getBlocks,
+		getBlockType,
 		runBrowserAbility,
 	}
 }

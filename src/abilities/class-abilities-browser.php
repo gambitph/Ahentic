@@ -127,9 +127,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				self::CONVERT_BLOCKS            => array(
 					'write'        => true,
 					'hitl'         => true,
-					'progress'     => __( 'Converting blocks to core…', 'ahentic' ),
-					'summary'      => __( 'Convert blocks to core', 'ahentic' ),
-					'hitl_summary' => __( 'Convert third-party blocks toward core Gutenberg blocks', 'ahentic' ),
+					'progress'     => __( 'Converting blocks…', 'ahentic' ),
+					'summary'      => __( 'Convert blocks between libraries', 'ahentic' ),
+					'hitl_summary' => __( 'Convert blocks toward the requested target library or block type', 'ahentic' ),
 				),
 				self::AUDIT_ACCESSIBILITY       => array(
 					'progress' => __( 'Auditing editor accessibility…', 'ahentic' ),
@@ -393,18 +393,23 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				array(
 					'name'        => self::GET_BLOCK_TYPE,
 					'label'       => __( 'Get block type', 'ahentic' ),
-					'description' => __( 'Returns the registered block type schema (attributes, supports, variations, example) for a block name such as core/heading or stackable/heading. Prefer for non-core/third-party blocks; skip for well-known core/* text blocks. Rich-text attrs are flagged — pass HTML strings. Runs in the browser.', 'ahentic' ),
+					'description' => __( 'Returns the registered block type schema (attributes, supports, variations, example) for a block name such as core/heading or stackable/heading. Prefer for non-core/third-party blocks; skip for well-known core/* text blocks. Pass fields:"convert" (or "content") for a slim schema (content/media attrs only) when diagnosing convert leftovers — prefer ahentic-browser/convert-blocks with target for library conversion. Rich-text attrs are flagged — pass HTML strings. Runs in the browser.', 'ahentic' ),
 					'meta'        => $readonly_meta,
 					'input'       => array(
 						'type'       => 'object',
 						'properties' => array(
-							'name' => array(
+							'name'   => array(
 								'type'        => 'string',
 								'description' => __( 'Block name (e.g. core/heading or stackable/heading). Preferred.', 'ahentic' ),
 							),
-							'ref'  => array(
+							'ref'    => array(
 								'type'        => 'string',
 								'description' => __( 'Optional: if name is omitted, resolve the block’s name from this ref (from get-blocks). Prefer passing name directly.', 'ahentic' ),
+							),
+							'fields' => array(
+								'type'        => 'string',
+								'enum'        => array( 'full', 'convert', 'content' ),
+								'description' => __( 'full (default) returns the complete schema; convert/content return content and media attributes only.', 'ahentic' ),
 							),
 						),
 					),
@@ -656,7 +661,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				array(
 					'name'        => self::CONVERT_BLOCKS,
 					'label'       => __( 'Convert blocks', 'ahentic' ),
-					'description' => __( 'Converts third-party blocks (e.g. Stackable) toward core blocks where possible. Returns a converted/skipped report. Requires human approval. Runs in the browser.', 'ahentic' ),
+					'description' => __( 'Converts blocks toward a target library or block type using Gutenberg transforms when available (same machinery as Transform to). Pass target as a namespace (core, stackable, …) or exact name (stackable/heading). Default target is core. Prefer this over get-block-type + set-blocks rewrites for library conversion. Returns converted/skipped/failed. dry_run:true previews without changing the canvas. Requires human approval. Runs in the browser.', 'ahentic' ),
 					'meta'        => array_merge(
 						$mutate_meta,
 						array(
@@ -670,14 +675,22 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 					'input'       => array(
 						'type'       => 'object',
 						'properties' => array(
-							'refs'  => array(
+							'target'  => array(
+								'type'        => 'string',
+								'description' => __( 'Destination namespace (core, stackable, …) or exact block name (stackable/text). Default: core.', 'ahentic' ),
+							),
+							'refs'    => array(
 								'type'        => 'array',
 								'items'       => array( 'type' => 'string' ),
-								'description' => __( 'Block refs to convert (from get-blocks/get-selection); defaults to selection, or all non-core when scope=all.', 'ahentic' ),
+								'description' => __( 'Block refs to convert (from get-blocks/get-selection); defaults to selection, or all blocks not already matching target when scope=all.', 'ahentic' ),
 							),
-							'scope' => array(
+							'scope'   => array(
 								'type' => 'string',
 								'enum' => array( 'selection', 'all' ),
+							),
+							'dry_run' => array(
+								'type'        => 'boolean',
+								'description' => __( 'When true, report what would convert without changing the editor.', 'ahentic' ),
 							),
 						),
 					),
@@ -910,11 +923,33 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				return self::hitl_summary_fill_fields( $input );
 			}
 
+			if ( self::CONVERT_BLOCKS === $key ) {
+				return self::hitl_summary_convert_blocks( $input );
+			}
+
 			$catalog = self::catalog();
 			if ( isset( $catalog[ $key ]['hitl_summary'] ) ) {
 				return $catalog[ $key ]['hitl_summary'];
 			}
 			return self::summary( $name );
+		}
+
+		/**
+		 * HITL copy for convert-blocks including the requested target.
+		 *
+		 * @param array $input Ability input.
+		 * @return string
+		 */
+		private static function hitl_summary_convert_blocks( $input ) {
+			$target = isset( $input['target'] ) ? strtolower( trim( (string) $input['target'] ) ) : 'core';
+			if ( '' === $target ) {
+				$target = 'core';
+			}
+			return sprintf(
+				/* translators: %s: block namespace or block type name (e.g. stackable, core/heading) */
+				__( 'Convert blocks toward %s', 'ahentic' ),
+				$target
+			);
 		}
 
 		/**

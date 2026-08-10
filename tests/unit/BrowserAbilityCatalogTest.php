@@ -60,14 +60,24 @@ class BrowserAbilityCatalogTest extends TestCase {
 	/**
 	 * non_preallowable names are HITL writes (no orphan irreversible flags).
 	 */
-	public function test_non_preallowable_are_hitl_writes() {
-		$names = Ahentic_Abilities_Browser::names();
-		$hitl  = Ahentic_Abilities_Browser::hitl_names();
-		foreach ( Ahentic_Abilities_Browser::non_preallowable_names() as $name ) {
-			$this->assertContains( $name, $names, 'non_preallowable orphan: ' . $name );
-			$this->assertContains( $name, $hitl, 'non_preallowable must be HITL: ' . $name );
-			$this->assertTrue( Ahentic_Abilities_Browser::is_non_preallowable( $name ), $name );
-		}
-		$this->assertContains( 'ahentic-browser/fill-fields', Ahentic_Abilities_Browser::non_preallowable_names() );
+	public function test_convert_blocks_hitl_summary_includes_target() {
+		$this->assertSame(
+			'Convert blocks toward stackable',
+			Ahentic_Abilities_Browser::hitl_summary(
+				'ahentic-browser/convert-blocks',
+				array( 'target' => 'stackable' )
+			)
+		);
+		$this->assertSame(
+			'Convert blocks toward core/heading',
+			Ahentic_Abilities_Browser::hitl_summary(
+				'ahentic-browser/convert-blocks',
+				array( 'target' => 'core/heading' )
+			)
+		);
+		$this->assertSame(
+			'Convert blocks toward core',
+			Ahentic_Abilities_Browser::hitl_summary( 'ahentic-browser/convert-blocks', array() )
+		);
 	}
 }

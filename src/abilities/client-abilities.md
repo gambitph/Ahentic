@@ -80,6 +80,9 @@ Talk to `window.wp` (block editor). Conventions:
 - Reject placeholder block payloads (`[full article]`, etc.).
 - Prefer structured `{ name, attributes, innerBlocks }` for createBlock.
 - Cap tree size on reads; truncate huge attributes.
+- After `set-blocks` / `insert-blocks` / `replace-blocks`, verify applied `clientId`s appear in live `getBlocks()` — otherwise return `{ ok: false, error: 'write_not_applied' }` (background tabs can soft-fail: dispatch runs, canvas unchanged, `applied` text would otherwise look successful).
+- `useBrowserResume` waits until `document.visibilityState === 'visible'` before running a pending browser ability.
+- `convert-blocks` accepts `target` (namespace like `stackable` or exact name like `core/heading`; default `core`). Prefer Gutenberg transforms; use `dry_run` to preview. Do not rewrite the document with `set-blocks` for library conversion.
 
 ### Page helpers
 

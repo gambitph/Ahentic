@@ -656,6 +656,70 @@ function syncRegistryFromEditor( select ) {
 }
 
 /**
+ * Collect clientIds from a block tree (depth-first).
+ *
+ * @param {Array} blocks
+ * @param {string[]} [out]
+ * @return {string[]}
+ */
+function collectClientIds( blocks, out = [] ) {
+	if ( ! Array.isArray( blocks ) ) {
+		return out
+	}
+	for ( const block of blocks ) {
+		if ( block?.clientId ) {
+			out.push( block.clientId )
+		}
+		if ( Array.isArray( block?.innerBlocks ) && block.innerBlocks.length ) {
+			collectClientIds( block.innerBlocks, out )
+		}
+	}
+	return out
+}
+
+/**
+ * Confirm applied blocks actually landed in the live editor store.
+ *
+ * Backgrounded tabs can soft-fail: dispatch returns, applied payload still has
+ * text, but getBlocks() never changed — without this check we report ok:true.
+ *
+ * @param {Array} applied Blocks just written (pre/post createBlock shape).
+ * @param {Array} live    Current getBlocks() tree.
+ * @return {{ ok: true } | { ok: false, error: string, message: string }}
+ */
+export function assertBlocksApplied( applied, live ) {
+	const appliedList = Array.isArray( applied ) ? applied : []
+	if ( ! appliedList.length ) {
+		return { ok: true }
+	}
+
+	const appliedIds = collectClientIds( appliedList ).filter( Boolean )
+	const liveIds = new Set( collectClientIds( Array.isArray( live ) ? live : [] ) )
+
+	if ( appliedIds.length ) {
+		const missing = appliedIds.filter( id => ! liveIds.has( id ) )
+		if ( missing.length ) {
+			return {
+				ok: false,
+				error: 'write_not_applied',
+				message: 'The editor did not apply this write (canvas unchanged). Keep this WordPress tab visible and retry — background tabs can drop Gutenberg updates.',
+			}
+		}
+		return { ok: true }
+	}
+
+	// createBlock always assigns clientIds in practice; if somehow absent, require a non-empty live tree.
+	if ( ! Array.isArray( live ) || live.length === 0 ) {
+		return {
+			ok: false,
+			error: 'write_not_applied',
+			message: 'The editor did not apply this write (canvas unchanged). Keep this WordPress tab visible and retry — background tabs can drop Gutenberg updates.',
+		}
+	}
+	return { ok: true }
+}
+
+/**
  * Stale-ref error payload.
  *
  * @param {string[]} missing
@@ -1113,13 +1177,265 @@ function extractTextFromAttributes( attributes ) {
 }
 
 /**
- * Convert one block toward core.
+ * Soft leaf-name synonyms for picking among registered types (not plugin allowlists).
+ */
+const CONVERT_LEAF_SYNONYMS = {
+	paragraph: [ 'text', 'paragraph', 'rich-text', 'richtext' ],
+	text: [ 'paragraph', 'text', 'rich-text' ],
+	heading: [ 'heading', 'title', 'headline' ],
+	title: [ 'heading', 'title', 'headline' ],
+	image: [ 'image', 'img', 'figure', 'photo' ],
+	list: [ 'list', 'icon-list', 'bullets', 'checklist' ],
+	'list-item': [ 'list-item', 'icon-list-item', 'item' ],
+	button: [ 'button', 'btn' ],
+	buttons: [ 'buttons', 'button-group' ],
+	quote: [ 'quote', 'blockquote', 'testimonial' ],
+	separator: [ 'separator', 'divider', 'spacer' ],
+}
+
+/**
+ * @param {string} name
+ * @return {string}
+ */
+function blockLeafName( name ) {
+	const s = String( name || '' )
+	return s.includes( '/' ) ? s.split( '/' ).pop() : s
+}
+
+/**
+ * Parse convert-blocks target: "core", "stackable", or "stackable/heading".
+ *
+ * @param {string|undefined} raw
+ * @return {{ kind: string, namespace: string, exact: string|null, label: string }}
+ */
+function parseConvertTarget( raw ) {
+	const trimmed = String( raw || 'core' ).trim().toLowerCase()
+	const value = trimmed || 'core'
+	if ( value.includes( '/' ) ) {
+		const namespace = value.split( '/' )[ 0 ] || 'core'
+		return {
+			kind: 'exact', namespace, exact: value, label: value,
+		}
+	}
+	return {
+		kind: 'namespace', namespace: value, exact: null, label: value,
+	}
+}
+
+/**
+ * @param {string} name
+ * @param {{ exact: string|null, namespace: string }} target
+ * @return {boolean}
+ */
+function nameMatchesConvertTarget( name, target ) {
+	const n = String( name || '' )
+	if ( target.exact ) {
+		return n === target.exact
+	}
+	return n.startsWith( `${ target.namespace }/` )
+}
+
+/**
+ * @param {string[]} names
+ * @param {string} blockName
+ * @param {{ requireAffinity?: boolean }} [opts]
+ * @return {string|null}
+ */
+function pickAmongBlockNames( names, blockName, opts = {} ) {
+	if ( ! names.length ) {
+		return null
+	}
+	const leaf = blockLeafName( blockName )
+	const exactLeaf = names.find( n => blockLeafName( n ) === leaf )
+	if ( exactLeaf ) {
+		return exactLeaf
+	}
+	const syns = CONVERT_LEAF_SYNONYMS[ leaf ] || [ leaf ]
+	for ( const syn of syns ) {
+		const hit = names.find( n => blockLeafName( n ) === syn )
+		if ( hit ) {
+			return hit
+		}
+	}
+	if ( opts.requireAffinity ) {
+		return null
+	}
+	return names[ 0 ]
+}
+
+/**
+ * @param {Object} block
+ * @param {Object} wp
+ * @return {string[]}
+ */
+function possibleTransformNames( block, wp ) {
+	const list = wp.blocks?.getPossibleBlockTransformations?.( [ block ] ) || []
+	return list
+		.map( entry => ( typeof entry === 'string' ? entry : entry?.name ) )
+		.filter( Boolean )
+}
+
+/**
+ * @param {Object} block
+ * @param {Object} wp
+ * @param {{ exact: string|null, namespace: string }} target
+ * @return {string|null}
+ */
+function pickTransformDestination( block, wp, target ) {
+	const names = possibleTransformNames( block, wp )
+	if ( target.exact ) {
+		return names.includes( target.exact ) ? target.exact : null
+	}
+	const inNs = names.filter( n => n.startsWith( `${ target.namespace }/` ) )
+	return pickAmongBlockNames( inNs, block.name )
+}
+
+/**
+ * @param {Object} wp
+ * @param {string} namespace
+ * @return {string[]}
+ */
+function registeredNamesInNamespace( wp, namespace ) {
+	return ( wp.blocks?.getBlockTypes?.() || [] )
+		.map( type => type.name )
+		.filter( name => String( name ).startsWith( `${ namespace }/` ) )
+}
+
+/**
+ * @param {Object} block
+ * @param {Object} wp
+ * @param {{ exact: string|null, namespace: string }} target
+ * @return {string|null}
+ */
+function pickRegisteredDestination( block, wp, target ) {
+	if ( target.exact ) {
+		return wp.blocks?.getBlockType?.( target.exact ) ? target.exact : null
+	}
+	// Heuristic createBlock only when leaf names align — never invent paragraph→heading ports.
+	return pickAmongBlockNames(
+		registeredNamesInNamespace( wp, target.namespace ),
+		block.name,
+		{ requireAffinity: true }
+	)
+}
+
+/**
+ * @param {Object|null} type
+ * @return {string|null}
+ */
+function firstContentAttrKey( type ) {
+	const attrs = type?.attributes
+	if ( ! attrs || typeof attrs !== 'object' ) {
+		return null
+	}
+	for ( const key of CONTENT_ATTR_KEYS ) {
+		if ( key in attrs ) {
+			return key
+		}
+	}
+	for ( const key of Object.keys( attrs ) ) {
+		if ( isRichTextAttrDef( attrs[ key ] ) ) {
+			return key
+		}
+	}
+	return null
+}
+
+/**
+ * Best-effort attribute port when no Gutenberg transform exists.
+ *
+ * @param {Object} fromBlock
+ * @param {string} toName
+ * @param {Object} wp
+ * @return {Object}
+ */
+function buildHeuristicConvertAttributes( fromBlock, toName, wp ) {
+	const type = wp.blocks?.getBlockType?.( toName )
+	const fromAttrs = fromBlock.attributes || {}
+	const out = {}
+	if ( type?.attributes ) {
+		for ( const key of Object.keys( type.attributes ) ) {
+			if ( ! Object.prototype.hasOwnProperty.call( fromAttrs, key ) ) {
+				continue
+			}
+			const val = fromAttrs[ key ]
+			out[ key ] = isRichTextValue( val ) ? richTextToHtml( val ) : val
+		}
+	}
+	const text = extractTextFromAttributes( fromAttrs )
+	const contentKey = firstContentAttrKey( type )
+	if ( text && contentKey && ( out[ contentKey ] === undefined || out[ contentKey ] === '' ) ) {
+		const plain = text.replace( /<[^>]+>/g, ' ' ).replace( /\s+/g, ' ' ).trim()
+		out[ contentKey ] = plain || text
+	}
+	if ( fromAttrs.level !== null && fromAttrs.level !== undefined && type?.attributes ) {
+		if ( 'level' in type.attributes && out.level === undefined ) {
+			out.level = fromAttrs.level
+		}
+		if ( 'textTag' in type.attributes && out.textTag === undefined ) {
+			out.textTag = `h${ Math.min( 6, Math.max( 1, Number( fromAttrs.level ) || 2 ) ) }`
+		}
+	}
+	const media = pickMediaEssentialAttrs( fromAttrs, fromBlock.name )
+	if ( type?.attributes ) {
+		const keys = Object.keys( type.attributes )
+		if ( media.url ) {
+			for ( const key of [ 'url', 'imageUrl', 'src', 'mediaUrl' ] ) {
+				if ( keys.includes( key ) && out[ key ] === undefined ) {
+					out[ key ] = media.url
+				}
+			}
+		}
+		if ( media.alt !== null && media.alt !== undefined && media.alt !== '' ) {
+			for ( const key of [ 'alt', 'imageAlt' ] ) {
+				if ( keys.includes( key ) && out[ key ] === undefined ) {
+					out[ key ] = media.alt
+				}
+			}
+		}
+		if ( media.id !== null && media.id !== undefined ) {
+			for ( const key of [ 'id', 'imageId', 'mediaId' ] ) {
+				if ( keys.includes( key ) && out[ key ] === undefined ) {
+					out[ key ] = media.id
+				}
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * @param {Object} block
+ * @param {Object} wp
+ * @param {string} destName
+ * @return {{ block: Object, method: string }|null}
+ */
+function switchBlockToType( block, wp, destName ) {
+	if ( ! wp.blocks?.switchToBlockType ) {
+		return null
+	}
+	try {
+		const switched = wp.blocks.switchToBlockType( block, destName )
+		if ( Array.isArray( switched ) && switched.length ) {
+			return { block: switched[ 0 ], method: 'switchToBlockType' }
+		}
+		if ( switched && switched.name ) {
+			return { block: switched, method: 'switchToBlockType' }
+		}
+	} catch ( error ) {
+		// Fall through.
+	}
+	return null
+}
+
+/**
+ * Convert one third-party block toward core (legacy heuristic path).
  *
  * @param {Object} block
  * @param {Object} wp
  * @return {{ block: Object, method: string }|null}
  */
-function convertOneBlock( block, wp ) {
+function convertOneBlockTowardCore( block, wp ) {
 	if ( ! block?.name ) {
 		return null
 	}
@@ -1128,18 +1444,9 @@ function convertOneBlock( block, wp ) {
 	}
 
 	const target = guessCoreTarget( block.name )
-	if ( wp.blocks?.switchToBlockType ) {
-		try {
-			const switched = wp.blocks.switchToBlockType( block, target )
-			if ( Array.isArray( switched ) && switched.length ) {
-				return { block: switched[ 0 ], method: 'switchToBlockType' }
-			}
-			if ( switched && switched.name ) {
-				return { block: switched, method: 'switchToBlockType' }
-			}
-		} catch ( error ) {
-			// Fall through to heuristic create.
-		}
+	const switched = switchBlockToType( block, wp, target )
+	if ( switched ) {
+		return switched
 	}
 
 	const text = extractTextFromAttributes( block.attributes )
@@ -1191,6 +1498,82 @@ function convertOneBlock( block, wp ) {
 	}
 }
 
+/**
+ * Convert one block toward a namespace or exact block name.
+ *
+ * Prefers Gutenberg registered transforms; falls back to content heuristics.
+ *
+ * @param {Object} block
+ * @param {Object} wp
+ * @param {{ exact: string|null, namespace: string }} target
+ * @return {{ block?: Object, method?: string, skip?: string, available?: string[] }}
+ */
+function convertOneBlockToward( block, wp, target ) {
+	if ( ! block?.name ) {
+		return { skip: 'invalid_block' }
+	}
+	if ( nameMatchesConvertTarget( block.name, target ) ) {
+		return { skip: 'already_target' }
+	}
+
+	const transformDest = pickTransformDestination( block, wp, target )
+	if ( transformDest ) {
+		const switched = switchBlockToType( block, wp, transformDest )
+		if ( switched ) {
+			return switched
+		}
+	}
+
+	// Legacy third-party → core when no exact target was requested.
+	if ( target.namespace === 'core' && ! target.exact && ! String( block.name ).startsWith( 'core/' ) ) {
+		const legacy = convertOneBlockTowardCore( block, wp )
+		if ( legacy?.block ) {
+			return legacy
+		}
+	}
+
+	const dest = pickRegisteredDestination( block, wp, target )
+	if ( ! dest || ! wp.blocks?.createBlock ) {
+		return {
+			skip: 'no_transform',
+			available: possibleTransformNames( block, wp ).slice( 0, 20 ),
+		}
+	}
+
+	try {
+		const attrs = buildHeuristicConvertAttributes( block, dest, wp )
+		const created = wp.blocks.createBlock( dest, attrs, block.innerBlocks || [] )
+		return { block: created, method: 'heuristic' }
+	} catch ( error ) {
+		return {
+			skip: 'no_mapping',
+			available: possibleTransformNames( block, wp ).slice( 0, 20 ),
+			error: error?.message || 'create_failed',
+		}
+	}
+}
+
+/**
+ * Whether an attribute key is useful for convert/content discovery (slim schemas).
+ *
+ * @param {string} key
+ * @param {Object} def
+ * @return {boolean}
+ */
+function isConvertRelevantAttr( key, def ) {
+	if ( CONTENT_ATTR_KEYS.includes( key ) ) {
+		return true
+	}
+	if ( isRichTextAttrDef( def ) ) {
+		return true
+	}
+	if ( /^(url|src|href|alt|id|caption|level|ordered|values|textTag|imageUrl|imageId|imageAlt|mediaUrl|mediaId)$/i.test( key ) ) {
+		return true
+	}
+	const source = def?.source
+	return source === 'html' || source === 'text' || source === 'rich-text' || source === 'attribute'
+}
+
 export function getBlockType( input = {} ) {
 	const wp = getWp()
 	let name = typeof input.name === 'string' ? input.name.trim() : ''
@@ -1234,22 +1617,27 @@ export function getBlockType( input = {} ) {
 		}
 	}
 
-	const variations = wp.blocks.getBlockVariations?.( name ) || []
+	const fields = String( input.fields || 'full' ).trim().toLowerCase()
+	const slim = fields === 'convert' || fields === 'content'
+	const variations = slim ? [] : ( wp.blocks.getBlockVariations?.( name ) || [] )
 	const attributeSchema = {}
 	const richTextKeys = []
 	const attrs = type.attributes || {}
 	for ( const key of Object.keys( attrs ) ) {
 		const def = attrs[ key ] || {}
+		if ( slim && ! isConvertRelevantAttr( key, def ) ) {
+			continue
+		}
 		const richText = isRichTextAttrDef( def )
 		if ( richText ) {
 			richTextKeys.push( key )
 		}
 		attributeSchema[ key ] = {
 			type: def.type || null,
-			default: capValue( def.default ),
+			default: slim ? undefined : capValue( def.default ),
 			enum: def.enum || undefined,
 			source: def.source || undefined,
-			selector: def.selector || undefined,
+			selector: slim ? undefined : ( def.selector || undefined ),
 			attribute: def.attribute || undefined,
 			rich_text: richText || undefined,
 			hint: richText
@@ -1265,21 +1653,24 @@ export function getBlockType( input = {} ) {
 		name: type.name,
 		title: type.title || '',
 		category: type.category || '',
-		description: type.description || '',
+		description: slim ? '' : ( type.description || '' ),
 		parent: type.parent || null,
-		ancestor: type.ancestor || null,
-		supports: capValue( type.supports || {} ),
+		ancestor: slim ? null : ( type.ancestor || null ),
+		supports: slim ? undefined : capValue( type.supports || {} ),
 		attributes: attributeSchema,
 		rich_text_attributes: richTextKeys,
-		hint: isCore
-			? 'Core block — prefer update-block-attributes / replace-blocks with known attrs; get-block-type is usually unnecessary.'
-			: 'Study attributes/supports before patching third-party blocks.',
+		fields: slim ? fields : 'full',
+		hint: slim
+			? 'Slim convert/content schema — content and media attrs only. Prefer ahentic-browser/convert-blocks with target for library conversion.'
+			: ( isCore
+				? 'Core block — prefer update-block-attributes / replace-blocks with known attrs; get-block-type is usually unnecessary.'
+				: 'Study attributes/supports before patching third-party blocks. For library conversion prefer convert-blocks { target }.' ),
 		variations: variations.slice( 0, 20 ).map( variation => ( {
 			name: variation.name,
 			title: variation.title,
 			isDefault: Boolean( variation.isDefault ),
 		} ) ),
-		example: type.example ? capValue( type.example ) : null,
+		example: slim ? null : ( type.example ? capValue( type.example ) : null ),
 		is_dynamic: Boolean( type.save === null || type.save === undefined ),
 	}
 }
@@ -1431,6 +1822,10 @@ export function replaceBlocks( input = {} ) {
 	ctx.dispatch( 'core/block-editor' ).replaceBlocks( clientIds, blocks )
 	syncRegistryFromEditor( ctx.select )
 	const live = blockSelect.getBlocks?.() || []
+	const appliedCheck = assertBlocksApplied( blocks, live )
+	if ( ! appliedCheck.ok ) {
+		return appliedCheck
+	}
 	const measured = measureEditorTextChars( {
 		live,
 		applied: blocks,
@@ -1480,6 +1875,10 @@ export function setBlocks( input = {} ) {
 	}
 	syncRegistryFromEditor( ctx.select )
 	const live = blockSelect.getBlocks?.() || []
+	const appliedCheck = assertBlocksApplied( blocks, live )
+	if ( ! appliedCheck.ok ) {
+		return appliedCheck
+	}
 	const measured = measureEditorTextChars( {
 		live,
 		applied: blocks,
@@ -1549,6 +1948,10 @@ export function insertBlocks( input = {} ) {
 	dispatch.insertBlocks( blocks, index, rootClientId || undefined )
 	syncRegistryFromEditor( ctx.select )
 	const live = blockSelect.getBlocks?.() || []
+	const appliedCheck = assertBlocksApplied( blocks, live )
+	if ( ! appliedCheck.ok ) {
+		return appliedCheck
+	}
 	const measured = measureEditorTextChars( {
 		live,
 		applied: blocks,
@@ -1796,6 +2199,8 @@ export function convertBlocks( input = {} ) {
 	if ( ! ctx.ok ) {
 		return ctx
 	}
+	const target = parseConvertTarget( input.target )
+	const dryRun = Boolean( input.dry_run || input.dryRun )
 	const blockSelect = ctx.select( 'core/block-editor' )
 	const dispatch = ctx.dispatch( 'core/block-editor' )
 	let { clientIds } = resolveInputRefs( input, ctx.select, [
@@ -1806,7 +2211,7 @@ export function convertBlocks( input = {} ) {
 		if ( input.scope === 'all' || ! selected.length ) {
 			clientIds = collectLiveClientIds( blockSelect.getBlocks() || [] ).filter( id => {
 				const block = blockSelect.getBlock?.( id )
-				return block && ! String( block.name || '' ).startsWith( 'core/' )
+				return block && ! nameMatchesConvertTarget( block.name, target )
 			} )
 		} else {
 			clientIds = selected
@@ -1829,21 +2234,29 @@ export function convertBlocks( input = {} ) {
 
 	for ( const block of blocks ) {
 		const ref = refForClientId( block.clientId )
-		if ( String( block.name || '' ).startsWith( 'core/' ) ) {
-			skipped.push( {
-				ref, name: block.name, reason: 'already_core',
-			} )
-			continue
-		}
 		try {
-			const result = convertOneBlock( block, ctx.wp )
+			const result = convertOneBlockToward( block, ctx.wp, target )
+			if ( result?.skip ) {
+				const entry = {
+					ref,
+					name: block.name,
+					reason: result.skip,
+				}
+				if ( result.available?.length ) {
+					entry.available_transforms = result.available
+				}
+				skipped.push( entry )
+				continue
+			}
 			if ( ! result?.block ) {
 				skipped.push( {
 					ref, name: block.name, reason: 'no_mapping',
 				} )
 				continue
 			}
-			dispatch.replaceBlocks( [ block.clientId ], [ result.block ] )
+			if ( ! dryRun ) {
+				dispatch.replaceBlocks( [ block.clientId ], [ result.block ] )
+			}
 			converted.push( {
 				from: block.name,
 				to: result.block.name,
@@ -1859,9 +2272,13 @@ export function convertBlocks( input = {} ) {
 		}
 	}
 
-	syncRegistryFromEditor( ctx.select )
+	if ( ! dryRun ) {
+		syncRegistryFromEditor( ctx.select )
+	}
 	return {
 		ok: true,
+		target: target.label,
+		dry_run: dryRun,
 		converted_count: converted.length,
 		skipped_count: skipped.length,
 		failed_count: failed.length,
