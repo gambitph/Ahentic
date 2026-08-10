@@ -466,6 +466,16 @@ class AhenticSidebar {
 	}
 
 	/**
+	 * Open the sidebar via the admin-bar toggle (sidebar must start closed).
+	 *
+	 * @return {Promise<void>}
+	 */
+	async openViaAdminBar() {
+		await this.page.locator( ADMIN_BAR_TOGGLE ).click()
+		await this.sidebar.waitFor( { state: 'visible' } )
+	}
+
+	/**
 	 * Reload the page and wait for sidebar chrome to settle from localStorage.
 	 *
 	 * @param {Object} [options]
