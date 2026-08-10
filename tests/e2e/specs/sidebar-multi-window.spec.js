@@ -39,7 +39,10 @@ test.describe( 'Sidebar multi-window runner lock', () => {
 								id: '1', content: 'Create the draft', status: 'in_progress',
 							},
 							{
-								id: '2', content: 'Confirm', status: 'pending',
+								id: '2', content: 'Review the draft', status: 'pending',
+							},
+							{
+								id: '3', content: 'Confirm', status: 'pending',
 							},
 						],
 					},
@@ -110,7 +113,10 @@ test.describe( 'Sidebar multi-window runner lock', () => {
 								id: '1', content: 'Create the draft', status: 'in_progress',
 							},
 							{
-								id: '2', content: 'Confirm', status: 'pending',
+								id: '2', content: 'Review the draft', status: 'pending',
+							},
+							{
+								id: '3', content: 'Confirm', status: 'pending',
 							},
 						],
 					},

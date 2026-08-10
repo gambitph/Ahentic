@@ -86,6 +86,9 @@ test.describe( 'Orchestrator tool pipeline (architecture characterization)', () 
 								{
 									id: '2', content: 'Confirm creation', status: 'pending',
 								},
+								{
+									id: '3', content: 'Confirm', status: 'pending',
+								},
 							],
 						},
 					}
@@ -145,6 +148,9 @@ test.describe( 'Orchestrator tool pipeline (architecture characterization)', () 
 								{
 									id: '2', content: 'Done', status: 'pending',
 								},
+								{
+									id: '3', content: 'Confirm', status: 'pending',
+								},
 							],
 						},
 					}
@@ -197,6 +203,9 @@ test.describe( 'Orchestrator tool pipeline (architecture characterization)', () 
 								{
 									id: '2', content: 'Create second draft', status: 'pending',
 								},
+								{
+									id: '3', content: 'Confirm', status: 'pending',
+								},
 							],
 						},
 					}
@@ -223,6 +232,9 @@ test.describe( 'Orchestrator tool pipeline (architecture characterization)', () 
 							},
 							{
 								id: '2', content: 'Confirm', status: 'pending',
+							},
+							{
+								id: '3', content: 'Confirm', status: 'pending',
 							},
 						],
 					},

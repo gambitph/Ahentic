@@ -2,7 +2,11 @@
  * @jest-environment node
  */
 
-import { resolvePlanCardPresentation } from './plan-card'
+import {
+	MIN_VISIBLE_PLAN_STEPS,
+	resolvePlanCardPresentation,
+	shouldShowPlanCard,
+} from './plan-card'
 
 const allDonePlan = {
 	title: 'Ship the page',
@@ -13,18 +17,59 @@ const allDonePlan = {
 		{
 			id: '2', content: 'Polish', status: 'completed',
 		},
+		{
+			id: '3', content: 'Publish', status: 'completed',
+		},
 	],
 }
 
+describe( 'shouldShowPlanCard', () => {
+	it( 'hides plans with fewer than three steps', () => {
+		expect( MIN_VISIBLE_PLAN_STEPS ).toBe( 3 )
+		expect( shouldShowPlanCard( {
+			steps: [
+				{
+					id: '1', content: 'A', status: 'pending',
+				},
+				{
+					id: '2', content: 'B', status: 'pending',
+				},
+			],
+		} ) ).toBe( false )
+		expect( shouldShowPlanCard( allDonePlan ) ).toBe( true )
+		expect( shouldShowPlanCard( null ) ).toBe( false )
+	} )
+} )
+
 describe( 'resolvePlanCardPresentation', () => {
+	it( 'marks short plans as not visible', () => {
+		const view = resolvePlanCardPresentation(
+			{
+				steps: [
+					{
+						id: '1', content: 'A', status: 'completed',
+					},
+					{
+						id: '2', content: 'B', status: 'cancelled',
+					},
+				],
+			},
+			{ busy: false }
+		)
+		expect( view.visible ).toBe( false )
+		expect( view.showComplete ).toBe( false )
+		expect( view.stopped ).toBe( false )
+	} )
+
 	it( 'shows Plan complete when all steps are done and the session is idle', () => {
 		const view = resolvePlanCardPresentation( allDonePlan, { busy: false } )
+		expect( view.visible ).toBe( true )
 		expect( view.showComplete ).toBe( true )
 		expect( view.wrappingUp ).toBe( false )
 		expect( view.stateClass ).toBe( ' is-complete' )
 		expect( view.eyebrow ).toMatch( /complete/i )
-		expect( view.done ).toBe( 2 )
-		expect( view.total ).toBe( 2 )
+		expect( view.done ).toBe( 3 )
+		expect( view.total ).toBe( 3 )
 		expect( view.steps.every( step => step.status === 'completed' ) ).toBe( true )
 	} )
 
@@ -36,10 +81,11 @@ describe( 'resolvePlanCardPresentation', () => {
 		expect( view.wrappingUp ).toBe( true )
 		expect( view.stateClass ).toBe( ' is-wrapping-up' )
 		expect( view.eyebrow ).toMatch( /finishing/i )
-		expect( view.done ).toBe( 2 )
-		expect( view.total ).toBe( 2 )
+		expect( view.done ).toBe( 3 )
+		expect( view.total ).toBe( 3 )
 		// Last step stays visually in progress so the card is not all-green checks.
 		expect( view.steps.map( step => step.status ) ).toEqual( [
+			'completed',
 			'completed',
 			'in_progress',
 		] )
@@ -54,6 +100,9 @@ describe( 'resolvePlanCardPresentation', () => {
 					},
 					{
 						id: '2', content: 'B', status: 'cancelled',
+					},
+					{
+						id: '3', content: 'C', status: 'cancelled',
 					},
 				],
 			},
@@ -74,6 +123,9 @@ describe( 'resolvePlanCardPresentation', () => {
 					{
 						id: '2', content: 'B', status: 'in_progress',
 					},
+					{
+						id: '3', content: 'C', status: 'pending',
+					},
 				],
 			},
 			{ busy: true }
@@ -85,6 +137,7 @@ describe( 'resolvePlanCardPresentation', () => {
 		expect( view.steps.map( step => step.status ) ).toEqual( [
 			'completed',
 			'in_progress',
+			'pending',
 		] )
 	} )
 } )
