@@ -135,6 +135,37 @@ test.describe( 'ahentic/replace-in-content', () => {
 	} )
 } )
 
+test.describe( 'ahentic/search-site', () => {
+	test( 'locates a unique string in post content and rejects short queries', async ( { requestUtils } ) => {
+		const marker = 'AhenticSiteLocatePhone-578-393-4937'
+		await seed( requestUtils, {
+			posts: [
+				{
+					post_title: 'Contact locator fixture',
+					post_content: `Reach us at ${ marker } anytime.`,
+					post_status: 'publish',
+				},
+			],
+		} )
+
+		const tooShort = await runAbility( requestUtils, 'ahentic/search-site', {
+			query: 'ab',
+		} )
+		expect( tooShort.ok ).toBe( false )
+		expect( tooShort.error ).toBe( 'ahentic_query_too_short' )
+
+		const found = await runAbility( requestUtils, 'ahentic/search-site', {
+			query: marker,
+			mode: 'literal',
+		} )
+		expect( found.ok ).toBe( true )
+		expect( found.data.count ).toBeGreaterThan( 0 )
+		expect( found.data.scanned_surfaces ).toEqual( expect.arrayContaining( [ 'posts' ] ) )
+		expect( found.data.hits[ 0 ].match ).toContain( '578-393-4937' )
+		expect( found.data.hits[ 0 ].suggested_tools.length ).toBeGreaterThan( 0 )
+	} )
+} )
+
 test.describe( 'ahentic/list-revisions + restore-revision', () => {
 	test( 'lists revisions and rejects mismatched revision ids', async ( { requestUtils } ) => {
 		const seeded = await seed( requestUtils, {

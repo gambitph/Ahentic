@@ -47,12 +47,14 @@ class AbilityPolicyTest extends TestCase {
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/get-content' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/get-content-summary' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/search-content' ) );
+		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/search-site' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/list-post-types' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::requires_hitl( 'ahentic/list-revisions' ) );
 
 		$this->assertTrue( Ahentic_Abilities_Content::is_readonly( 'ahentic/list-content' ) );
 		$this->assertTrue( Ahentic_Abilities_Content::is_readonly( 'ahentic/list-post-types' ) );
 		$this->assertTrue( Ahentic_Abilities_Content::is_readonly( 'ahentic/list-revisions' ) );
+		$this->assertTrue( Ahentic_Abilities_Content::is_readonly( 'ahentic/search-site' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::is_readonly( 'ahentic/create-post' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::is_readonly( 'ahentic/replace-in-content' ) );
 		$this->assertFalse( Ahentic_Abilities_Content::is_readonly( 'ahentic/restore-revision' ) );

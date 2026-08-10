@@ -12,6 +12,10 @@ if ( ! class_exists( 'Ahentic_Content_Placeholder' ) ) {
 	require_once __DIR__ . '/class-ahentic-content-placeholder.php';
 }
 
+if ( ! class_exists( 'Ahentic_Site_Locator' ) ) {
+	require_once __DIR__ . '/class-ahentic-site-locator.php';
+}
+
 if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 	/**
 	 * Content inspection and updates for the agent loop.
@@ -21,6 +25,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		const GET       = 'ahentic/get-content';
 		const GET_SUMMARY = 'ahentic/get-content-summary';
 		const SEARCH    = 'ahentic/search-content';
+		const SEARCH_SITE = 'ahentic/search-site';
 		const LIST_POST_TYPES = 'ahentic/list-post-types';
 		const REPLACE_IN_CONTENT = 'ahentic/replace-in-content';
 		const LIST_REVISIONS = 'ahentic/list-revisions';
@@ -72,6 +77,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::SEARCH             => array(
 					'progress' => __( 'Searching site content…', 'ahentic' ),
 					'summary'  => __( 'Search site content', 'ahentic' ),
+				),
+				self::SEARCH_SITE        => array(
+					'progress' => __( 'Searching the whole site…', 'ahentic' ),
+					'summary'  => __( 'Find where a string lives on the site', 'ahentic' ),
 				),
 				self::LIST_POST_TYPES    => array(
 					'progress' => __( 'Listing post types…', 'ahentic' ),
@@ -561,6 +570,43 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 			);
 
 			wp_register_ability(
+				self::SEARCH_SITE,
+				array(
+					'label'               => __( 'Search whole site', 'ahentic' ),
+					'description'         => __( 'Locates a literal string or regex across posts (all UI types including template parts), post meta, and wp_options (theme mods, widgets, theme options) with denylists for secrets/transients. Readonly discovery — returns identifiers, match text, snippets, and suggested follow-up tools. Prefer this when storage location is unknown (phone, email, address). Not for common short words. Use ahentic/search-content for normal post/page research.', 'ahentic' ),
+					'category'            => 'ahentic-content',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'query' ),
+						'properties' => array(
+							'query'   => array(
+								'type'        => 'string',
+								'description' => __( 'Literal substring or regex pattern to find (min 3 chars; common words blocked).', 'ahentic' ),
+							),
+							'mode'    => array(
+								'type'        => 'string',
+								'description' => __( 'literal (default) or regex.', 'ahentic' ),
+								'enum'        => array( 'literal', 'regex' ),
+							),
+							'limit'   => array(
+								'type'        => 'integer',
+								'description' => __( 'Max hits to return (1–50, default 50).', 'ahentic' ),
+							),
+							'surfaces' => array(
+								'type'        => 'array',
+								'description' => __( 'Optional subset: posts, options. Default both.', 'ahentic' ),
+								'items'       => array( 'type' => 'string' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_search_site' ),
+					'permission_callback' => $permission,
+					'meta'                => $meta,
+				)
+			);
+
+			wp_register_ability(
 				self::CREATE,
 				array(
 					'label'               => __( 'Create post', 'ahentic' ),
@@ -764,7 +810,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				self::REPLACE_IN_CONTENT,
 				array(
 					'label'               => __( 'Replace in content', 'ahentic' ),
-					'description'         => __( 'Find-and-replace across post titles/content. Default dry_run:true previews matches; dry_run:false writes. Requires human approval in Ahentic for real runs.', 'ahentic' ),
+					'description'         => __( 'Find-and-replace across post titles/content using literal or regex matching (scans posts directly — not only WP search). Default dry_run:true previews matches; dry_run:false writes. Common/short find strings are refused. Requires human approval in Ahentic for real runs. Does not update options/widgets — use ahentic/search-site to locate those first.', 'ahentic' ),
 					'category'            => 'ahentic-content',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -772,18 +818,23 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 						'properties' => array(
 							'find'      => array(
 								'type'        => 'string',
-								'description' => __( 'Literal substring to find (case-sensitive).', 'ahentic' ),
+								'description' => __( 'Literal substring or regex pattern to find (min 3 chars; common words blocked). Literal replace is case-sensitive.', 'ahentic' ),
 							),
 							'replace'   => array(
 								'type'        => 'string',
 								'description' => __( 'Replacement substring.', 'ahentic' ),
+							),
+							'mode'      => array(
+								'type'        => 'string',
+								'description' => __( 'literal (default) or regex.', 'ahentic' ),
+								'enum'        => array( 'literal', 'regex' ),
 							),
 							'dry_run'   => array(
 								'type'        => 'boolean',
 								'description' => __( 'When true (default), preview only — never writes.', 'ahentic' ),
 							),
 							'post_type' => array(
-								'description' => __( 'Post type or list of types (default: post, page).', 'ahentic' ),
+								'description' => __( 'Post type or list of types (default: post, page). Pass any or a list to widen.', 'ahentic' ),
 							),
 							'status'    => array(
 								'description' => __( 'Post status or list (default: editable statuses).', 'ahentic' ),
@@ -846,6 +897,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					return self::execute_get_content_summary( $input );
 				case self::SEARCH:
 					return self::execute_search_content( $input );
+				case self::SEARCH_SITE:
+					return self::execute_search_site( $input );
 				case self::LIST_POST_TYPES:
 					return self::execute_list_post_types( $input );
 				case self::REPLACE_IN_CONTENT:
@@ -932,12 +985,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return int
 		 */
 		public static function count_literal_occurrences( $haystack, $needle ) {
-			$haystack = (string) $haystack;
-			$needle   = (string) $needle;
-			if ( '' === $needle || '' === $haystack ) {
-				return 0;
-			}
-			return substr_count( $haystack, $needle );
+			return Ahentic_Site_Locator::count_matches( (string) $haystack, (string) $needle, Ahentic_Site_Locator::MODE_LITERAL, true );
 		}
 
 		/**
@@ -949,11 +997,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return string
 		 */
 		public static function apply_literal_replace( $haystack, $find, $replace ) {
-			$find = (string) $find;
-			if ( '' === $find ) {
-				return (string) $haystack;
-			}
-			return str_replace( $find, (string) $replace, (string) $haystack );
+			return Ahentic_Site_Locator::apply_replace( (string) $haystack, (string) $find, (string) $replace, Ahentic_Site_Locator::MODE_LITERAL );
 		}
 
 		/**
@@ -965,9 +1009,12 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		public static function execute_replace_in_content( $input = array() ) {
 			$input = is_array( $input ) ? $input : array();
 			$find  = isset( $input['find'] ) ? (string) $input['find'] : '';
-			if ( '' === $find ) {
-				return new WP_Error( 'ahentic_missing_find', __( 'A non-empty find string is required.', 'ahentic' ) );
+			$mode  = Ahentic_Site_Locator::normalize_mode( isset( $input['mode'] ) ? $input['mode'] : Ahentic_Site_Locator::MODE_LITERAL );
+			$valid = Ahentic_Site_Locator::validate_query( $find, $mode );
+			if ( is_wp_error( $valid ) ) {
+				return $valid;
 			}
+
 			$replace = isset( $input['replace'] ) ? (string) $input['replace'] : '';
 			$dry_run = ! isset( $input['dry_run'] ) || (bool) $input['dry_run'];
 			$limit   = isset( $input['limit'] ) ? (int) $input['limit'] : self::MAX_REPLACE;
@@ -988,25 +1035,16 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				return new WP_Error( 'ahentic_no_post_types', __( 'No allowed post types to scan.', 'ahentic' ) );
 			}
 
-			$wpq = new WP_Query(
-				array(
-					's'              => $find,
-					'post_type'      => $post_types,
-					'post_status'    => $statuses,
-					'posts_per_page' => $limit,
-					'orderby'        => 'ID',
-					'order'          => 'DESC',
-					'no_found_rows'  => true,
-				)
-			);
-
+			$deadline = microtime( true ) + ( Ahentic_Site_Locator::DEFAULT_TIME_BUDGET_MS / 1000 );
+			$posts    = self::scan_posts_for_query( $find, $mode, $post_types, $statuses, $limit, $deadline );
+			$truncated = ! empty( $posts['truncated'] );
 			$matches  = array();
 			$updated  = array();
 			$skipped  = array();
 			$failed   = array();
 			$match_n  = 0;
 
-			foreach ( $wpq->posts as $post ) {
+			foreach ( $posts['posts'] as $post ) {
 				if ( ! ( $post instanceof WP_Post ) ) {
 					continue;
 				}
@@ -1025,18 +1063,25 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					continue;
 				}
 
-				$title_occ   = self::count_literal_occurrences( $post->post_title, $find );
-				$content_occ = self::count_literal_occurrences( $post->post_content, $find );
+				// Replace uses case-sensitive literal counts for write safety.
+				$title_occ   = Ahentic_Site_Locator::count_matches( $post->post_title, $find, $mode, true );
+				$content_occ = Ahentic_Site_Locator::count_matches( $post->post_content, $find, $mode, true );
 				$occ         = $title_occ + $content_occ;
 				if ( $occ < 1 ) {
 					continue;
 				}
 				$match_n += $occ;
 
-				$before = self::make_snippet( $post->post_title . "\n" . $post->post_content, $find, self::MAX_SNIPPET );
-				$after_title   = self::apply_literal_replace( $post->post_title, $find, $replace );
-				$after_content = self::apply_literal_replace( $post->post_content, $find, $replace );
-				$after         = self::make_snippet( $after_title . "\n" . $after_content, $replace !== '' ? $replace : $find, self::MAX_SNIPPET );
+				$exact = Ahentic_Site_Locator::first_match( $post->post_title . "\n" . $post->post_content, $find, $mode );
+				$before = Ahentic_Site_Locator::make_snippet(
+					$post->post_title . "\n" . $post->post_content,
+					$exact !== '' ? $exact : $find,
+					self::MAX_SNIPPET
+				);
+				$after_title   = Ahentic_Site_Locator::apply_replace( $post->post_title, $find, $replace, $mode );
+				$after_content = Ahentic_Site_Locator::apply_replace( $post->post_content, $find, $replace, $mode );
+				$after_match   = $replace !== '' ? $replace : ( $exact !== '' ? $exact : $find );
+				$after         = Ahentic_Site_Locator::make_snippet( $after_title . "\n" . $after_content, $after_match, self::MAX_SNIPPET );
 				$edit          = get_edit_post_link( $post->ID, 'raw' );
 
 				$row = array(
@@ -1044,6 +1089,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 					'title'          => get_the_title( $post ),
 					'edit_url'       => $edit ? $edit : '',
 					'occurrences'    => $occ,
+					'match'          => $exact,
 					'before_snippet' => $before,
 					'after_snippet'  => $after,
 				);
@@ -1074,14 +1120,16 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 
 			if ( $dry_run ) {
 				return array(
-					'ok'           => true,
-					'dry_run'      => true,
-					'find'         => $find,
-					'replace'      => $replace,
-					'match_count'  => $match_n,
-					'post_count'   => count( $matches ),
-					'matches'      => $matches,
-					'skipped'      => $skipped,
+					'ok'          => true,
+					'dry_run'     => true,
+					'find'        => $find,
+					'replace'     => $replace,
+					'mode'        => $mode,
+					'match_count' => $match_n,
+					'post_count'  => count( $matches ),
+					'matches'     => $matches,
+					'skipped'     => $skipped,
+					'truncated'   => $truncated,
 				);
 			}
 
@@ -1090,10 +1138,455 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 				'dry_run'     => false,
 				'find'        => $find,
 				'replace'     => $replace,
+				'mode'        => $mode,
 				'match_count' => $match_n,
 				'updated'     => $updated,
 				'skipped'     => $skipped,
 				'failed'      => $failed,
+				'truncated'   => $truncated,
+			);
+		}
+
+		/**
+		 * Cross-surface readonly locator (posts + options).
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_search_site( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$query = isset( $input['query'] ) ? (string) $input['query'] : '';
+			$mode  = Ahentic_Site_Locator::normalize_mode( isset( $input['mode'] ) ? $input['mode'] : Ahentic_Site_Locator::MODE_LITERAL );
+			$valid = Ahentic_Site_Locator::validate_query( $query, $mode );
+			if ( is_wp_error( $valid ) ) {
+				return $valid;
+			}
+
+			$limit = isset( $input['limit'] ) ? (int) $input['limit'] : Ahentic_Site_Locator::MAX_GLOBAL_HITS;
+			$limit = max( 1, min( Ahentic_Site_Locator::MAX_GLOBAL_HITS, $limit ) );
+
+			$surfaces = array( 'posts', 'options' );
+			if ( isset( $input['surfaces'] ) && is_array( $input['surfaces'] ) && ! empty( $input['surfaces'] ) ) {
+				$wanted = array();
+				foreach ( $input['surfaces'] as $s ) {
+					$s = sanitize_key( (string) $s );
+					if ( in_array( $s, array( 'posts', 'options' ), true ) ) {
+						$wanted[] = $s;
+					}
+				}
+				if ( ! empty( $wanted ) ) {
+					$surfaces = array_values( array_unique( $wanted ) );
+				}
+			}
+
+			$deadline      = microtime( true ) + ( Ahentic_Site_Locator::DEFAULT_TIME_BUDGET_MS / 1000 );
+			$hits          = array();
+			$scanned       = array();
+			$truncated      = false;
+			$per_surface   = array();
+			$skipped_opts  = 0;
+
+			if ( in_array( 'posts', $surfaces, true ) ) {
+				$scanned[]  = 'posts';
+				$post_types = self::search_site_post_types();
+				$statuses   = self::normalize_statuses( null );
+				$scan_limit = max( $limit, Ahentic_Site_Locator::MAX_HITS_PER_SURFACE );
+				$found      = self::scan_posts_for_query( $query, $mode, $post_types, $statuses, $scan_limit * 3, $deadline );
+				if ( ! empty( $found['truncated'] ) ) {
+					$truncated = true;
+				}
+				$surface_count = 0;
+				foreach ( $found['posts'] as $post ) {
+					if ( ! ( $post instanceof WP_Post ) ) {
+						continue;
+					}
+					if ( count( $hits ) >= $limit || microtime( true ) >= $deadline ) {
+						$truncated = true;
+						break;
+					}
+					if ( $surface_count >= Ahentic_Site_Locator::MAX_HITS_PER_SURFACE ) {
+						$truncated = true;
+						break;
+					}
+					if ( ! current_user_can( 'edit_post', $post->ID ) && ! current_user_can( 'manage_options' ) ) {
+						continue;
+					}
+
+					$fields = array(
+						'title'   => (string) $post->post_title,
+						'content' => (string) $post->post_content,
+						'excerpt' => (string) $post->post_excerpt,
+					);
+					$matched_field = '';
+					$match_text    = '';
+					$snippet       = '';
+					foreach ( $fields as $field => $text ) {
+						if ( Ahentic_Site_Locator::haystack_matches( $text, $query, $mode ) ) {
+							$matched_field = $field;
+							$match_text    = Ahentic_Site_Locator::first_match( $text, $query, $mode );
+							$snippet       = Ahentic_Site_Locator::make_snippet( $text, $match_text !== '' ? $match_text : $query );
+							break;
+						}
+					}
+
+					$meta_keys = array();
+					if ( '' === $matched_field ) {
+						$meta_keys = self::matching_meta_keys_for_post( (int) $post->ID, $query, $mode );
+						if ( empty( $meta_keys ) ) {
+							continue;
+						}
+						$matched_field = 'meta';
+						$meta_val      = get_post_meta( $post->ID, $meta_keys[0], true );
+						$walk          = Ahentic_Site_Locator::walk_matches( $meta_val, $query, $mode, $meta_keys[0], 1 );
+						if ( ! empty( $walk ) ) {
+							$match_text = $walk[0]['match'];
+							$snippet    = $walk[0]['snippet'];
+						}
+					}
+
+					$surface = self::post_hit_surface( $post->post_type );
+					$edit    = get_edit_post_link( $post->ID, 'raw' );
+					$view    = get_permalink( $post );
+					$hit     = array(
+						'surface'         => $surface,
+						'id'              => (int) $post->ID,
+						'post_type'       => $post->post_type,
+						'title'           => get_the_title( $post ),
+						'field'           => $matched_field,
+						'match'           => $match_text,
+						'snippet'         => $snippet,
+						'edit_url'        => $edit ? $edit : '',
+						'view_url'        => $view ? $view : '',
+						'suggested_tools' => Ahentic_Site_Locator::suggested_tools_for_surface( $surface ),
+					);
+					if ( 'template_part' === $surface || 'template' === $surface ) {
+						$hit['template_part_id'] = $post->post_name;
+						$hit['suggested_tools']  = array(
+							'ahentic/update-template-part',
+							'ahentic/get-content',
+							'ahentic-browser/get-blocks',
+						);
+					}
+					if ( ! empty( $meta_keys ) ) {
+						$hit['matched_meta_keys'] = $meta_keys;
+					}
+					$hits[] = $hit;
+					++$surface_count;
+				}
+				$per_surface['posts'] = $surface_count;
+			}
+
+			if ( in_array( 'options', $surfaces, true ) && count( $hits ) < $limit && microtime( true ) < $deadline ) {
+				$scanned[]     = 'options';
+				$option_hits   = self::scan_options_for_query( $query, $mode, $limit - count( $hits ), $deadline, $skipped_opts );
+				if ( ! empty( $option_hits['truncated'] ) ) {
+					$truncated = true;
+				}
+				$skipped_opts = (int) $option_hits['skipped_keys'];
+				$surface_count = 0;
+				foreach ( $option_hits['hits'] as $oh ) {
+					if ( count( $hits ) >= $limit || $surface_count >= Ahentic_Site_Locator::MAX_HITS_PER_SURFACE ) {
+						$truncated = true;
+						break;
+					}
+					$hits[] = $oh;
+					++$surface_count;
+				}
+				$per_surface['options'] = $surface_count;
+			}
+
+			return array(
+				'ok'                => true,
+				'query'             => $query,
+				'mode'              => $mode,
+				'count'             => count( $hits ),
+				'hits'              => $hits,
+				'scanned_surfaces'  => $scanned,
+				'per_surface'       => $per_surface,
+				'skipped_keys_count'=> $skipped_opts,
+				'truncated'         => $truncated,
+			);
+		}
+
+		/**
+		 * Post types included in search-site (UI types + templates; excludes sessions/revisions).
+		 *
+		 * @return string[]
+		 */
+		private static function search_site_post_types() {
+			$blocked = array(
+				'revision',
+				'nav_menu_item',
+				'attachment',
+				'ahentic-session',
+				'customize_changeset',
+				'oembed_cache',
+				'user_request',
+				'wp_global_styles',
+				'wp_navigation',
+				'wp_font_family',
+				'wp_font_face',
+			);
+			$types = get_post_types(
+				array(
+					'show_ui' => true,
+				),
+				'names'
+			);
+			if ( ! is_array( $types ) ) {
+				$types = array( 'post', 'page' );
+			}
+			$types[] = 'wp_template';
+			$types[] = 'wp_template_part';
+			$out     = array();
+			foreach ( $types as $type ) {
+				$type = sanitize_key( (string) $type );
+				if ( '' === $type || in_array( $type, $blocked, true ) ) {
+					continue;
+				}
+				$out[] = $type;
+			}
+			return ! empty( $out ) ? array_values( array_unique( $out ) ) : array( 'post', 'page' );
+		}
+
+		/**
+		 * @param string $post_type Post type.
+		 * @return string
+		 */
+		private static function post_hit_surface( $post_type ) {
+			$post_type = (string) $post_type;
+			if ( 'wp_template_part' === $post_type ) {
+				return 'template_part';
+			}
+			if ( 'wp_template' === $post_type ) {
+				return 'template';
+			}
+			return 'post';
+		}
+
+		/**
+		 * Scan posts for a query (literal LIKE prefilter or limited regex scan).
+		 *
+		 * @param string   $query      Query.
+		 * @param string   $mode       Mode.
+		 * @param string[] $post_types Types.
+		 * @param string[] $statuses   Statuses.
+		 * @param int      $limit      Max posts to return.
+		 * @param float    $deadline   Microtime deadline.
+		 * @return array{posts: WP_Post[], truncated: bool}
+		 */
+		private static function scan_posts_for_query( $query, $mode, array $post_types, array $statuses, $limit, $deadline ) {
+			global $wpdb;
+
+			$limit     = max( 1, (int) $limit );
+			$truncated = false;
+			$posts     = array();
+			$mode      = Ahentic_Site_Locator::normalize_mode( $mode );
+
+			$type_in   = implode( ',', array_fill( 0, count( $post_types ), '%s' ) );
+			$status_in = implode( ',', array_fill( 0, count( $statuses ), '%s' ) );
+
+			if ( Ahentic_Site_Locator::MODE_LITERAL === $mode ) {
+				$like   = '%' . $wpdb->esc_like( $query ) . '%';
+				$params = array_merge( array( $like, $like, $like ), $post_types, $statuses, array( $limit * 5 ) );
+				// phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$sql = $wpdb->prepare(
+					"SELECT ID FROM {$wpdb->posts}
+					WHERE (post_title LIKE %s OR post_content LIKE %s OR post_excerpt LIKE %s)
+						AND post_type IN ($type_in)
+						AND post_status IN ($status_in)
+					ORDER BY post_modified DESC
+					LIMIT %d",
+					...$params
+				);
+				// phpcs:enable
+			} else {
+				$params = array_merge( $post_types, $statuses, array( max( 100, $limit * 10 ) ) );
+				// phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$sql = $wpdb->prepare(
+					"SELECT ID FROM {$wpdb->posts}
+					WHERE post_type IN ($type_in)
+						AND post_status IN ($status_in)
+					ORDER BY post_modified DESC
+					LIMIT %d",
+					...$params
+				);
+				// phpcs:enable
+			}
+
+			$ids = is_string( $sql ) ? $wpdb->get_col( $sql ) : array(); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			if ( ! is_array( $ids ) ) {
+				$ids = array();
+			}
+
+			foreach ( $ids as $id ) {
+				if ( count( $posts ) >= $limit || microtime( true ) >= $deadline ) {
+					$truncated = true;
+					break;
+				}
+				$post = get_post( (int) $id );
+				if ( ! ( $post instanceof WP_Post ) ) {
+					continue;
+				}
+				$hay = $post->post_title . "\n" . $post->post_content . "\n" . $post->post_excerpt;
+				$meta_hit = false;
+				if ( ! Ahentic_Site_Locator::haystack_matches( $hay, $query, $mode ) ) {
+					$meta_hit = ! empty( self::matching_meta_keys_for_post( (int) $post->ID, $query, $mode ) );
+					if ( ! $meta_hit ) {
+						continue;
+					}
+				}
+				$posts[] = $post;
+			}
+
+			if ( count( $ids ) >= ( Ahentic_Site_Locator::MODE_LITERAL === $mode ? $limit * 5 : max( 100, $limit * 10 ) ) ) {
+				$truncated = true;
+			}
+
+			return array(
+				'posts'     => $posts,
+				'truncated' => $truncated,
+			);
+		}
+
+		/**
+		 * @param int    $post_id Post ID.
+		 * @param string $query   Query.
+		 * @param string $mode    Mode.
+		 * @return string[]
+		 */
+		private static function matching_meta_keys_for_post( $post_id, $query, $mode ) {
+			$post_id = (int) $post_id;
+			if ( $post_id <= 0 ) {
+				return array();
+			}
+			$all = get_post_meta( $post_id );
+			if ( ! is_array( $all ) ) {
+				return array();
+			}
+			$keys = array();
+			foreach ( $all as $key => $values ) {
+				$key = (string) $key;
+				if ( Ahentic_Site_Locator::is_sensitive_meta_key( $key ) ) {
+					continue;
+				}
+				if ( ! is_array( $values ) ) {
+					$values = array( $values );
+				}
+				foreach ( $values as $val ) {
+					if ( Ahentic_Site_Locator::haystack_matches( is_scalar( $val ) ? (string) $val : wp_json_encode( $val ), $query, $mode ) ) {
+						$keys[] = $key;
+						break;
+					}
+					$walk = Ahentic_Site_Locator::walk_matches( maybe_unserialize( $val ), $query, $mode, $key, 1 );
+					if ( ! empty( $walk ) ) {
+						$keys[] = $key;
+						break;
+					}
+				}
+				if ( count( $keys ) >= 10 ) {
+					break;
+				}
+			}
+			return $keys;
+		}
+
+		/**
+		 * Scan wp_options for matches (denylist applied).
+		 *
+		 * @param string $query        Query.
+		 * @param string $mode         Mode.
+		 * @param int    $limit        Max hits.
+		 * @param float  $deadline     Deadline.
+		 * @param int    $skipped_keys Out: skipped denylisted keys count (unused in; set in return).
+		 * @return array{hits: array, truncated: bool, skipped_keys: int}
+		 */
+		private static function scan_options_for_query( $query, $mode, $limit, $deadline, $skipped_keys = 0 ) {
+			global $wpdb;
+			unset( $skipped_keys );
+
+			$limit     = max( 1, (int) $limit );
+			$hits      = array();
+			$truncated = false;
+			$skipped   = 0;
+			$mode      = Ahentic_Site_Locator::normalize_mode( $mode );
+
+			if ( Ahentic_Site_Locator::MODE_LITERAL === $mode ) {
+				$like = '%' . $wpdb->esc_like( $query ) . '%';
+				$sql  = $wpdb->prepare(
+					"SELECT option_name, option_value FROM {$wpdb->options}
+					WHERE option_value LIKE %s
+					ORDER BY option_id DESC
+					LIMIT %d",
+					$like,
+					max( 80, $limit * 8 )
+				);
+			} else {
+				$sql = $wpdb->prepare(
+					"SELECT option_name, option_value FROM {$wpdb->options}
+					ORDER BY option_id DESC
+					LIMIT %d",
+					max( 200, $limit * 20 )
+				);
+			}
+
+			$rows = is_string( $sql ) ? $wpdb->get_results( $sql ) : array(); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			if ( ! is_array( $rows ) ) {
+				$rows = array();
+			}
+
+			foreach ( $rows as $row ) {
+				if ( count( $hits ) >= $limit || microtime( true ) >= $deadline ) {
+					$truncated = true;
+					break;
+				}
+				$key = isset( $row->option_name ) ? (string) $row->option_name : '';
+				if ( Ahentic_Site_Locator::is_denied_option_key( $key ) ) {
+					++$skipped;
+					continue;
+				}
+				$raw   = isset( $row->option_value ) ? $row->option_value : '';
+				$value = maybe_unserialize( $raw );
+				$walk  = Ahentic_Site_Locator::walk_matches( $value, $query, $mode, '', 3 );
+				if ( empty( $walk ) && is_string( $raw ) && Ahentic_Site_Locator::haystack_matches( $raw, $query, $mode ) ) {
+					$match = Ahentic_Site_Locator::first_match( $raw, $query, $mode );
+					$walk  = array(
+						array(
+							'path'    => '',
+							'match'   => $match,
+							'snippet' => Ahentic_Site_Locator::make_snippet( $raw, $match !== '' ? $match : $query ),
+						),
+					);
+				}
+				if ( empty( $walk ) ) {
+					continue;
+				}
+
+				$surface = Ahentic_Site_Locator::option_surface( $key );
+				foreach ( $walk as $leaf ) {
+					if ( count( $hits ) >= $limit ) {
+						$truncated = true;
+						break;
+					}
+					$hit = array(
+						'surface'         => $surface,
+						'option_key'      => $key,
+						'path'            => isset( $leaf['path'] ) ? $leaf['path'] : '',
+						'match'           => isset( $leaf['match'] ) ? $leaf['match'] : '',
+						'snippet'         => isset( $leaf['snippet'] ) ? $leaf['snippet'] : '',
+						'suggested_tools' => Ahentic_Site_Locator::suggested_tools_for_surface( $surface ),
+					);
+					if ( 'widget' === $surface ) {
+						$hit['widget_id'] = $key;
+					}
+					$hits[] = $hit;
+				}
+			}
+
+			return array(
+				'hits'         => $hits,
+				'truncated'    => $truncated,
+				'skipped_keys' => $skipped,
 			);
 		}
 
@@ -2567,28 +3060,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Content' ) ) {
 		 * @return bool
 		 */
 		private static function is_sensitive_meta_key( $key ) {
-			$key = strtolower( $key );
-			$needles = array(
-				'password',
-				'passwd',
-				'secret',
-				'token',
-				'api_key',
-				'apikey',
-				'auth',
-				'private_key',
-				'salt',
-				'nonce',
-				'session',
-				'credit_card',
-				'card_number',
-			);
-			foreach ( $needles as $needle ) {
-				if ( false !== strpos( $key, $needle ) ) {
-					return true;
-				}
-			}
-			return false;
+			return Ahentic_Site_Locator::is_sensitive_meta_key( $key );
 		}
 
 		/**

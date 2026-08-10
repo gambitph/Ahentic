@@ -26,7 +26,8 @@ Official refs: [Abilities API in WP 6.9](https://make.wordpress.org/core/2025/11
 | --- | --- | --- |
 | `class-abilities.php` | Facade + module catalog | — |
 | `class-abilities-snapshot.php` | `ahentic/get-site-snapshot` | Server |
-| `class-abilities-content.php` | `ahentic/*` content | Server |
+| `class-abilities-content.php` | `ahentic/*` content (+ `search-site`) | Server |
+| `class-ahentic-site-locator.php` | Shared literal/regex guards for search-site + replace-in-content | — |
 | `class-abilities-plugins.php` | `ahentic/*` plugins | Server |
 | `class-abilities-site.php` | site health, options, http-fetch, … | Server (http-fetch may pause for browser when `as_user`) |
 | `class-abilities-settings.php` | settings context, list-settings, get-setting, update-theme-setting, update-global-styles, update-template-part, update-option | Server |

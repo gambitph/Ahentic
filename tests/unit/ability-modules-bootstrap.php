@@ -21,6 +21,8 @@ function ahentic_phpunit_require_ability_modules( $include_artifacts_and_playboo
 		foreach (
 			array(
 				'/src/abilities/class-abilities-snapshot.php',
+				'/src/abilities/class-ahentic-content-placeholder.php',
+				'/src/abilities/class-ahentic-site-locator.php',
 				'/src/abilities/class-abilities-content.php',
 				'/src/abilities/class-abilities-plugins.php',
 				'/src/abilities/class-abilities-browser.php',
