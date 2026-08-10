@@ -48,6 +48,27 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 		}
 
 		/**
+		 * Whether to bootstrap the sidebar in this document.
+		 *
+		 * Skips the Classic Customizer preview iframe so the workspace mounts
+		 * only in the controls parent (customize.php), where settings UI lives.
+		 *
+		 * @return bool
+		 */
+		public static function should_bootstrap_sidebar() {
+			if ( ! self::current_user_can_use_ahentic() ) {
+				return false;
+			}
+
+			// Preview iframe only — controls frame still loads via admin hooks.
+			if ( function_exists( 'is_customize_preview' ) && is_customize_preview() ) {
+				return false;
+			}
+
+			return true;
+		}
+
+		/**
 		 * URL to the monochrome Ahentic icon SVG.
 		 *
 		 * @return string
@@ -62,7 +83,7 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 		 * @param \WP_Admin_Bar $wp_admin_bar Admin bar instance.
 		 */
 		public static function register_admin_bar_node( $wp_admin_bar ) {
-			if ( ! self::current_user_can_use_ahentic() ) {
+			if ( ! self::should_bootstrap_sidebar() ) {
 				return;
 			}
 
@@ -88,7 +109,7 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 		 * Print the React mount point.
 		 */
 		public static function render_root() {
-			if ( ! self::current_user_can_use_ahentic() ) {
+			if ( ! self::should_bootstrap_sidebar() ) {
 				return;
 			}
 
@@ -99,7 +120,7 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 		 * Enqueue the main sidebar JavaScript and CSS.
 		 */
 		public static function enqueue_sidebar_assets() {
-			if ( ! self::current_user_can_use_ahentic() ) {
+			if ( ! self::should_bootstrap_sidebar() ) {
 				return;
 			}
 
