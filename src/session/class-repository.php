@@ -20,6 +20,8 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_TOKENS_IN        = '_ahentic_tokens_in';
 		const META_TOKENS_OUT       = '_ahentic_tokens_out';
 		const META_TOKENS_USED      = '_ahentic_tokens_used';
+		/** Highest soft session-spend boundary the human Continued past (0, 200k, 400k…). */
+		const META_SOFT_TOKEN_BUDGET_ACKED = '_ahentic_soft_token_budget_acked';
 		const META_ENTRIES          = '_ahentic_entries';
 		const META_SUMMARY_STATUS   = '_ahentic_summary_status';
 		const META_SUMMARY_AT       = '_ahentic_summary_at';
@@ -31,6 +33,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		const META_HITL_SESSION     = '_ahentic_hitl_session_allows';
 		const META_SETTINGS_SNAPSHOTS = '_ahentic_settings_snapshots';
 		const META_ERROR            = '_ahentic_last_error';
+		const META_ERROR_CODE       = '_ahentic_last_error_code';
 		const META_AUTO_TITLE       = '_ahentic_auto_title';
 		const META_TRACE            = '_ahentic_trace';
 		const META_RUN_SEQ          = '_ahentic_run_seq';
@@ -408,6 +411,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				'stepCount'    => (int) get_post_meta( $session_id, self::META_STEP_COUNT, true ),
 				'pendingTool'  => is_array( $pending ) ? $pending : null,
 				'lastError'    => (string) get_post_meta( $session_id, self::META_ERROR, true ),
+				'lastErrorCode'=> self::get_last_error_code( $session_id ),
 				'jobResumable' => self::get_job_resumable( $session_id ),
 				'contentWork'  => self::get_content_work( $session_id ),
 				'summaryStatus'=> (string) get_post_meta( $session_id, self::META_SUMMARY_STATUS, true ),
@@ -1353,13 +1357,31 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		}
 
 		/**
-		 * Store last error message.
+		 * Store last error message (and optional Continuable / limit code).
 		 *
 		 * @param int    $session_id Session ID.
 		 * @param string $message    Error text.
+		 * @param string $code       Optional machine code (e.g. ahentic_session_token_budget).
 		 */
-		public static function set_error( $session_id, $message ) {
+		public static function set_error( $session_id, $message, $code = '' ) {
+			$session_id = (int) $session_id;
 			update_post_meta( $session_id, self::META_ERROR, sanitize_text_field( $message ) );
+			$code = sanitize_key( (string) $code );
+			if ( '' !== $code ) {
+				update_post_meta( $session_id, self::META_ERROR_CODE, $code );
+			} else {
+				delete_post_meta( $session_id, self::META_ERROR_CODE );
+			}
+		}
+
+		/**
+		 * Last Continuable / limit error code, if any.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return string
+		 */
+		public static function get_last_error_code( $session_id ) {
+			return (string) get_post_meta( (int) $session_id, self::META_ERROR_CODE, true );
 		}
 
 		/**
@@ -1368,7 +1390,46 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 		 * @param int $session_id Session ID.
 		 */
 		public static function clear_error( $session_id ) {
+			$session_id = (int) $session_id;
 			delete_post_meta( $session_id, self::META_ERROR );
+			delete_post_meta( $session_id, self::META_ERROR_CODE );
+		}
+
+		/**
+		 * Cumulative session tokensUsed.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return int
+		 */
+		public static function get_tokens_used( $session_id ) {
+			return (int) get_post_meta( (int) $session_id, self::META_TOKENS_USED, true );
+		}
+
+		/**
+		 * Soft session-spend watermark (highest Continue-acked boundary).
+		 *
+		 * @param int $session_id Session ID.
+		 * @return int
+		 */
+		public static function get_soft_token_budget_acked( $session_id ) {
+			return max( 0, (int) get_post_meta( (int) $session_id, self::META_SOFT_TOKEN_BUDGET_ACKED, true ) );
+		}
+
+		/**
+		 * @param int $session_id Session ID.
+		 * @param int $acked      Tokens boundary Continue raised through.
+		 */
+		public static function set_soft_token_budget_acked( $session_id, $acked ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 ) {
+				return;
+			}
+			$acked = max( 0, (int) $acked );
+			if ( $acked < 1 ) {
+				delete_post_meta( $session_id, self::META_SOFT_TOKEN_BUDGET_ACKED );
+				return;
+			}
+			update_post_meta( $session_id, self::META_SOFT_TOKEN_BUDGET_ACKED, $acked );
 		}
 
 		/**

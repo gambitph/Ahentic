@@ -158,8 +158,9 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 					'restNonce'             => wp_create_nonce( 'wp_rest' ),
 					'aiPlugin'              => $ai_status,
 					'tokenLimitCodes'       => array(
-						'daily'   => Ahentic_Usage::CODE_DAILY_LIMIT,
-						'runaway' => Ahentic_Usage::CODE_RUNAWAY_LOCK,
+						'daily'         => Ahentic_Usage::CODE_DAILY_LIMIT,
+						'runaway'       => Ahentic_Usage::CODE_RUNAWAY_LOCK,
+						'sessionSoft'   => Ahentic_Usage::CODE_SESSION_SOFT_BUDGET,
 					),
 					'abilityProgressLabels' => class_exists( 'Ahentic_Abilities' )
 						? Ahentic_Abilities::progress_labels_map()

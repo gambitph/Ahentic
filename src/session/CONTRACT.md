@@ -28,6 +28,7 @@ Supported statuses: `idle` | `running` | `awaiting_human` | `awaiting_browser` |
 - Clear plan on each **new** user goal message (not on Continue / resume-only cues).
 - Keep artifacts across new messages by default so staged drafts remain usable.
 - Mid-failure / honest partial may set `jobResumable`; Continue resumes the same job (active goal, `content_work`, Plan, Artifacts) via `POST …/continue`.
+- Soft session spend pause (`lastErrorCode` = `ahentic_session_token_budget`) is Continuable the same way; new user messages are rejected while that pause is active (Continue or Stop only).
 
 ## Page context
 

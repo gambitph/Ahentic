@@ -37,6 +37,7 @@ describe( 'session-state record map', () => {
 			tokensUsed: 0,
 			contextUsage: null,
 			jobResumable: false,
+			lastErrorCode: '',
 		} )
 	} )
 

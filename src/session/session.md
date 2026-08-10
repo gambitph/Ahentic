@@ -139,7 +139,7 @@ Large staged payloads (drafts, block trees) live in `_ahentic_artifacts`. Pointe
 
 CamelCase fields for the sidebar, including:
 
-`id`, `title`, `status`, `mode`, `messages`, `hasMore`, `trace`, `traceCount`, `progress`, `plan`, `pendingTool`, `artifacts`, `tokensIn` / `tokensOut` / `tokensUsed`, `contextUsage` (soft 200k budget fill + buckets), `stepCount`, `lastError`, `summaryStatus`, timestamps.
+`id`, `title`, `status`, `mode`, `messages`, `hasMore`, `trace`, `traceCount`, `progress`, `plan`, `pendingTool`, `artifacts`, `tokensIn` / `tokensOut` / `tokensUsed`, `contextUsage` (soft 200k budget fill + buckets), `stepCount`, `lastError`, `lastErrorCode`, `summaryStatus`, timestamps.
 
 ### Context usage (`contextUsage`)
 
