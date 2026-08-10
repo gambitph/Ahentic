@@ -20,7 +20,7 @@ The Ahentic agent loop. It is **not** the LLM itself: it decides what to do next
 | `Ahentic_Plan` | Plan card lifecycle (`sync_after_think` / `ensure_after_think` / advance / complete / cancel / reopen) |
 | `Ahentic_Job_Resume` | New goal vs resume same job (`begin_new_goal` / `begin_resume`) + forced-apply finish policy |
 | `Ahentic_Tool_Runner` | One Ability through HITL / browser / execute (owns pipeline helpers; shared by step loop + approval resume) |
-| `Ahentic_Finish_Gate` | Thin-body assess + decide-before-idle (forced apply / verify repair / partial finish) |
+| `Ahentic_Finish_Gate` | Thin-body assess + continue/finish disposition (`decide_continue`: post-tools apply + pre-idle apply/verify/partial) |
 | `Ahentic_AI` | Thin wrapper around Core AI Client / `wordpress/php-ai-client` |
 | `Ahentic_Step_Queue` | Async steps (shutdown + Action Scheduler / cron fallback) |
 | Session repository | Entries, status, pending tool, plan, page context, artifacts |
@@ -54,13 +54,13 @@ POST /sessions/{id}/messages
 process_step → run_one_step:
   1. LLM think (system prompt + history + page context + artifact pointers)
   2. Parse <<<AHENTIC_DEBUG … AHENTIC_DEBUG>>> control block
-  3. If next ≠ use_tools → Finish_Gate::evaluate_reply → (continue | finish_with_reply → idle)
+  3. If next ≠ use_tools → Finish_Gate::evaluate_reply (decide_continue pre_idle) → (continue | finish_with_reply → idle)
   4. Else for each tools_planned:
        - unavailable / Ask-blocked → tool error entry (Orchestrator)
        - else Ahentic_Tool_Runner::run() →
            from_memory / HITL pause / browser pause / execute + Finish_Gate::assess + persist
        - paused_hitl | paused_browser → stop step
-  5. If any tool continued → enqueue another step
+  5. After tools → Finish_Gate::decide_continue(post_tools) may queue forced apply; then enqueue another step
 ```
 
 Caps: step / tool / debug / truncation on `Ahentic_Orchestrator`; long-form floor + verify attempts on `Ahentic_Finish_Gate`.
