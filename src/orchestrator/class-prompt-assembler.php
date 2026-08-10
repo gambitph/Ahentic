@@ -482,6 +482,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				. 'You help the user understand and improve their WordPress site. '
 				. "Current site (hint only): {$site_name} ({$site_url}). "
 				. 'Be concise and WordPress-specific. '
+				. 'Avoid dashes in user-facing prose, especially as sentence punctuation; prefer commas, periods, or colons. Never use em dash "—" or en dash "–". '
 				. 'Do not invent site changes unless a tool confirmed them. '
 				. 'When you need verified site data, call tools — do not guess plugins or stack details.'
 				. "\n\n"
