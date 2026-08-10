@@ -28,6 +28,31 @@ function isAiPluginStatusGet( url ) {
 	}
 }
 
+/**
+ * Wait for a successful AI plugin status GET and return its JSON body.
+ *
+ * `openWithSession` does goto → reload; a status response from the first
+ * document can match `waitForResponse` and then lose its body on reload.
+ * Read immediately and retry when CDP reports the body was discarded.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @return {Promise<Object>} Parsed status payload.
+ */
+async function waitForAiPluginStatusJson( page ) {
+	for ( ;; ) {
+		const response = await page.waitForResponse( candidate => (
+			candidate.request().method() === 'GET' &&
+			candidate.ok() &&
+			isAiPluginStatusGet( candidate.url() )
+		) )
+		try {
+			return await response.json()
+		} catch {
+			// Navigated away before the body could be read — wait for the next GET.
+		}
+	}
+}
+
 test.describe( 'Ahentic AI connector status recovery', () => {
 	test.beforeEach( async ( { ahenticSidebar } ) => {
 		await ahenticSidebar.resetAiResponses()
@@ -41,16 +66,9 @@ test.describe( 'Ahentic AI connector status recovery', () => {
 		// Localize consumes the first false; mount GET(s) must see true.
 		await seedAiStatusFlake( requestUtils, 1 )
 
-		const statusResponsePromise = page.waitForResponse( response => (
-			response.request().method() === 'GET' &&
-			response.ok() &&
-			isAiPluginStatusGet( response.url() )
-		) )
-
+		const livePromise = waitForAiPluginStatusJson( page )
 		await ahenticSidebar.openWithSession()
-
-		const statusResponse = await statusResponsePromise
-		const live = await statusResponse.json()
+		const live = await livePromise
 		expect( live.hasConnector ).toBe( true )
 		expect( live.canGenerate ).toBe( true )
 
