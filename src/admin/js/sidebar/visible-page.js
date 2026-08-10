@@ -16,6 +16,33 @@ const NOTICE_TEXT_MAX = 400
 const ACTION_LABEL_MAX = 80
 
 /**
+ * Same keys as Ahentic_Abilities_Settings::option_write_denylist() /
+ * Ahentic_Abilities_Browser::fill_fields_option_denylist() — keep in sync.
+ * Prefer window.ahentic.fillFieldsOptionDenylist when localized.
+ *
+ * @return {string[]} Hard-denied option field names.
+ */
+export function fillFieldsOptionDenylist() {
+	const fromBoot = window.ahentic?.fillFieldsOptionDenylist
+	if ( Array.isArray( fromBoot ) && fromBoot.length > 0 ) {
+		return fromBoot.map( String )
+	}
+	return [ 'siteurl', 'home', 'default_role', 'users_can_register', 'admin_email' ]
+}
+
+/**
+ * @param {string} key Field name or id.
+ * @return {boolean} True when the key is on the hard denylist.
+ */
+export function fillFieldsKeyIsDenied( key ) {
+	const k = String( key || '' )
+	if ( ! k ) {
+		return false
+	}
+	return fillFieldsOptionDenylist().includes( k )
+}
+
+/**
  * @return {Object} Visible-page snapshot (headings, notices, actions, fields, excerpt).
  */
 export function collectVisiblePage() {
@@ -63,7 +90,7 @@ export function collectVisiblePage() {
 		},
 		notes: [
 			'Read-only snapshot of visible page content (Ahentic UI excluded).',
-			'Prefer server abilities for site changes; use this to explain the screen or plan fills via ahentic-browser/fill-fields (does not submit).',
+			'On admin non-editor screens, use this to see if a setting is on the form, then ahentic-browser/fill-fields (does not submit). Prefer fill over update-option when the control is visible.',
 		],
 	}
 }
@@ -82,7 +109,7 @@ export function fillFields( input ) {
 	const skipped = []
 	const notes = [
 		'Does not submit the form — user must click Save/Update.',
-		'Prefer server abilities when they cover the change.',
+		'On admin forms, prefer fill over server update-option when the control is on this screen.',
 	]
 
 	if ( requests.length === 0 ) {
@@ -120,6 +147,16 @@ export function fillFields( input ) {
 		}
 
 		const target = pickTarget( field )
+		const deniedKey = [ field.name, field.id ].map( v => String( v || '' ) ).find( fillFieldsKeyIsDenied )
+		if ( deniedKey ) {
+			skipped.push( {
+				...target,
+				reason: 'option_denied',
+				message: `Field “${ deniedKey }” is hard-denied (same denylist as ahentic/update-option).`,
+			} )
+			continue
+		}
+
 		const match = matchFillableNode( nodes, field )
 		if ( match.error ) {
 			skipped.push( { ...target, ...match.error } )

@@ -58,6 +58,19 @@ class BrowserAbilityCatalogTest extends TestCase {
 	}
 
 	/**
+	 * page_only names are a subset of names (admin-form / page tools).
+	 */
+	public function test_page_only_lists_are_subsets_of_names() {
+		$names = Ahentic_Abilities_Browser::names();
+		foreach ( Ahentic_Abilities_Browser::page_only_names() as $name ) {
+			$this->assertContains( $name, $names, 'page_only orphan: ' . $name );
+		}
+		$this->assertTrue( Ahentic_Abilities_Browser::is_page_only( 'ahentic-browser/fill-fields' ) );
+		$this->assertTrue( Ahentic_Abilities_Browser::is_page_only( 'ahentic-browser/get-visible-page' ) );
+		$this->assertFalse( Ahentic_Abilities_Browser::is_page_only( 'ahentic-browser/set-blocks' ) );
+	}
+
+	/**
 	 * non_preallowable names are HITL writes (no orphan irreversible flags).
 	 */
 	public function test_convert_blocks_hitl_summary_includes_target() {

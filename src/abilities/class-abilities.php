@@ -224,11 +224,20 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 		/**
 		 * Whether an ability must pause for HITL before execution.
 		 *
-		 * @param string $name Ability name.
+		 * @param string $name  Ability name.
+		 * @param array  $input Optional tool input (fill-fields is input-aware).
 		 * @return bool
 		 */
-		public static function requires_hitl( $name ) {
-			$name = (string) $name;
+		public static function requires_hitl( $name, $input = array() ) {
+			$name  = (string) $name;
+			$input = is_array( $input ) ? $input : array();
+
+			// fill-fields: facade special-case so other modules keep a 1-arg requires_hitl().
+			if ( class_exists( 'Ahentic_Abilities_Browser' )
+				&& Ahentic_Abilities_Browser::FILL_FIELDS === $name ) {
+				return Ahentic_Abilities_Browser::fill_fields_input_requires_hitl( $input );
+			}
+
 			foreach ( self::$modules as $class ) {
 				if ( method_exists( $class, 'requires_hitl' ) && $class::requires_hitl( $name ) ) {
 					return true;
@@ -287,8 +296,18 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			$name  = (string) $name;
 			$input = is_array( $input ) ? $input : array();
 
+			if ( ! self::requires_hitl( $name, $input ) ) {
+				return $name;
+			}
+
 			foreach ( self::$modules as $class ) {
-				if ( ! method_exists( $class, 'requires_hitl' ) || ! $class::requires_hitl( $name ) ) {
+				$owns = false;
+				if ( method_exists( $class, 'names' ) && in_array( $name, $class::names(), true ) ) {
+					$owns = true;
+				} elseif ( method_exists( $class, 'is_browser' ) && $class::is_browser( $name ) ) {
+					$owns = true;
+				}
+				if ( ! $owns ) {
 					continue;
 				}
 				if ( method_exists( $class, 'hitl_summary' ) ) {
@@ -312,8 +331,18 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			$name  = (string) $name;
 			$input = is_array( $input ) ? $input : array();
 
+			if ( ! self::requires_hitl( $name, $input ) ) {
+				return true;
+			}
+
 			foreach ( self::$modules as $class ) {
-				if ( ! method_exists( $class, 'requires_hitl' ) || ! $class::requires_hitl( $name ) ) {
+				$owns = false;
+				if ( method_exists( $class, 'names' ) && in_array( $name, $class::names(), true ) ) {
+					$owns = true;
+				} elseif ( method_exists( $class, 'is_browser' ) && $class::is_browser( $name ) ) {
+					$owns = true;
+				}
+				if ( ! $owns ) {
 					continue;
 				}
 				if ( method_exists( $class, 'hitl_preflight' ) ) {
@@ -321,7 +350,6 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 					if ( is_wp_error( $result ) ) {
 						return $result;
 					}
-					return true;
 				}
 				return true;
 			}

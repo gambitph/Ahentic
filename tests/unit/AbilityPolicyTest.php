@@ -254,7 +254,7 @@ class AbilityPolicyTest extends TestCase {
 	}
 
 	/**
-	 * fill-fields: browser write, always HITL, non-preallowable; summary lists field→value.
+	 * fill-fields: browser write; HITL only for sensitive targets; non-preallowable; summary lists field→value.
 	 */
 	public function test_browser_fill_fields_policy() {
 		$name = 'ahentic-browser/fill-fields';
@@ -262,11 +262,43 @@ class AbilityPolicyTest extends TestCase {
 		$this->assertContains( $name, Ahentic_Abilities_Browser::names() );
 		$this->assertContains( $name, Ahentic_Abilities_Browser::write_names() );
 		$this->assertTrue( Ahentic_Abilities_Browser::is_browser( $name ) );
+		$this->assertTrue( Ahentic_Abilities_Browser::is_page_only( $name ) );
 		$this->assertFalse( Ahentic_Abilities_Browser::is_readonly( $name ) );
-		$this->assertTrue( Ahentic_Abilities_Browser::requires_hitl( $name ) );
+		$this->assertFalse( Ahentic_Abilities_Browser::requires_hitl( $name ) );
+		$this->assertFalse( Ahentic_Abilities_Browser::requires_hitl( $name, array(
+			'fields' => array(
+				array(
+					'name'  => 'blogname',
+					'value' => 'Acme',
+				),
+			),
+		) ) );
+		$this->assertTrue( Ahentic_Abilities_Browser::requires_hitl( $name, array(
+			'fields' => array(
+				array(
+					'name'  => 'pass1',
+					'value' => 'secret',
+				),
+			),
+		) ) );
 		$this->assertTrue( Ahentic_Abilities_Browser::is_non_preallowable( $name ) );
 		$this->assertTrue( Ahentic_Abilities::requires_browser_runtime( $name ) );
-		$this->assertTrue( Ahentic_Abilities::requires_hitl( $name ) );
+		$this->assertFalse( Ahentic_Abilities::requires_hitl( $name, array(
+			'fields' => array(
+				array(
+					'name'  => 'blogname',
+					'value' => 'Acme',
+				),
+			),
+		) ) );
+		$this->assertTrue( Ahentic_Abilities::requires_hitl( $name, array(
+			'fields' => array(
+				array(
+					'name'  => 'user_email',
+					'value' => 'a@b.co',
+				),
+			),
+		) ) );
 		$this->assertTrue( Ahentic_Abilities::is_non_preallowable( $name ) );
 		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( $name, 'allow_session' ) );
 		$this->assertSame(
@@ -279,21 +311,39 @@ class AbilityPolicyTest extends TestCase {
 			array(
 				'fields' => array(
 					array(
-						'name'  => 'blogname',
-						'value' => 'Acme',
+						'name'  => 'pass1',
+						'value' => 'secret',
 					),
 					array(
-						'id'    => 'blogdescription',
-						'value' => 'Hello',
+						'id'    => 'user_email',
+						'value' => 'a@b.co',
 					),
 				),
 			)
 		);
-		$this->assertStringContainsString( 'blogname', $summary );
-		$this->assertStringContainsString( 'Acme', $summary );
-		$this->assertStringContainsString( 'blogdescription', $summary );
-		$this->assertStringContainsString( 'Hello', $summary );
+		$this->assertStringContainsString( 'pass1', $summary );
+		$this->assertStringContainsString( 'user_email', $summary );
 		$this->assertMatchesRegularExpression( '/does not submit/i', $summary );
+
+		$denied = Ahentic_Abilities_Browser::fill_fields_classify_input(
+			array(
+				'fields' => array(
+					array(
+						'name'  => 'siteurl',
+						'value' => 'https://evil.example',
+					),
+				),
+			)
+		);
+		$this->assertSame( array( 'siteurl' ), $denied['denied'] );
+		$this->assertFalse( Ahentic_Abilities_Browser::requires_hitl( $name, array(
+			'fields' => array(
+				array(
+					'name'  => 'siteurl',
+					'value' => 'https://evil.example',
+				),
+			),
+		) ) );
 	}
 
 	/**

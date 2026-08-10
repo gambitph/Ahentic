@@ -16,7 +16,11 @@ describe( 'fillFields', () => {
 					<option value="F j, Y">F j, Y</option>
 					<option value="Y-m-d">Y-m-d</option>
 				</select>
-				<label><input type="checkbox" name="users_can_register" value="1" /> Membership</label>
+				<label><input type="checkbox" name="blog_public" value="1" /> Search engine visibility</label>
+				<label for="pass1">New Password</label>
+				<input id="pass1" name="pass1" type="password" value="" />
+				<label for="siteurl">WordPress Address</label>
+				<input id="siteurl" name="siteurl" type="text" value="" />
 				<input type="hidden" name="hidden_secret" value="x" />
 				<input type="submit" name="submit" value="Save Changes" />
 			</div>
@@ -57,14 +61,43 @@ describe( 'fillFields', () => {
 		const result = fillFields( {
 			fields: [
 				{ name: 'date_format', value: 'Y-m-d' },
-				{ name: 'users_can_register', value: true },
+				{ name: 'blog_public', value: true },
 			],
 		} )
 
 		expect( result.ok ).toBe( true )
 		expect( document.getElementById( 'date_format' ).value ).toBe( 'Y-m-d' )
-		expect( document.querySelector( '[name="users_can_register"]' ).checked ).toBe( true )
+		expect( document.querySelector( '[name="blog_public"]' ).checked ).toBe( true )
 		expect( result.skipped ).toHaveLength( 0 )
+	} )
+
+	it( 'refuses hard-denied option keys without touching the control', () => {
+		const siteurl = document.getElementById( 'siteurl' )
+		siteurl.value = 'https://example.com'
+
+		const result = fillFields( {
+			fields: [
+				{ name: 'blogname', value: 'Ok' },
+				{ name: 'siteurl', value: 'https://evil.example' },
+				{ name: 'users_can_register', value: true },
+			],
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( document.getElementById( 'blogname' ).value ).toBe( 'Ok' )
+		expect( siteurl.value ).toBe( 'https://example.com' )
+		expect( result.skipped.map( s => s.reason ) ).toEqual( [
+			'option_denied',
+			'option_denied',
+		] )
+	} )
+
+	it( 'still fills password fields in the DOM (HITL is enforced server-side)', () => {
+		const result = fillFields( {
+			fields: [ { name: 'pass1', value: 'hunter2' } ],
+		} )
+		expect( result.ok ).toBe( true )
+		expect( document.getElementById( 'pass1' ).value ).toBe( 'hunter2' )
 	} )
 
 	it( 'reports missing and skips Ahentic UI / unsupported types without aborting siblings', () => {

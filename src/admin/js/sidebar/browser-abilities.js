@@ -293,6 +293,8 @@ function installE2EHooks() {
 		getBlocks,
 		getBlockType,
 		runBrowserAbility,
+		fillFields,
+		collectVisiblePage,
 	}
 }
 

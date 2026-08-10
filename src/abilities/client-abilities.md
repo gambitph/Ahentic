@@ -26,7 +26,7 @@ So browser abilities are **stubs in PHP** (`execute` → `WP_Error` `ahentic_bro
 ```text
 Model plans ahentic-browser/get-blocks (or set-blocks, …)
   → Ahentic_Tool_Runner::run( … )
-       → optional HITL first (save-post, convert-blocks, fill-fields)
+       → optional HITL first (save-post, convert-blocks; fill-fields only for password/email/role-like fields)
        → optional from_memory expansion (set-blocks)
        → pending_tool { name, input, runtime: "browser", call_id }
        → status awaiting_browser
@@ -53,7 +53,7 @@ Also: `ahentic/http-fetch` with `as_user: true` uses the same pause path even th
 | --- | --- |
 | `names()` | All `ahentic-browser/*` ids |
 | `write_names()` / `is_readonly()` | Ask mode filter |
-| `hitl_names()` | e.g. `save-post`, `convert-blocks`, `fill-fields` |
+| `hitl_names()` | e.g. `save-post`, `convert-blocks` (fill-fields is input-aware — not always listed) |
 | `register()` | `wp_register_ability` with `meta.ahentic.runtime = browser` |
 | `execute()` / `execute_stub()` | Always error — must not run in PHP |
 | `summary()` / `hitl_summary()` | Progress / Allow copy |
