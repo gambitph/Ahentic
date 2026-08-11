@@ -461,9 +461,11 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			$recent_abilities = self::recent_ability_names_from_entries( $entries );
 			$want_media       = false;
 			if ( $session_id && class_exists( 'Ahentic_Session_Repository' ) ) {
-				$want_media = self::goal_suggests_media_pack(
-					Ahentic_Session_Repository::get_active_goal( $session_id )
-				);
+				$stored_goal    = Ahentic_Session_Repository::get_active_goal( $session_id );
+				$goal_for_media = class_exists( 'Ahentic_Job_Resume' )
+					? Ahentic_Job_Resume::active_goal_from_entries( $entries, $stored_goal )
+					: $stored_goal;
+				$want_media = self::goal_suggests_media_pack( $goal_for_media );
 			}
 			$routing_packs = self::select_tool_routing_packs(
 				$page_context,
@@ -750,6 +752,11 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		/**
 		 * Whether the active goal is asking for image / media library work.
 		 *
+		 * Routing-only heuristic for attaching the media pack (and thus listing
+		 * ahentic/generate-image). Broader than playbook trigger lists on purpose:
+		 * pack selection must catch common create/add/make phrasings, while playbooks
+		 * remain a separate when-to-load signal via get-wordpress-guidance.
+		 *
 		 * @param string $goal Active goal text.
 		 * @return bool
 		 */
@@ -759,7 +766,12 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				return false;
 			}
 			return (bool) preg_match(
-				'/\b(featured\s+image|generate\s+(an?\s+)?image|upload\s+(an?\s+)?(image|photo|media)|media\s+library|hero\s+image|alt\s+text|set[\s-]?featured|cover\s+image)\b/i',
+				'/\b('
+				. 'featured\s+image|hero\s+image|cover\s+image|inline\s+image|'
+				. 'media\s+library|alt\s+text|set[\s-]?featured|thumbnail|'
+				. '(?:generate|create|make|add|draw|design)\s+(?:(?:an?|some|our|the|my)\s+)?(?:images?|pictures?|photos?|illustrations?|artwork|logos?)|'
+				. 'upload\s+(?:(?:an?|some|our|the|my)\s+)?(?:images?|pictures?|photos?|media)'
+				. ')\b/i',
 				$goal
 			);
 		}
