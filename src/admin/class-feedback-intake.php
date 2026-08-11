@@ -23,6 +23,13 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		const DEFAULT_BASE_URL = 'https://feedback.wpahentic.com';
 
 		/**
+		 * Cloudflare Turnstile site key (public; never the secret).
+		 *
+		 * @var string
+		 */
+		const DEFAULT_TURNSTILE_SITE_KEY = '0x4AAAAAAEMuhGeCYVM6atx5';
+
+		/**
 		 * Option: HMAC site_token from intake.
 		 *
 		 * @var string
@@ -70,18 +77,13 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		/**
 		 * Cloudflare Turnstile site key for the sidebar (public).
 		 *
-		 * Prefer AHENTIC_TURNSTILE_SITE_KEY constant, then filter, then empty
-		 * (consent UI still shows; mint fails until configured).
+		 * Filterable like base_url(); e2e may override via ahentic_turnstile_site_key.
 		 *
 		 * @return string
 		 */
 		public static function turnstile_site_key() {
-			if ( defined( 'AHENTIC_TURNSTILE_SITE_KEY' ) && AHENTIC_TURNSTILE_SITE_KEY ) {
-				$key = (string) AHENTIC_TURNSTILE_SITE_KEY;
-			} else {
-				$key = (string) apply_filters( 'ahentic_turnstile_site_key', '' );
-			}
-			return $key;
+			$key = apply_filters( 'ahentic_turnstile_site_key', self::DEFAULT_TURNSTILE_SITE_KEY );
+			return is_string( $key ) && $key ? $key : self::DEFAULT_TURNSTILE_SITE_KEY;
 		}
 
 		/**
