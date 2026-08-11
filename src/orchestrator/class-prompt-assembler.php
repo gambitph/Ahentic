@@ -130,7 +130,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				. 'Your previous reply omitted a valid control block. '
 				. 'Output exactly one <<<AHENTIC_DEBUG {…} AHENTIC_DEBUG>>> block FIRST with intention, thinking, '
 				. 'tools_planned (reuse ability names you already intended; objects {"name","input"} or name strings), '
-				. 'and next (reply|ask_user|use_tools|missing_ability), then a short user-facing reply. '
+				. 'and next (reply|ask_user|use_tools only — do not use missing_ability here; this recovery prompt has no ability catalog), '
+				. 'then a short user-facing reply. '
 				. 'Do not invent site changes. Do not mention the debug block. '
 				. 'Keep tools_planned empty when next is reply or ask_user.';
 		}
