@@ -41,6 +41,7 @@ test.describe( 'Run feedback intake proxy (REST)', () => {
 		} )
 		expect( status ).not.toHaveProperty( 'site_token' )
 		expect( status ).not.toHaveProperty( 'siteToken' )
+		expect( status ).not.toHaveProperty( 'turnstileSiteKey' )
 	} )
 
 	test( 'mint + report files a mocked issue for a resumable session', async ( {
@@ -67,10 +68,11 @@ test.describe( 'Run feedback intake proxy (REST)', () => {
 		const minted = await requestUtils.rest( {
 			path: '/ahentic/v1/feedback/site-tokens',
 			method: 'POST',
-			data: { turnstile_token: 'e2e-turnstile-token' },
+			data: {},
 		} )
 		expect( minted.hasToken ).toBe( true )
 		expect( minted ).not.toHaveProperty( 'site_token' )
+		expect( minted ).not.toHaveProperty( 'turnstileSiteKey' )
 
 		await seedAiResponses( requestUtils, [
 			JSON.stringify( {

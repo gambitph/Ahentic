@@ -250,7 +250,7 @@ export function isSessionId( id ) {
 }
 
 /**
- * Run feedback intake status (consented / hasToken / Turnstile site key).
+ * Run feedback intake status (consented / hasToken / intakeBase).
  *
  * @return {Promise<Object>} Status payload.
  */
@@ -259,17 +259,14 @@ export function getFeedbackStatus() {
 }
 
 /**
- * Fresh mint after Turnstile (token stays server-side).
+ * Fresh mint (mint proof computed server-side; token stays server-side).
  *
- * @param {string} turnstileToken Cloudflare Turnstile response.
  * @return {Promise<Object>} Updated feedback status.
  */
-export function mintFeedbackSiteToken( turnstileToken ) {
+export function mintFeedbackSiteToken() {
 	return apiRequest( '/feedback/site-tokens', {
 		method: 'POST',
-		// Intake / REST wire format uses snake_case.
-		/* eslint-disable-next-line camelcase -- turnstile_token matches PHP / intake. */
-		body: JSON.stringify( { turnstile_token: turnstileToken } ),
+		body: '{}',
 	} )
 }
 

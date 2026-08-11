@@ -206,16 +206,14 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 					),
 					'feedback'              => class_exists( 'Ahentic_Feedback_Intake' )
 						? array(
-							'turnstileSiteKey' => Ahentic_Feedback_Intake::turnstile_site_key(),
-							'intakeBase'       => Ahentic_Feedback_Intake::base_url(),
-							'hasToken'         => '' !== Ahentic_Feedback_Intake::get_site_token(),
-							'consented'        => (int) get_option( Ahentic_Feedback_Intake::OPTION_CONSENTED_AT, 0 ) > 0,
+							'intakeBase' => Ahentic_Feedback_Intake::base_url(),
+							'hasToken'   => '' !== Ahentic_Feedback_Intake::get_site_token(),
+							'consented'  => (int) get_option( Ahentic_Feedback_Intake::OPTION_CONSENTED_AT, 0 ) > 0,
 						)
 						: array(
-							'turnstileSiteKey' => '',
-							'intakeBase'       => 'https://feedback.wpahentic.com',
-							'hasToken'         => false,
-							'consented'        => false,
+							'intakeBase' => 'https://feedback.wpahentic.com',
+							'hasToken'   => false,
+							'consented'  => false,
 						),
 				)
 			);

@@ -12,6 +12,15 @@ require_once dirname( __DIR__, 2 ) . '/src/admin/class-feedback-intake.php';
  */
 class FeedbackIntakeTest extends PHPUnit\Framework\TestCase {
 
+	public function test_compute_mint_proof_matches_prd_vector() {
+		$nonce = str_repeat( 'ab', 32 );
+		$proof = Ahentic_Feedback_Intake::compute_mint_proof( $nonce, 1700000000, 'test-mint-key' );
+		$this->assertSame(
+			'c6864bb64a35439dc9038f3ef43c6f865e6d17b3f71cdef8efb7c000e5c6f7af',
+			$proof
+		);
+	}
+
 	public function test_scrub_text_redacts_email_ip_url_and_secrets() {
 		$raw = 'Contact me@example.com from 203.0.113.9 at https://evil.example/path with sk-abc123XYZ';
 		$out = Ahentic_Feedback_Intake::scrub_text( $raw );

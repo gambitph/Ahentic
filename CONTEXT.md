@@ -156,9 +156,13 @@ _Avoid_: raw `to_diagnostics()` dump, full prompt bodies
 Ahentic-operated Cloudflare Worker at `feedback.wpahentic.com` that mints site tokens and files reports into `gambitph/Ahentic` (`run-feedback` label).
 _Avoid_: plugin-embedded GitHub bot, site OAuth to GitHub
 
+**Mint proof**:
+Shared HMAC formula (`MINT_KEY`) the Ahentic client and intake both compute on fresh opt-in; client attestation, not a captcha.
+_Avoid_: Turnstile token, API key, license key, site token
+
 **Site token**:
-Stateless HMAC credential from intake after Turnstile (stored in site options; silent refresh; re-opt-in only if lost).
-_Avoid_: API key, license key, Turnstile token (that is the bot check, not the site credential)
+Stateless HMAC credential from intake after a valid mint proof (stored in site options; silent refresh; re-opt-in only if lost).
+_Avoid_: API key, license key, mint proof (mint proof is only for fresh mint, not the enrolled-site credential)
 
 ### Packaging
 

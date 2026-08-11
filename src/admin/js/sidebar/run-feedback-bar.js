@@ -34,100 +34,7 @@ export function shouldShowRunFeedback( session, dismissed = false ) {
 }
 
 /**
- * Load Turnstile script once; resolve with window.turnstile or reject.
- *
- * @param {string} siteKey
- * @return {Promise<Object>} turnstile API.
- */
-function loadTurnstile( siteKey ) {
-	if ( ! siteKey ) {
-		return Promise.reject( new Error( __( 'Turnstile is not configured.', 'ahentic' ) ) )
-	}
-	if ( window.turnstile ) {
-		return Promise.resolve( window.turnstile )
-	}
-	return new Promise( ( resolve, reject ) => {
-		const existing = document.querySelector( 'script[data-ahentic-turnstile]' )
-		if ( existing ) {
-			existing.addEventListener( 'load', () => {
-				if ( window.turnstile ) {
-					resolve( window.turnstile )
-				} else {
-					reject( new Error( __( 'Turnstile failed to load.', 'ahentic' ) ) )
-				}
-			} )
-			existing.addEventListener( 'error', () => {
-				reject( new Error( __( 'Turnstile failed to load.', 'ahentic' ) ) )
-			} )
-			return
-		}
-		const script = document.createElement( 'script' )
-		script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
-		script.async = true
-		script.dataset.ahenticTurnstile = '1'
-		script.onload = () => {
-			if ( window.turnstile ) {
-				resolve( window.turnstile )
-			} else {
-				reject( new Error( __( 'Turnstile failed to load.', 'ahentic' ) ) )
-			}
-		}
-		script.onerror = () => {
-			reject( new Error( __( 'Turnstile failed to load.', 'ahentic' ) ) )
-		}
-		document.head.appendChild( script )
-	} )
-}
-
-/**
- * Run Turnstile in a temporary container; returns the token.
- *
- * @param {string} siteKey
- * @return {Promise<string>} Turnstile response token.
- */
-async function challengeTurnstile( siteKey ) {
-	const turnstile = await loadTurnstile( siteKey )
-	return new Promise( ( resolve, reject ) => {
-		const host = document.createElement( 'div' )
-		host.style.position = 'fixed'
-		host.style.left = '-9999px'
-		document.body.appendChild( host )
-		let widgetId
-		const cleanup = () => {
-			try {
-				if ( widgetId !== undefined && turnstile.remove ) {
-					turnstile.remove( widgetId )
-				}
-			} catch ( _e ) {
-				// ignore
-			}
-			host.remove()
-		}
-		try {
-			widgetId = turnstile.render( host, {
-				sitekey: siteKey,
-				callback: token => {
-					cleanup()
-					resolve( token )
-				},
-				'error-callback': () => {
-					cleanup()
-					reject( new Error( __( 'Turnstile verification failed.', 'ahentic' ) ) )
-				},
-				'expired-callback': () => {
-					cleanup()
-					reject( new Error( __( 'Turnstile expired. Try again.', 'ahentic' ) ) )
-				},
-			} )
-		} catch ( err ) {
-			cleanup()
-			reject( err instanceof Error ? err : new Error( String( err ) ) )
-		}
-	} )
-}
-
-/**
- * Ensure the site has a stored intake token (mint with Turnstile if needed).
+ * Ensure the site has a stored intake token (mint with mint proof if needed).
  *
  * @return {Promise<Object>} Feedback status.
  */
@@ -136,13 +43,7 @@ export async function ensureFeedbackOptIn() {
 	if ( status.hasToken ) {
 		return status
 	}
-	// Playwright e2e: skip Cloudflare widget; intake is mocked in the mu-plugin.
-	if ( window.__AHENTIC_E2E__ ) {
-		return mintFeedbackSiteToken( 'e2e-turnstile-token' )
-	}
-	const siteKey = status.turnstileSiteKey || window.ahentic?.feedback?.turnstileSiteKey || ''
-	const token = await challengeTurnstile( siteKey )
-	return mintFeedbackSiteToken( token )
+	return mintFeedbackSiteToken()
 }
 
 /**

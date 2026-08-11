@@ -1053,15 +1053,8 @@ add_action(
 );
 
 /**
- * E2E: mock Run feedback intake (no live Cloudflare Worker / Turnstile).
+ * E2E: mock Run feedback intake (no live Cloudflare Worker).
  */
-add_filter(
-	'ahentic_turnstile_site_key',
-	static function () {
-		return 'e2e-turnstile-site-key';
-	}
-);
-
 add_filter(
 	'pre_ahentic_feedback_duplicate_search',
 	static function () {

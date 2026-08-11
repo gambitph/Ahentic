@@ -23,11 +23,13 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		const DEFAULT_BASE_URL = 'https://feedback.wpahentic.com';
 
 		/**
-		 * Cloudflare Turnstile site key (public; never the secret).
+		 * Shared mint-proof key (must match Worker `MINT_KEY` secret).
+		 *
+		 * Client attestation only — ships in the plugin zip by design.
 		 *
 		 * @var string
 		 */
-		const DEFAULT_TURNSTILE_SITE_KEY = '0x4AAAAAAEMuhGeCYVM6atx5';
+		const DEFAULT_MINT_KEY = 'AhenticFeedbackMintV1.k7m2p9q4r8s1t5u0';
 
 		/**
 		 * Option: HMAC site_token from intake.
@@ -75,15 +77,17 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Cloudflare Turnstile site key for the sidebar (public).
-		 *
-		 * Filterable like base_url(); e2e may override via ahentic_turnstile_site_key.
+		 * Shared mint-proof key for fresh opt-in (must match Worker `MINT_KEY`).
 		 *
 		 * @return string
 		 */
-		public static function turnstile_site_key() {
-			$key = apply_filters( 'ahentic_turnstile_site_key', self::DEFAULT_TURNSTILE_SITE_KEY );
-			return is_string( $key ) && $key ? $key : self::DEFAULT_TURNSTILE_SITE_KEY;
+		public static function mint_key() {
+			$default = self::DEFAULT_MINT_KEY;
+			if ( function_exists( 'apply_filters' ) ) {
+				$key = apply_filters( 'ahentic_feedback_mint_key', $default );
+				return is_string( $key ) && '' !== $key ? $key : $default;
+			}
+			return $default;
 		}
 
 		/**
@@ -97,12 +101,11 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			$consented  = (int) get_option( self::OPTION_CONSENTED_AT, 0 );
 
 			return array(
-				'consented'        => $consented > 0,
-				'hasToken'         => '' !== $token,
-				'expiresAt'        => $expires_at > 0 ? $expires_at : null,
-				'needsRefresh'     => self::needs_refresh(),
-				'turnstileSiteKey' => self::turnstile_site_key(),
-				'intakeBase'       => self::base_url(),
+				'consented'    => $consented > 0,
+				'hasToken'     => '' !== $token,
+				'expiresAt'    => $expires_at > 0 ? $expires_at : null,
+				'needsRefresh' => self::needs_refresh(),
+				'intakeBase'   => self::base_url(),
 			);
 		}
 
@@ -165,6 +168,20 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			$bytes = random_bytes( 32 );
 			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- nonce encoding, not obfuscation.
 			return rtrim( strtr( base64_encode( $bytes ), '+/', '-_' ), '=' );
+		}
+
+		/**
+		 * Compute mint proof (PRD HMAC formula).
+		 *
+		 * @param string      $nonce      Strong nonce.
+		 * @param int         $issued_at  Unix seconds.
+		 * @param string|null $mint_key   Optional key override (tests).
+		 * @return string Lowercase hex HMAC-SHA256.
+		 */
+		public static function compute_mint_proof( $nonce, $issued_at, $mint_key = null ) {
+			$key     = ( is_string( $mint_key ) && '' !== $mint_key ) ? $mint_key : self::mint_key();
+			$message = 'ahentic-mint-v1' . "\n" . $nonce . "\n" . (string) (int) $issued_at;
+			return hash_hmac( 'sha256', $message, $key );
 		}
 
 		/**
@@ -231,26 +248,21 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Fresh mint after Turnstile + consent.
+		 * Fresh mint after mint proof + consent.
 		 *
-		 * @param string $turnstile_token Cloudflare Turnstile response.
 		 * @return array|\WP_Error { site_token, expires_at } or error.
 		 */
-		public static function mint_site_token( $turnstile_token ) {
-			$turnstile_token = is_string( $turnstile_token ) ? trim( $turnstile_token ) : '';
-			if ( '' === $turnstile_token ) {
-				return new WP_Error(
-					'ahentic_feedback_turnstile_required',
-					__( 'Turnstile verification is required to opt in to Run feedback.', 'ahentic' ),
-					array( 'status' => 400 )
-				);
-			}
+		public static function mint_site_token() {
+			$nonce      = self::generate_nonce();
+			$issued_at  = time();
+			$mint_proof = self::compute_mint_proof( $nonce, $issued_at );
 
 			$result = self::request(
 				'/v1/site-tokens',
 				array(
-					'turnstile_token' => $turnstile_token,
-					'nonce'           => self::generate_nonce(),
+					'nonce'      => $nonce,
+					'issued_at'  => $issued_at,
+					'mint_proof' => $mint_proof,
 				)
 			);
 			if ( is_wp_error( $result ) ) {
@@ -275,7 +287,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Silent refresh when a token is present. No Turnstile.
+		 * Silent refresh when a token is present. No mint proof.
 		 *
 		 * @return array|\WP_Error { site_token, expires_at } or error.
 		 */
@@ -284,7 +296,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			if ( '' === $token ) {
 				return new WP_Error(
 					'ahentic_feedback_no_token',
-					__( 'No site token to refresh. Opt in again with Turnstile.', 'ahentic' ),
+					__( 'No site token to refresh. Opt in to Run feedback again.', 'ahentic' ),
 					array( 'status' => 401 )
 				);
 			}
@@ -327,7 +339,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			if ( '' === $token ) {
 				return new WP_Error(
 					'ahentic_feedback_no_token',
-					__( 'Opt in to Run feedback first (consent + Turnstile).', 'ahentic' ),
+					__( 'Opt in to Run feedback first.', 'ahentic' ),
 					array( 'status' => 401 )
 				);
 			}

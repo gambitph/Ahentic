@@ -52,13 +52,6 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 					'methods'             => 'POST',
 					'callback'            => array( __CLASS__, 'post_mint' ),
 					'permission_callback' => array( __CLASS__, 'can_manage' ),
-					'args'                => array(
-						'turnstile_token' => array(
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-					),
 				)
 			);
 
@@ -115,13 +108,12 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 		}
 
 		/**
-		 * POST /feedback/site-tokens — fresh mint (Turnstile).
+		 * POST /feedback/site-tokens — fresh mint (mint proof computed server-side).
 		 *
-		 * @param \WP_REST_Request $request Request.
 		 * @return \WP_REST_Response|\WP_Error
 		 */
-		public static function post_mint( $request ) {
-			$result = Ahentic_Feedback_Intake::mint_site_token( $request->get_param( 'turnstile_token' ) );
+		public static function post_mint() {
+			$result = Ahentic_Feedback_Intake::mint_site_token();
 			if ( is_wp_error( $result ) ) {
 				return self::error_response( $result );
 			}
