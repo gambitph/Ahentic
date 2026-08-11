@@ -31,7 +31,7 @@ Official refs: [Abilities API in WP 6.9](https://make.wordpress.org/core/2025/11
 | `class-abilities-plugins.php` | `ahentic/*` plugins | Server |
 | `class-abilities-site.php` | site health, options, http-fetch, … | Server (http-fetch may pause for browser when `as_user`) |
 | `class-abilities-settings.php` | settings context, list-settings, get-setting, update-theme-setting, update-global-styles, update-template-part, update-option | Server |
-| `class-abilities-media.php` | list-media, get-media, find-unused-media, describe/generate/upload, update/delete/replace, set-featured-image | Server |
+| `class-abilities-media.php` | list-media, get-media, find-unused-media, describe/generate/upload, update/delete/restore/replace, set-featured-image | Server |
 | `class-abilities-taxonomy.php` | terms | Server |
 | `class-abilities-users.php` | list/create/update/delete users | Server |
 | `class-abilities-menus.php` | list-menus, list-menu-items, get-menu, update-menu (classic nav) | Server |

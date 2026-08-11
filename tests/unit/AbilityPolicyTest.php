@@ -141,6 +141,7 @@ class AbilityPolicyTest extends TestCase {
 			'ahentic/update-media',
 			'ahentic/set-featured-image',
 			'ahentic/delete-media',
+			'ahentic/restore-media',
 			'ahentic/replace-media-file',
 		);
 
@@ -157,6 +158,7 @@ class AbilityPolicyTest extends TestCase {
 		$this->assertFalse( Ahentic_Abilities_Media::is_non_preallowable( 'ahentic/update-media' ) );
 		$this->assertFalse( Ahentic_Abilities_Media::is_non_preallowable( 'ahentic/set-featured-image' ) );
 		$this->assertFalse( Ahentic_Abilities_Media::is_non_preallowable( 'ahentic/delete-media' ) );
+		$this->assertFalse( Ahentic_Abilities_Media::is_non_preallowable( 'ahentic/restore-media' ) );
 		$this->assertTrue( Ahentic_Abilities_Media::is_non_preallowable( 'ahentic/replace-media-file' ) );
 		$this->assertTrue( Ahentic_Abilities::is_non_preallowable( 'ahentic/replace-media-file' ) );
 		$this->assertFalse( Ahentic_Abilities::hitl_choice_allowed( 'ahentic/replace-media-file', 'allow_session' ) );

@@ -772,7 +772,9 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				. 'featured\s+image|hero\s+image|cover\s+image|inline\s+image|'
 				. 'media\s+library|alt\s+text|set[\s-]?featured|thumbnail|'
 				. '(?:generate|create|make|add|draw|design)\s+(?:(?:an?|some|our|the|my)\s+)?(?:images?|pictures?|photos?|illustrations?|artwork|logos?)|'
-				. 'upload\s+(?:(?:an?|some|our|the|my)\s+)?(?:images?|pictures?|photos?|media)'
+				. 'upload\s+(?:(?:an?|some|our|the|my)\s+)?(?:images?|pictures?|photos?|media)|'
+				. '(?:delete|remove|restore|untrash)\s+(?:(?:an?|some|our|the|my|unused|deleted)\s+)*(?:images?|pictures?|photos?|media)|'
+				. 'unused\s+media|trashed\s+media'
 				. ')\b/i',
 				$goal
 			);
@@ -1041,7 +1043,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					return 'Post images: put ahentic/generate-image, ahentic/upload-media (from_memory), and ONE place '
 						. '(ahentic/set-featured-image or ahentic-browser/set-featured-image with attachment_id — use 0 as placeholder after upload, or from_upload with the image artifact key; inline: ahentic-browser/insert-blocks) '
 						. 'in ONE tools_planned so steps can run without another full think between them — never both featured and inline. '
-						. 'Also: list-media / get-media / find-unused-media. '
+						. 'Also: ahentic/list-media / ahentic/get-media / ahentic/find-unused-media; ahentic/delete-media quarantines to trash; ahentic/restore-media untrashes (HITL). '
+						. 'To find trashed attachments for restore, ahentic/list-media with status=trash. '
 						. 'Call get-wordpress-guidance topic web-image-fit before post images; default 16:9 not tall/square. '
 						. 'Alt text: get-blocks compact media attrs → describe-image (attachment_id or url) → update-block-attributes with the block\'s alt key. '
 						. 'Never from_memory on insert-blocks for image artifacts. ';
