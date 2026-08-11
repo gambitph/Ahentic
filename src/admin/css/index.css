@@ -1372,6 +1372,10 @@ a.ahentic-empty__ai-install:hover {
 	border-color: var(--ah-border);
 }
 
+.ahentic-plan.is-paused {
+	border-color: var(--ah-border);
+}
+
 .ahentic-plan__header {
 	display: flex;
 	align-items: baseline;

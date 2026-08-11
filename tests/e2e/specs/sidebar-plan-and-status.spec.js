@@ -135,6 +135,50 @@ test.describe( 'Sidebar plan card + live status', () => {
 		await expect( ahenticSidebar.liveStatus ).toHaveCount( 0 )
 	} )
 
+	test( 'ask_user clarifying pause keeps the plan open (not Plan complete)', async ( {
+		ahenticSidebar,
+		requestUtils,
+	} ) => {
+		await ahenticSidebar.seedAiResponses( [
+			mockReply( 'What email should Allen use?', {
+				intention: 'Need the email before creating the user',
+				thinking: 'create-user requires email; ask before tools.',
+				next: 'ask_user',
+				plan: {
+					title: 'Add user Allen',
+					steps: [
+						{
+							id: '1', content: 'Confirm username Allen', status: 'completed',
+						},
+						{
+							id: '2', content: 'Ask for email and role', status: 'in_progress',
+						},
+						{
+							id: '3', content: 'Create the user', status: 'pending',
+						},
+					],
+				},
+			} ),
+		] )
+
+		const session = await ahenticSidebar.openWithSession()
+		await ahenticSidebar.sendMessage( 'Add a new user named Allen' )
+
+		await waitForSession( requestUtils, session.id, s => s.status === 'idle' )
+
+		await expect( ahenticSidebar.message( 'assistant' ) ).toContainText( 'email', {
+			timeout: 15_000,
+		} )
+		await expect( ahenticSidebar.planCard ).toBeVisible()
+		await expect( ahenticSidebar.planEyebrow ).toContainText( /Waiting for you/i )
+		await expect( ahenticSidebar.planEyebrow ).not.toContainText( /Plan complete/i )
+
+		const idle = await waitForSession( requestUtils, session.id, s => s.status === 'idle' )
+		const steps = idle.plan?.steps || []
+		expect( steps.some( step => step.status === 'pending' || step.status === 'in_progress' ) ).toBe( true )
+		expect( steps.every( step => step.status === 'completed' ) ).toBe( false )
+	} )
+
 	test( 'stopping a run marks the plan card as Plan stopped', async ( {
 		ahenticSidebar,
 		requestUtils,

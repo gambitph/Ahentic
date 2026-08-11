@@ -29,11 +29,13 @@ export function shouldShowPlanCard( plan ) {
  *
  * Steps may all be marked completed while the run is still busy (finish gate,
  * verify, final reply). Do not show "Plan complete" until the session is idle.
+ * Idle clarifying pauses (ask_user) leave unfinished steps open: show a waiting
+ * eyebrow instead of celebrating completion.
  *
  * @param {Object}  plan
  * @param {Object}  [options]
  * @param {boolean} [options.busy] Session still working (live status visible).
- * @return {{ done: number, total: number, showComplete: boolean, wrappingUp: boolean, stopped: boolean, stateClass: string, eyebrow: string, steps: Array, visible: boolean }} Result.
+ * @return {{ done: number, total: number, showComplete: boolean, wrappingUp: boolean, waitingOnUser: boolean, stopped: boolean, stateClass: string, eyebrow: string, steps: Array, visible: boolean }} Result.
  */
 export function resolvePlanCardPresentation( plan, { busy = false } = {} ) {
 	const rawSteps = Array.isArray( plan?.steps ) ? plan.steps : []
@@ -49,12 +51,19 @@ export function resolvePlanCardPresentation( plan, { busy = false } = {} ) {
 		! busy &&
 		rawSteps.some( step => step.status === 'cancelled' ) &&
 		! rawSteps.some( step => step.status === 'in_progress' )
+	const waitingOnUser = visible &&
+		! busy &&
+		! showComplete &&
+		! stopped &&
+		rawSteps.some( step => step.status === 'pending' || step.status === 'in_progress' )
 
 	let stateClass = ''
 	if ( showComplete ) {
 		stateClass = ' is-complete'
 	} else if ( wrappingUp ) {
 		stateClass = ' is-wrapping-up'
+	} else if ( waitingOnUser ) {
+		stateClass = ' is-paused'
 	} else if ( stopped ) {
 		stateClass = ' is-stopped'
 	}
@@ -64,6 +73,8 @@ export function resolvePlanCardPresentation( plan, { busy = false } = {} ) {
 		eyebrow = __( 'Plan complete', 'ahentic' )
 	} else if ( wrappingUp ) {
 		eyebrow = __( 'Finishing…', 'ahentic' )
+	} else if ( waitingOnUser ) {
+		eyebrow = __( 'Waiting for you…', 'ahentic' )
 	} else if ( stopped ) {
 		eyebrow = __( 'Plan stopped', 'ahentic' )
 	}
@@ -85,6 +96,7 @@ export function resolvePlanCardPresentation( plan, { busy = false } = {} ) {
 		total,
 		showComplete,
 		wrappingUp,
+		waitingOnUser,
 		stopped,
 		stateClass,
 		eyebrow,

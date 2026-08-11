@@ -53,7 +53,7 @@ Order of concerns for each planned tool (after the ability is available for the 
 
 **Prompt assembly module:** `Ahentic_Prompt_Assembler` owns system prompt text, history/tool compaction, and user-turn shaping (including slim AHENTIC_DEBUG recovery prompts). The Orchestrator must call `for_llm()` (or the assembler’s tested helpers) — do not reimplement prompt/payload assembly at call sites.
 
-**Plan module:** `Ahentic_Plan` owns the plan checklist. Primary interface: `sync_after_think()`, `ensure_after_think()`, `advance_after_tool()`, `complete_on_finish()`, `cancel_on_stop()`, `reopen_cancelled_steps()`. The Orchestrator (and Finish Gate for advance) must call these — do not reimplement plan merge/normalize/FSM at call sites.
+**Plan module:** `Ahentic_Plan` owns the plan checklist. Primary interface: `sync_after_think()`, `ensure_after_think()`, `advance_after_tool()`, `complete_on_finish()`, `pause_for_user()`, `cancel_on_stop()`, `reopen_cancelled_steps()`. The Orchestrator (and Finish Gate for advance) must call these; do not reimplement plan merge/normalize/FSM at call sites. `ask_user` finishes must call `pause_for_user()` (not `complete_on_finish()`).
 
 **Job resume module:** `Ahentic_Job_Resume` owns new-goal vs resume-same-job run-start ritual (Repository clears/sets, sticky `content_work`, active goal, Plan reopen via `Ahentic_Plan`) and whether forced tools may finish without another think after success (apply/batch/recipe; failures during content-work apply return to think). Primary interface: `begin_new_goal()`, `begin_resume()`, `should_finish_after_forced_tools()`, `should_try_finish_after_browser_resume()`. The Orchestrator must call these — do not reimplement Continuable / cue / clear sequences at call sites.
 

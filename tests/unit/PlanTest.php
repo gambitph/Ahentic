@@ -166,4 +166,70 @@ class PlanTest extends TestCase {
 			)
 		);
 	}
+
+	/**
+	 * ask_user pause: demote in_progress so an idle session never looks live,
+	 * and leave unfinished work open (do not settle as completed).
+	 */
+	public function test_with_steps_paused_for_user_demotes_in_progress() {
+		$plan = array(
+			'title' => 'Add user',
+			'steps' => array(
+				array(
+					'id'      => '1',
+					'content' => 'Gather details',
+					'status'  => 'completed',
+				),
+				array(
+					'id'      => '2',
+					'content' => 'Ask for email',
+					'status'  => 'in_progress',
+				),
+				array(
+					'id'      => '3',
+					'content' => 'Create the user',
+					'status'  => 'pending',
+				),
+			),
+		);
+
+		$paused = Ahentic_Plan::with_steps_paused_for_user( $plan );
+
+		$this->assertSame( 'completed', $paused['steps'][0]['status'] );
+		$this->assertSame( 'pending', $paused['steps'][1]['status'] );
+		$this->assertSame( 'pending', $paused['steps'][2]['status'] );
+	}
+
+	/**
+	 * ask_user pause safety net: if the model marked every step completed while
+	 * still clarifying, reopen the last completed step so the card is not "done".
+	 */
+	public function test_with_steps_paused_for_user_reopens_premature_all_completed() {
+		$plan = array(
+			'title' => 'Add user',
+			'steps' => array(
+				array(
+					'id'      => '1',
+					'content' => 'Gather details',
+					'status'  => 'completed',
+				),
+				array(
+					'id'      => '2',
+					'content' => 'Ask for email',
+					'status'  => 'completed',
+				),
+				array(
+					'id'      => '3',
+					'content' => 'Create the user',
+					'status'  => 'completed',
+				),
+			),
+		);
+
+		$paused = Ahentic_Plan::with_steps_paused_for_user( $plan );
+
+		$this->assertSame( 'completed', $paused['steps'][0]['status'] );
+		$this->assertSame( 'completed', $paused['steps'][1]['status'] );
+		$this->assertSame( 'pending', $paused['steps'][2]['status'] );
+	}
 }

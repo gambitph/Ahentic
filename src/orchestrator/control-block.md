@@ -48,9 +48,9 @@ If the block is missing or `next` is invalid, the orchestrator **retries interna
 | Value | Orchestrator behavior |
 | --- | --- |
 | `use_tools` | Run `tools_planned` (HITL / browser / PHP as needed), then another think |
-| `reply` | Finish run; show assistant text; status → idle |
-| `ask_user` | Finish run waiting on the user (clarifying question) |
-| `missing_ability` | Finish + queue capability request; do not pretend the tool ran |
+| `reply` | Finish run; show assistant text; status → idle; settle open plan steps as completed |
+| `ask_user` | Finish run waiting on the user (clarifying question); pause the plan checklist (do not mark unfinished steps completed) |
+| `missing_ability` | Finish + queue capability request; do not pretend the tool ran; settle open plan steps as completed |
 
 **HITL note:** For mutating tools that already pause for Allow/Deny, prefer `next=use_tools` with that ability in `tools_planned` — do not use `ask_user` only to “confirm” the same action.
 
