@@ -376,7 +376,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 				self::CREATE,
 				array(
 					'label'               => __( 'Create user', 'ahentic' ),
-					'description'         => __( 'Creates a WordPress user (wp_insert_user). Requires username, email, and role. Role must be strictly below the operator’s own (capability comparison). Always requires a fresh Allow (not session/always). Does not send credentials.', 'ahentic' ),
+					'description'         => __( 'Creates a WordPress user (wp_insert_user). Requires username, email, and role. Site operators may assign any role without manage_options (e.g. editor); administrator / manage_options roles are refused. Always requires a fresh Allow (not session/always). Does not send credentials.', 'ahentic' ),
 					'category'            => 'ahentic-users',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -392,7 +392,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 							),
 							'role'         => array(
 								'type'        => 'string',
-								'description' => __( 'Role slug to assign (must be below the operator’s role ceiling).', 'ahentic' ),
+								'description' => __( 'Role slug to assign (no manage_options roles; e.g. editor, author).', 'ahentic' ),
 							),
 							'display_name' => array(
 								'type'        => 'string',
@@ -411,7 +411,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 				self::UPDATE,
 				array(
 					'label'               => __( 'Update user', 'ahentic' ),
-					'description'         => __( 'Updates an existing user (email, display_name, role). Refuses self-edit (acting user cannot be the target). Role changes must stay below the operator’s ceiling. Always requires a fresh Allow (not session/always).', 'ahentic' ),
+					'description'         => __( 'Updates an existing user (email, display_name, role). Refuses self-edit (acting user cannot be the target). Role changes follow the same ceiling as create-user (no manage_options roles). Always requires a fresh Allow (not session/always).', 'ahentic' ),
 					'category'            => 'ahentic-users',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -431,7 +431,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 							),
 							'role'         => array(
 								'type'        => 'string',
-								'description' => __( 'New role slug (must be below the operator’s role ceiling).', 'ahentic' ),
+								'description' => __( 'New role slug (no manage_options roles; e.g. editor, author).', 'ahentic' ),
 							),
 						),
 					),
@@ -565,7 +565,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 		 * @return array|\WP_Error
 		 */
 		public static function execute_create_user( $input = array() ) {
-			$input = is_array( $input ) ? $input : array();
+			$input = self::coerce_create_user_input( is_array( $input ) ? $input : array() );
 
 			if ( ! current_user_can( 'create_users' ) && ! current_user_can( 'manage_options' ) ) {
 				return new WP_Error(
@@ -880,9 +880,27 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 		}
 
 		/**
+		 * Models often emit `name` instead of `display_name` for create-user.
+		 *
+		 * @param array $input Raw tool input.
+		 * @return array
+		 */
+		public static function coerce_create_user_input( array $input ) {
+			if ( ( ! isset( $input['display_name'] ) || '' === trim( (string) $input['display_name'] ) )
+				&& isset( $input['name'] )
+				&& '' !== trim( (string) $input['name'] ) ) {
+				$input['display_name'] = $input['name'];
+			}
+			unset( $input['name'] );
+			return $input;
+		}
+
+		/**
 		 * Pure ceiling check: target role caps must be a proper subset of operator caps.
 		 *
 		 * Refuses "at" (equal caps) and "above" (target has caps the operator lacks).
+		 * Used for non-manage_options operators; Ahentic sidebar operators use
+		 * {@see role_allowed_under_ceiling()} which short-circuits on manage_options.
 		 *
 		 * @param string[] $operator_caps Granted capability names the operator holds via roles.
 		 * @param string[] $target_caps   Granted capability names on the proposed role.
@@ -903,6 +921,35 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 			}
 
 			return true;
+		}
+
+		/**
+		 * Whether a proposed role may be assigned under the operator ceiling.
+		 *
+		 * Site operators (`manage_options`) may assign any role that cannot manage the
+		 * site — including Editor — even when their stored role-definition caps are an
+		 * incomplete superset (customized Administrator roles, direct cap grants).
+		 * Roles that grant `manage_options` are always refused (no peer admins).
+		 * Everyone else still needs a strict capability subset.
+		 *
+		 * @param bool     $operator_has_manage_options Whether the operator can manage_options.
+		 * @param string[] $operator_caps               Operator role-definition caps (fallback path).
+		 * @param string[] $target_caps                 Proposed role caps.
+		 * @return bool
+		 */
+		public static function role_allowed_under_ceiling( $operator_has_manage_options, array $operator_caps, array $target_caps ) {
+			$target_caps = array_values( array_unique( array_map( 'strval', $target_caps ) ) );
+
+			// Never mint peer (or higher) site operators.
+			if ( in_array( 'manage_options', $target_caps, true ) ) {
+				return false;
+			}
+
+			if ( $operator_has_manage_options ) {
+				return true;
+			}
+
+			return self::role_is_below_ceiling( $operator_caps, $target_caps );
 		}
 
 		/**
@@ -950,7 +997,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 		}
 
 		/**
-		 * Validate that $role_slug is strictly below the operator's role ceiling.
+		 * Validate that $role_slug is allowed under the operator's role ceiling.
 		 *
 		 * @param string $role_slug Proposed role.
 		 * @return true|\WP_Error
@@ -968,8 +1015,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 				);
 			}
 
-			$operator_caps = self::operator_role_caps();
-			if ( empty( $operator_caps ) ) {
+			$operator_has_manage_options = current_user_can( 'manage_options' );
+			$operator_caps               = self::operator_role_caps();
+
+			if ( ! $operator_has_manage_options && empty( $operator_caps ) ) {
 				return new WP_Error(
 					'ahentic_role_ceiling',
 					__( 'Cannot assign roles: the operator has no role capabilities to compare.', 'ahentic' ),
@@ -977,13 +1026,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Users' ) ) {
 				);
 			}
 
-			if ( ! self::role_is_below_ceiling( $operator_caps, $target_caps ) ) {
+			if ( ! self::role_allowed_under_ceiling( $operator_has_manage_options, $operator_caps, $target_caps ) ) {
 				return new WP_Error(
 					'ahentic_role_ceiling',
 					__( 'That role is at or above the operator’s own role and cannot be assigned.', 'ahentic' ),
 					array(
 						'status' => 403,
-						'hint'   => __( 'Choose a role whose capabilities are a strict subset of yours (capability comparison, not role-name rank).', 'ahentic' ),
+						'hint'   => __( 'Choose a role without manage_options (e.g. editor, author). Site operator roles cannot be assigned.', 'ahentic' ),
 					)
 				);
 			}

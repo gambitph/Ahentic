@@ -132,6 +132,64 @@ class UsersAbilityCatalogTest extends TestCase {
 	}
 
 	/**
+	 * manage_options operators may assign editor even when role-definition caps look incomplete;
+	 * manage_options target roles are always refused.
+	 */
+	public function test_role_allowed_under_ceiling_for_site_operators() {
+		$stripped_admin = array( 'manage_options', 'read' ); // missing edit_posts vs editor
+		$editor         = array( 'read', 'edit_posts', 'edit_others_posts' );
+		$admin_role     = array( 'read', 'edit_posts', 'manage_options' );
+		$subscriber     = array( 'read' );
+
+		// Site operator + incomplete role caps: editor/subscriber still allowed.
+		$this->assertTrue(
+			Ahentic_Abilities_Users::role_allowed_under_ceiling( true, $stripped_admin, $editor )
+		);
+		$this->assertTrue(
+			Ahentic_Abilities_Users::role_allowed_under_ceiling( true, $stripped_admin, $subscriber )
+		);
+
+		// Never mint peer site operators.
+		$this->assertFalse(
+			Ahentic_Abilities_Users::role_allowed_under_ceiling( true, $stripped_admin, $admin_role )
+		);
+
+		// Non-operator still needs a strict subset.
+		$this->assertFalse(
+			Ahentic_Abilities_Users::role_allowed_under_ceiling( false, $editor, $editor )
+		);
+		$this->assertTrue(
+			Ahentic_Abilities_Users::role_allowed_under_ceiling( false, $editor, $subscriber )
+		);
+	}
+
+	/**
+	 * Models emit `name`; coerce maps it to display_name and drops the alias.
+	 */
+	public function test_coerce_create_user_input_maps_name_to_display_name() {
+		$coerced = Ahentic_Abilities_Users::coerce_create_user_input(
+			array(
+				'username' => 'alquen',
+				'email'    => 'alquen@example.com',
+				'role'     => 'editor',
+				'name'     => 'Alquen',
+			)
+		);
+		$this->assertSame( 'Alquen', $coerced['display_name'] );
+		$this->assertArrayNotHasKey( 'name', $coerced );
+
+		$kept = Ahentic_Abilities_Users::coerce_create_user_input(
+			array(
+				'username'     => 'alquen',
+				'display_name' => 'Keep Me',
+				'name'         => 'Ignored',
+			)
+		);
+		$this->assertSame( 'Keep Me', $kept['display_name'] );
+		$this->assertArrayNotHasKey( 'name', $kept );
+	}
+
+	/**
 	 * delete-user HITL card names both the target and the reassignment destination.
 	 */
 	public function test_delete_hitl_summary_names_target_and_reassign() {

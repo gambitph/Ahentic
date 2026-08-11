@@ -1055,7 +1055,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				case 'users':
 					return 'Prefer ahentic/list-users to browse accounts (email only when permitted); '
 						. 'ahentic/create-user / ahentic/update-user / ahentic/delete-user for account changes '
-						. '(HITL non-preallowable every time; no self-edit; roles must be below the operator’s ceiling; delete requires reassign_to). ';
+						. '(HITL non-preallowable every time; no self-edit; may assign editor/author/subscriber etc. but not manage_options roles; delete requires reassign_to). ';
 
 				case 'menus':
 					return 'Prefer ahentic/list-menus / ahentic/list-menu-items / ahentic/get-menu for classic Appearance → Menus; '
