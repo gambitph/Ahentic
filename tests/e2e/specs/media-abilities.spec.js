@@ -347,6 +347,97 @@ test.describe( 'ahentic/delete-media', () => {
 	} )
 } )
 
+test.describe( 'ahentic/restore-media', () => {
+	test( 'untrashes a quarantined attachment; list-media status=trash finds it', async ( {
+		requestUtils,
+	} ) => {
+		const session = await createSession( requestUtils )
+		const sessionId = session.id || session.ID
+
+		const seeded = await seed( requestUtils, {
+			attachments: [ { title: 'Restore me', filename: 'restore-me.png' } ],
+		} )
+		const attachmentId = seeded.created.attachments[ 0 ]
+
+		const deleted = await runAbility(
+			requestUtils,
+			'ahentic/delete-media',
+			{ attachment_id: attachmentId },
+			{ sessionId }
+		)
+		expect( deleted.ok, JSON.stringify( deleted ) ).toBe( true )
+
+		const listedTrash = await runAbility( requestUtils, 'ahentic/list-media', {
+			status: 'trash',
+			search: 'Restore me',
+		} )
+		expect( listedTrash.ok, JSON.stringify( listedTrash ) ).toBe( true )
+		const trashIds = ( listedTrash.data.items || [] ).map( item => item.id )
+		expect( trashIds ).toContain( attachmentId )
+
+		const restored = await runAbility(
+			requestUtils,
+			'ahentic/restore-media',
+			{ attachment_id: attachmentId },
+			{ sessionId }
+		)
+		expect( restored.ok, JSON.stringify( restored ) ).toBe( true )
+		expect( restored.data.status ).not.toBe( 'trash' )
+
+		const after = await inspectAttachment( requestUtils, attachmentId )
+		expect( after.status ).toBe( 'inherit' )
+		expect( after.file_exists ).toBe( true )
+	} )
+
+	test( 'idempotent when attachment is not trashed; undo re-quarantines', async ( {
+		requestUtils,
+	} ) => {
+		const session = await createSession( requestUtils )
+		const sessionId = session.id || session.ID
+
+		const seeded = await seed( requestUtils, {
+			attachments: [ { title: 'Restore undo', filename: 'restore-undo.png' } ],
+		} )
+		const attachmentId = seeded.created.attachments[ 0 ]
+
+		await runAbility(
+			requestUtils,
+			'ahentic/delete-media',
+			{ attachment_id: attachmentId },
+			{ sessionId }
+		)
+
+		const restored = await runAbility(
+			requestUtils,
+			'ahentic/restore-media',
+			{ attachment_id: attachmentId },
+			{ sessionId }
+		)
+		expect( restored.ok, JSON.stringify( restored ) ).toBe( true )
+
+		const noop = await runAbility(
+			requestUtils,
+			'ahentic/restore-media',
+			{ attachment_id: attachmentId },
+			{ sessionId }
+		)
+		expect( noop.ok, JSON.stringify( noop ) ).toBe( true )
+		expect( noop.data.already_restored ).toBe( true )
+
+		const undo = await runAbility(
+			requestUtils,
+			'ahentic/undo-last-actions',
+			{ count: 1 },
+			{ sessionId }
+		)
+		expect( undo.ok, JSON.stringify( undo ) ).toBe( true )
+		expect( undo.data.undone ).toBe( 1 )
+
+		const afterUndo = await inspectAttachment( requestUtils, attachmentId )
+		expect( afterUndo.status ).toBe( 'trash' )
+	} )
+} )
+
 test.describe( 'ahentic/replace-media-file', () => {
 	test( 'blocks private hosts via host_is_publicly_fetchable', async ( { requestUtils } ) => {
 		const seeded = await seed( requestUtils, {

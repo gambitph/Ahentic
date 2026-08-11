@@ -103,4 +103,19 @@ class MediaAbilityCatalogTest extends TestCase {
 			Ahentic_Abilities_Media::summary( 'ahentic/get-media' )
 		);
 	}
+
+	/**
+	 * restore-media is the HITL write that untrashes a quarantined attachment.
+	 */
+	public function test_restore_media_is_hitl_write() {
+		$name = 'ahentic/restore-media';
+		$this->assertContains( $name, Ahentic_Abilities_Media::names() );
+		$this->assertContains( $name, Ahentic_Abilities_Media::write_names() );
+		$this->assertContains( $name, Ahentic_Abilities_Media::hitl_names() );
+		$this->assertTrue( Ahentic_Abilities_Media::requires_hitl( $name ) );
+		$this->assertFalse( Ahentic_Abilities_Media::is_readonly( $name ) );
+		$this->assertFalse( Ahentic_Abilities_Media::is_non_preallowable( $name ) );
+		$this->assertSame( 'Restore media', Ahentic_Abilities_Media::summary( $name ) );
+		$this->assertNotSame( '', Ahentic_Abilities_Media::progress_label( $name ) );
+	}
 }

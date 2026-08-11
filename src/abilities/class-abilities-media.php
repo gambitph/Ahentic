@@ -1,6 +1,7 @@
 <?php
 /**
- * Media abilities: list/get, unused scan, describe/generate/upload, and Track E writes.
+ * Media abilities: list/get, unused scan, describe/generate/upload, and Track E writes
+ * (update / featured / delete / restore / replace).
  */
 
 // Exit if accessed directly.
@@ -22,6 +23,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		const UPDATE_MEDIA        = 'ahentic/update-media';
 		const SET_FEATURED_IMAGE  = 'ahentic/set-featured-image';
 		const DELETE_MEDIA        = 'ahentic/delete-media';
+		const RESTORE_MEDIA       = 'ahentic/restore-media';
 		const REPLACE_MEDIA_FILE  = 'ahentic/replace-media-file';
 
 		const MAX_SCAN     = 100;
@@ -86,6 +88,12 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 					'hitl'     => true,
 					'progress' => __( 'Moving media to trash…', 'ahentic' ),
 					'summary'  => __( 'Delete media', 'ahentic' ),
+				),
+				self::RESTORE_MEDIA      => array(
+					'write'    => true,
+					'hitl'     => true,
+					'progress' => __( 'Restoring media from trash…', 'ahentic' ),
+					'summary'  => __( 'Restore media', 'ahentic' ),
 				),
 				self::REPLACE_MEDIA_FILE => array(
 					'write'             => true,
@@ -249,6 +257,15 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				);
 			}
 
+			if ( self::RESTORE_MEDIA === $name ) {
+				$id = isset( $input['attachment_id'] ) ? (int) $input['attachment_id'] : 0;
+				return sprintf(
+					/* translators: %d: attachment ID */
+					__( 'Restore attachment #%d from the trash', 'ahentic' ),
+					$id
+				);
+			}
+
 			if ( self::REPLACE_MEDIA_FILE === $name ) {
 				$id = isset( $input['attachment_id'] ) ? (int) $input['attachment_id'] : 0;
 				return sprintf(
@@ -301,7 +318,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				self::LIST_MEDIA,
 				array(
 					'label'               => __( 'List media', 'ahentic' ),
-					'description'         => __( 'Browses Media Library attachments (id, title, mime, url, alt, date, author, parent). Filter by search, mime_type (use "image" for all images), parent_id, and date after/before. Paginate with page/per_page (max 50). Prefer this over inventing attachment ids; use find-unused-media only for unused/hygiene reports.', 'ahentic' ),
+					'description'         => __( 'Browses Media Library attachments (id, title, mime, url, alt, date, author, parent). Filter by search, mime_type (use "image" for all images), parent_id, status (pass trash to find quarantined items for restore-media), and date after/before. Paginate with page/per_page (max 50). Prefer this over inventing attachment ids; use find-unused-media only for unused/hygiene reports.', 'ahentic' ),
 					'category'            => 'ahentic-media',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -317,6 +334,11 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 							'parent_id'  => array(
 								'type'        => 'integer',
 								'description' => __( 'Only attachments attached to this post ID. Use 0 for unattached.', 'ahentic' ),
+							),
+							'status'     => array(
+								'type'        => 'string',
+								'enum'        => array( 'inherit', 'private', 'trash' ),
+								'description' => __( 'Attachment status filter. Default: inherit+private (library). Pass trash to list quarantined attachments for ahentic/restore-media.', 'ahentic' ),
 							),
 							'after'      => array(
 								'type'        => 'string',
@@ -597,7 +619,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				self::DELETE_MEDIA,
 				array(
 					'label'               => __( 'Delete media', 'ahentic' ),
-					'description'         => __( 'Moves an attachment to the trash (quarantine). Never permanently deletes files. Snapshots prior status for undo. Requires human approval.', 'ahentic' ),
+					'description'         => __( 'Moves an attachment to the trash (quarantine). Never permanently deletes files. Snapshots prior status for undo. Requires human approval. To bring it back later, use ahentic/restore-media (or undo-last-actions in the same session).', 'ahentic' ),
 					'category'            => 'ahentic-media',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -611,6 +633,29 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 					),
 					'output_schema'       => array( 'type' => 'object' ),
 					'execute_callback'    => array( __CLASS__, 'execute_delete_media' ),
+					'permission_callback' => $permission,
+					'meta'                => $destructive_meta,
+				)
+			);
+
+			wp_register_ability(
+				self::RESTORE_MEDIA,
+				array(
+					'label'               => __( 'Restore media', 'ahentic' ),
+					'description'         => __( 'Restores a trashed (quarantined) attachment via wp_untrash_post. Use after ahentic/delete-media or when the attachment status is trash. Snapshots prior trash status for undo. Requires human approval.', 'ahentic' ),
+					'category'            => 'ahentic-media',
+					'input_schema'        => array(
+						'type'       => 'object',
+						'required'   => array( 'attachment_id' ),
+						'properties' => array(
+							'attachment_id' => array(
+								'type'        => 'integer',
+								'description' => __( 'Trashed attachment ID to restore.', 'ahentic' ),
+							),
+						),
+					),
+					'output_schema'       => array( 'type' => 'object' ),
+					'execute_callback'    => array( __CLASS__, 'execute_restore_media' ),
 					'permission_callback' => $permission,
 					'meta'                => $destructive_meta,
 				)
@@ -682,6 +727,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 					return self::execute_set_featured_image( $input );
 				case self::DELETE_MEDIA:
 					return self::execute_delete_media( $input );
+				case self::RESTORE_MEDIA:
+					return self::execute_restore_media( $input );
 				case self::REPLACE_MEDIA_FILE:
 					return self::execute_replace_media_file( $input );
 				default:
@@ -708,6 +755,10 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 			Ahentic_Settings_Snapshots::register_restore(
 				self::DELETE_MEDIA,
 				array( __CLASS__, 'restore_delete_media' )
+			);
+			Ahentic_Settings_Snapshots::register_restore(
+				self::RESTORE_MEDIA,
+				array( __CLASS__, 'restore_restore_media' )
 			);
 		}
 
@@ -1007,18 +1058,60 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		}
 
 		/**
-		 * Restore a quarantined attachment via wp_untrash_post.
+		 * Restore a quarantined attachment via wp_untrash_post (undo for delete-media).
 		 *
 		 * @param array $entry Snapshot entry.
 		 * @return true|\WP_Error
 		 */
 		public static function restore_delete_media( array $entry ) {
+			return self::untrash_attachment( (int) $entry['target'] );
+		}
+
+		/**
+		 * Re-quarantine an attachment that restore-media untrashed (undo for restore-media).
+		 *
+		 * @param array $entry Snapshot entry.
+		 * @return true|\WP_Error
+		 */
+		public static function restore_restore_media( array $entry ) {
 			$id   = (int) $entry['target'];
 			$post = get_post( $id );
 			if ( ! ( $post instanceof WP_Post ) || 'attachment' !== $post->post_type ) {
 				return new WP_Error(
 					'ahentic_undo_attachment_missing',
-					__( 'Cannot undo media delete: attachment no longer exists.', 'ahentic' )
+					__( 'Cannot undo media restore: attachment no longer exists.', 'ahentic' )
+				);
+			}
+
+			if ( 'trash' === $post->post_status ) {
+				return true;
+			}
+
+			$result = wp_trash_post( $id );
+			if ( ! $result || is_wp_error( $result ) ) {
+				return is_wp_error( $result )
+					? $result
+					: new WP_Error(
+						'ahentic_undo_trash_failed',
+						__( 'Could not re-quarantine the attachment after restore undo.', 'ahentic' )
+					);
+			}
+			return true;
+		}
+
+		/**
+		 * Untrash an attachment by id. Shared by delete-media undo and restore-media.
+		 *
+		 * @param int $id Attachment ID.
+		 * @return true|\WP_Error
+		 */
+		public static function untrash_attachment( $id ) {
+			$id   = (int) $id;
+			$post = get_post( $id );
+			if ( ! ( $post instanceof WP_Post ) || 'attachment' !== $post->post_type ) {
+				return new WP_Error(
+					'ahentic_undo_attachment_missing',
+					__( 'Cannot untrash attachment: it no longer exists.', 'ahentic' )
 				);
 			}
 
@@ -1112,7 +1205,72 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				'prior_status'  => $prior_status,
 				'file_exists'   => is_string( $file_after ) && $file_after && file_exists( $file_after ),
 				'had_file'      => $file_exists,
-				'hint'          => __( 'Attachment was quarantined (trashed), not permanently deleted. Use undo-last-actions to restore.', 'ahentic' ),
+				'hint'          => __( 'Attachment was quarantined (trashed), not permanently deleted. Use ahentic/restore-media to bring it back (or undo-last-actions in this session).', 'ahentic' ),
+			);
+		}
+
+		/**
+		 * Restore a trashed attachment to the Media Library.
+		 *
+		 * @param mixed $input Input.
+		 * @return array|\WP_Error
+		 */
+		public static function execute_restore_media( $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$id    = isset( $input['attachment_id'] ) ? (int) $input['attachment_id'] : 0;
+			if ( $id <= 0 ) {
+				return new WP_Error( 'ahentic_missing_attachment_id', __( 'attachment_id is required.', 'ahentic' ) );
+			}
+
+			$post = get_post( $id );
+			if ( ! ( $post instanceof WP_Post ) || 'attachment' !== $post->post_type ) {
+				return new WP_Error( 'ahentic_attachment_not_found', __( 'Attachment not found.', 'ahentic' ) );
+			}
+
+			if ( ! current_user_can( 'delete_post', $id ) && ! current_user_can( 'manage_options' ) ) {
+				return new WP_Error( 'ahentic_restore_media_forbidden', __( 'You cannot restore this attachment.', 'ahentic' ) );
+			}
+
+			$prior_status = (string) $post->post_status;
+			if ( 'trash' !== $prior_status ) {
+				return array(
+					'ok'               => true,
+					'attachment_id'    => $id,
+					'status'           => $prior_status,
+					'already_restored' => true,
+					'hint'             => __( 'Attachment is not in the trash; nothing to restore.', 'ahentic' ),
+				);
+			}
+
+			$session_id = 0;
+			if ( class_exists( 'Ahentic_Orchestrator' ) && method_exists( 'Ahentic_Orchestrator', 'current_session_id' ) ) {
+				$session_id = (int) Ahentic_Orchestrator::current_session_id();
+			}
+			if ( $session_id && class_exists( 'Ahentic_Settings_Snapshots' ) ) {
+				Ahentic_Settings_Snapshots::record(
+					$session_id,
+					array(
+						'ability'       => self::RESTORE_MEDIA,
+						'target'        => $id,
+						'prior_existed' => true,
+						'prior_value'   => array(
+							'status' => $prior_status,
+						),
+					)
+				);
+			}
+
+			$untrash = self::untrash_attachment( $id );
+			if ( is_wp_error( $untrash ) ) {
+				return $untrash;
+			}
+
+			$fresh = get_post( $id );
+			return array(
+				'ok'            => true,
+				'attachment_id' => $id,
+				'status'        => $fresh ? (string) $fresh->post_status : 'inherit',
+				'prior_status'  => $prior_status,
 			);
 		}
 
@@ -1823,6 +1981,13 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				'update_post_meta_cache' => true,
 				'update_post_term_cache' => false,
 			);
+
+			if ( isset( $input['status'] ) && '' !== (string) $input['status'] ) {
+				$status = sanitize_key( (string) $input['status'] );
+				if ( in_array( $status, array( 'inherit', 'private', 'trash' ), true ) ) {
+					$args['post_status'] = $status;
+				}
+			}
 
 			if ( ! empty( $input['search'] ) ) {
 				$args['s'] = sanitize_text_field( (string) $input['search'] );
