@@ -27,10 +27,25 @@ test.describe( 'ahentic/list-users', () => {
 } )
 
 test.describe( 'ahentic/create-user', () => {
-	test( 'creates a subscriber and refuses administrator (role ceiling)', async ( {
+	test( 'creates editor and subscriber; refuses administrator (role ceiling)', async ( {
 		requestUtils,
 	} ) => {
 		const suffix = Date.now()
+
+		const editorUser = `ahentic_ed_${ suffix }`
+		const editorEmail = `ahentic-ed-${ suffix }@example.com`
+		const createdEditor = await runAbility( requestUtils, 'ahentic/create-user', {
+			username: editorUser,
+			email: editorEmail,
+			role: 'editor',
+			name: `Editor ${ suffix }`,
+		} )
+		expect( createdEditor.ok, JSON.stringify( createdEditor ) ).toBe( true )
+		expect( createdEditor.data.user.id ).toBeGreaterThan( 0 )
+		expect( createdEditor.data.user.roles ).toContain( 'editor' )
+		expect( createdEditor.data.user.username ).toBe( editorUser )
+		expect( createdEditor.data.user.display_name ).toBe( `Editor ${ suffix }` )
+
 		const username = `ahentic_sub_${ suffix }`
 		const email = `ahentic-sub-${ suffix }@example.com`
 
@@ -88,11 +103,11 @@ test.describe( 'ahentic/update-user', () => {
 		const updated = await runAbility( requestUtils, 'ahentic/update-user', {
 			user_id: userId,
 			display_name: `Updated ${ suffix }`,
-			role: 'contributor',
+			role: 'editor',
 		} )
 		expect( updated.ok, JSON.stringify( updated ) ).toBe( true )
 		expect( updated.data.user.display_name ).toBe( `Updated ${ suffix }` )
-		expect( updated.data.user.roles ).toContain( 'contributor' )
+		expect( updated.data.user.roles ).toContain( 'editor' )
 
 		const adminRole = await runAbility( requestUtils, 'ahentic/update-user', {
 			user_id: userId,

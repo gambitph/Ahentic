@@ -419,6 +419,10 @@ if ( ! class_exists( 'Ahentic_Abilities' ) ) {
 			if ( class_exists( 'Ahentic_Abilities_Content' ) && Ahentic_Abilities_Content::SEARCH === $name ) {
 				$input = Ahentic_Abilities_Content::coerce_search_input( $input );
 			}
+			// Models often emit name instead of display_name for create-user.
+			if ( class_exists( 'Ahentic_Abilities_Users' ) && Ahentic_Abilities_Users::CREATE === $name ) {
+				$input = Ahentic_Abilities_Users::coerce_create_user_input( $input );
+			}
 
 			if ( function_exists( 'wp_get_ability' ) ) {
 				$ability = wp_get_ability( $name );
