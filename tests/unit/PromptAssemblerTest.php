@@ -556,6 +556,12 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertTrue(
 			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'generate images for the article' )
 		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'restore the deleted media file' )
+		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'delete unused media from the library' )
+		);
 		$this->assertFalse(
 			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'add internal links in our article' )
 		);

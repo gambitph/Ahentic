@@ -153,7 +153,7 @@ Stage with `ahentic/stage-artifact`, then `create-post` / `update-post` with `fr
 | `ahentic-settings` | get-settings-context, list-settings, get-setting, update-theme-setting, update-global-styles, update-template-part, update-option |
 | `ahentic-content` | list/get/search/summary/create/update/set-status |
 | `ahentic-plugins` | list/search/install/activate/deactivate/uninstall |
-| `ahentic-media` | list-media, get-media, unused scan, describe/generate/upload, update/delete/replace, set-featured-image |
+| `ahentic-media` | list-media, get-media, unused scan, describe/generate/upload, update/delete/restore/replace, set-featured-image |
 | `ahentic-taxonomy` | list/get/create/update/delete term; post term helpers for create-post/update-post |
 | `ahentic-users` | list-users; create/update/delete user (non-preallowable HITL; role ceiling; delete requires reassign_to) |
 | `ahentic-menus` | list-menus, list-menu-items, get-menu, update-menu (classic nav; not wp_navigation) |
