@@ -23,6 +23,7 @@ test.describe( 'AI plugin status REST', () => {
 			isReady: true,
 			hasConnector: true,
 			canGenerate: true,
+			connectorStatus: 'ready',
 		} )
 		expect( status.connectorsUrl ).toBeTruthy()
 	} )
@@ -37,6 +38,7 @@ test.describe( 'AI plugin status REST', () => {
 			isReady: true,
 			hasConnector: false,
 			canGenerate: false,
+			connectorStatus: 'missing',
 		} )
 
 		const second = await requestUtils.rest( {
@@ -46,6 +48,7 @@ test.describe( 'AI plugin status REST', () => {
 			isReady: true,
 			hasConnector: false,
 			canGenerate: false,
+			connectorStatus: 'missing',
 		} )
 
 		const third = await requestUtils.rest( {
@@ -55,6 +58,7 @@ test.describe( 'AI plugin status REST', () => {
 			isReady: true,
 			hasConnector: true,
 			canGenerate: true,
+			connectorStatus: 'ready',
 		} )
 	} )
 
