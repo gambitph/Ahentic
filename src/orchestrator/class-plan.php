@@ -4,7 +4,7 @@
  *
  * Deep module: may this Session show / advance a plan card?
  * Primary interface: sync_after_think(), ensure_after_think(), advance_after_tool(),
- * complete_on_finish(), cancel_on_stop(), reopen_cancelled_steps().
+ * complete_on_finish(), pause_for_user(), cancel_on_stop(), reopen_cancelled_steps().
  * The Orchestrator must call these — do not reimplement plan FSM at call sites.
  */
 
@@ -18,9 +18,10 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 	 * Deep module: session plan checklist lifecycle.
 	 *
 	 * Primary interface: sync_after_think(), ensure_after_think(), advance_after_tool(),
-	 * complete_on_finish(), cancel_on_stop(), reopen_cancelled_steps().
-	 * Pure helpers (normalize_from_debug, merge_with_existing, requires_for_think) are
-	 * part of the test surface; normalize_from_debug is also used for llm_thinking traces.
+	 * complete_on_finish(), pause_for_user(), cancel_on_stop(), reopen_cancelled_steps().
+	 * Pure helpers (normalize_from_debug, merge_with_existing, requires_for_think,
+	 * with_steps_paused_for_user) are part of the test surface; normalize_from_debug
+	 * is also used for llm_thinking traces.
 	 */
 	class Ahentic_Plan {
 		/**
@@ -315,6 +316,71 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 */
 		public static function complete_on_finish( $session_id ) {
 			self::set_open_steps_status( $session_id, 'completed' );
+		}
+
+		/**
+		 * Pause the checklist when the run idles on ask_user (clarifying question).
+		 *
+		 * Unlike complete_on_finish, unfinished work stays open so the sidebar does
+		 * not show "Plan complete" while the agent is still waiting on the user.
+		 *
+		 * @param int $session_id Session ID.
+		 */
+		public static function pause_for_user( $session_id ) {
+			$plan = Ahentic_Session_Repository::get_plan( $session_id );
+			if ( ! is_array( $plan ) || empty( $plan['steps'] ) || ! is_array( $plan['steps'] ) ) {
+				return;
+			}
+			$paused = self::with_steps_paused_for_user( $plan );
+			if ( $paused === $plan ) {
+				return;
+			}
+			Ahentic_Session_Repository::set_plan( $session_id, $paused );
+		}
+
+		/**
+		 * Pure: demote live steps for an idle ask_user pause.
+		 *
+		 * - in_progress → pending (idle sessions must not look live)
+		 * - completed / pending / cancelled unchanged when unfinished work remains
+		 * - if every step is already completed (premature model settle while asking),
+		 *   reopen the last completed step as pending so clarifying questions are
+		 *   not shown as "Plan complete"
+		 *
+		 * @param array $plan Normalized plan { title, steps }.
+		 * @return array Paused plan.
+		 */
+		public static function with_steps_paused_for_user( array $plan ) {
+			if ( empty( $plan['steps'] ) || ! is_array( $plan['steps'] ) ) {
+				return $plan;
+			}
+
+			$steps       = array();
+			$has_open    = false;
+			$last_done_i = -1;
+			foreach ( $plan['steps'] as $i => $step ) {
+				if ( ! is_array( $step ) ) {
+					continue;
+				}
+				$status = isset( $step['status'] ) ? (string) $step['status'] : 'pending';
+				if ( 'in_progress' === $status ) {
+					$step['status'] = 'pending';
+					$status         = 'pending';
+				}
+				if ( 'pending' === $status ) {
+					$has_open = true;
+				} elseif ( 'completed' === $status ) {
+					$last_done_i = (int) $i;
+				}
+				$steps[] = $step;
+			}
+
+			if ( ! $has_open && $last_done_i >= 0 && isset( $steps[ $last_done_i ] ) ) {
+				$steps[ $last_done_i ]['status'] = 'pending';
+			}
+
+			$plan['steps'] = $steps;
+			return $plan;
 		}
 
 		/**

@@ -113,6 +113,30 @@ describe( 'resolvePlanCardPresentation', () => {
 		expect( view.eyebrow ).toMatch( /stopped/i )
 	} )
 
+	it( 'shows Waiting for you when idle with unfinished steps (ask_user pause)', () => {
+		const view = resolvePlanCardPresentation(
+			{
+				steps: [
+					{
+						id: '1', content: 'Confirm username', status: 'completed',
+					},
+					{
+						id: '2', content: 'Ask for email', status: 'pending',
+					},
+					{
+						id: '3', content: 'Create the user', status: 'pending',
+					},
+				],
+			},
+			{ busy: false }
+		)
+		expect( view.showComplete ).toBe( false )
+		expect( view.waitingOnUser ).toBe( true )
+		expect( view.stopped ).toBe( false )
+		expect( view.stateClass ).toBe( ' is-paused' )
+		expect( view.eyebrow ).toMatch( /waiting/i )
+	} )
+
 	it( 'keeps an in-progress plan as Plan while busy', () => {
 		const view = resolvePlanCardPresentation(
 			{

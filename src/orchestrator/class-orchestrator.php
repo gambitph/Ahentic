@@ -1080,15 +1080,21 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				)
 			);
 
-			Ahentic_Plan::complete_on_finish( $session_id );
+			$next = ( is_array( $debug ) && isset( $debug['next'] ) ) ? (string) $debug['next'] : '';
+			if ( 'ask_user' === $next ) {
+				// Clarifying pause: keep unfinished checklist steps open.
+				Ahentic_Plan::pause_for_user( $session_id );
+			} else {
+				Ahentic_Plan::complete_on_finish( $session_id );
+			}
 
 			Ahentic_Session_Repository::mark_idle( $session_id );
 			Ahentic_Session_Repository::append_trace(
 				$session_id,
 				'run_idle',
-				'Run idle (final reply)',
+				'ask_user' === $next ? 'Run idle (waiting on user)' : 'Run idle (final reply)',
 				array(
-					'reason'                   => 'final_reply',
+					'reason'                   => 'ask_user' === $next ? 'ask_user' : 'final_reply',
 					'capability_request_count' => count( $requests ),
 					'action_count'             => count( $actions ),
 				)

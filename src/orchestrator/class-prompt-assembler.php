@@ -525,7 +525,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 					. 'HITL: for writes that pause for Allow/Skip (plugins, create/update/set-post-status, terms, settings, users, menus, '
 					. 'ahentic-browser/save-post, convert-blocks, etc.), do NOT ask_user / “shall I…?” — next="use_tools" with that ability; '
 					. 'Allow/Skip IS confirmation. Say what you will do; never claim success until a tool result confirms it. '
-					. 'ask_user only for real choices tools cannot decide. '
+					. 'ask_user only for real choices tools cannot decide (e.g. missing email/role before create-user); '
+					. 'when asking, keep unfinished plan steps open; do not mark the plan completed. '
 					. 'user_denied / skipped=true: do NOT retry the same ability/input; adapt or ask_user once if blocked. '
 					. 'No matching ability for a requested change: (A) next="use_tools" with the needed name anyway (orchestrator marks unavailable), '
 					. 'or (B) next="missing_ability" + ability_needed; explain + short workaround with admin links. '
@@ -1096,7 +1097,9 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				$lines[] = sprintf( '- [%s] id=%s %s', $status, $id, $content );
 			}
 			$lines[] = 'When a step finishes, mark it completed (do not remove it), set the next one in_progress, '
-				. 'and write a normal chat reply with what you learned. When all are done, mark every step completed.';
+				. 'and write a normal chat reply with what you learned. When all are done, mark every step completed. '
+				. 'If next=ask_user (clarifying question mid-job), keep unfinished steps pending/in_progress; '
+				. 'never mark every step completed while you are still waiting on the user.';
 
 			return "\n\n" . implode( "\n", $lines );
 		}
