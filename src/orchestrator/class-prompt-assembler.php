@@ -58,7 +58,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @param string     $mode        Agent mode (agent|ask).
 		 * @param string     $user_suffix Optional text appended to the user message (retries).
 		 * @param array|null $extra_turn  Optional prior assistant turn to inject into history.
-		 * @param array      $opts        Optional flags (slim_debug_retry, mini_job_hop + hop_brief).
+		 * @param array      $opts        Optional flags (slim_debug_retry, mini_job_hop + hop_brief,
+		 *                                full_ability_catalog for missing-ability reconsider).
 		 * @return array{
 		 *   system: string,
 		 *   history: array,
@@ -107,7 +108,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				return $assembled;
 			}
 
-			$assembled = self::assemble_prompt( $session_id, $mode, $user_suffix, $extra_turn, true );
+			$assembled = self::assemble_prompt( $session_id, $mode, $user_suffix, $extra_turn, true, $opts );
 			if ( class_exists( 'Ahentic_Session_Repository' ) ) {
 				Ahentic_Session_Repository::set_context_usage( $session_id, $assembled['context_usage'] );
 			}
@@ -296,10 +297,11 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @param string     $user_suffix     Retry suffix.
 		 * @param array|null $extra_turn      Extra assistant turn.
 		 * @param bool       $persist_compact Persist summary / trace when compacting.
+		 * @param array      $opts            Prompt opts (e.g. full_ability_catalog).
 		 * @return array Same shape as for_llm().
 		 */
-		private static function assemble_prompt( $session_id, $mode, $user_suffix = '', $extra_turn = null, $persist_compact = true ) {
-			$sys_parts = self::system_prompt_parts( $mode, $session_id );
+		private static function assemble_prompt( $session_id, $mode, $user_suffix = '', $extra_turn = null, $persist_compact = true, array $opts = array() ) {
+			$sys_parts = self::system_prompt_parts( $mode, $session_id, $opts );
 			$system    = self::compose_system_prompt( $sys_parts );
 
 			$entries = class_exists( 'Ahentic_Session_Repository' )
@@ -436,9 +438,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 *
 		 * @param string $mode       Mode.
 		 * @param int    $session_id Session ID.
+		 * @param array  $opts       Optional. full_ability_catalog => list every mode ability + all packs.
 		 * @return array{core: string, abilities: string, routing: string, plan: string}
 		 */
-		public static function system_prompt_parts( $mode, $session_id = 0 ) {
+		public static function system_prompt_parts( $mode, $session_id = 0, array $opts = array() ) {
 			$site_name  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 			$site_url   = home_url( '/' );
 			$available = Ahentic_Abilities::available_for_mode( $mode );
@@ -474,11 +477,15 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				$recent_abilities,
 				$want_media
 			);
-			// Same packs as routing essays — do not list every registered ability every think.
-			$tools_list = self::format_abilities_index(
-				self::filter_available_abilities_for_packs( $available, $routing_packs )
+			$toolbox = self::resolve_think_toolbox(
+				$available,
+				$routing_packs,
+				! empty( $opts['full_ability_catalog'] )
 			);
-			$routing = self::tool_routing_guidance_for_packs( $routing_packs );
+			$routing_packs = $toolbox['packs'];
+			// Same packs as routing essays — unless full_ability_catalog (missing-ability reconsider).
+			$tools_list = self::format_abilities_index( $toolbox['abilities'] );
+			$routing    = self::tool_routing_guidance_for_packs( $routing_packs );
 
 			// Stable prefix (site + protocol + admin map) — keep byte-stable across steps when possible.
 			$core = 'You are Ahentic, an AI workspace agent for WordPress. '
@@ -602,6 +609,48 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				}
 			}
 			return $out;
+		}
+
+		/**
+		 * All tool-routing pack ids (ungated catalog).
+		 *
+		 * @return string[]
+		 */
+		public static function all_tool_routing_pack_ids() {
+			return array( 'core', 'content', 'editor', 'admin-forms', 'media', 'plugins', 'settings', 'users', 'menus', 'http' );
+		}
+
+		/**
+		 * Resolve ability names + routing packs for one think.
+		 *
+		 * When `$full_ability_catalog` is true (missing-ability reconsider), list every
+		 * available ability and attach every routing pack — matching CONTRACT “full-catalog reconsider”.
+		 *
+		 * @param string[] $available              Ability names for the mode.
+		 * @param string[] $page_context_packs     Packs from select_tool_routing_packs().
+		 * @param bool     $full_ability_catalog   Ungate packs + ability index.
+		 * @return array{abilities: string[], packs: string[]}
+		 */
+		public static function resolve_think_toolbox( array $available, array $page_context_packs, $full_ability_catalog = false ) {
+			if ( $full_ability_catalog ) {
+				return array(
+					'abilities' => array_values( $available ),
+					'packs'     => self::all_tool_routing_pack_ids(),
+				);
+			}
+			return array(
+				'abilities' => self::filter_available_abilities_for_packs( $available, $page_context_packs ),
+				'packs'     => array_values(
+					array_unique(
+						array_filter(
+							array_map( 'strval', $page_context_packs ),
+							static function ( $id ) {
+								return '' !== $id;
+							}
+						)
+					)
+				),
+			);
 		}
 
 		/**
@@ -956,9 +1005,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @return string
 		 */
 		private static function tool_routing_guidance() {
-			return self::tool_routing_guidance_for_packs(
-				array( 'core', 'content', 'editor', 'admin-forms', 'media', 'plugins', 'settings', 'users', 'menus', 'http' )
-			);
+			return self::tool_routing_guidance_for_packs( self::all_tool_routing_pack_ids() );
 		}
 
 		/**

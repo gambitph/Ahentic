@@ -202,8 +202,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 			$key   = (string) $name;
 
 			if ( self::UPDATE_OPTION === $key ) {
-				$option = isset( $input['key'] ) ? (string) $input['key'] : '';
-				$label  = $option ? $option : __( 'option', 'ahentic' );
+				$option = isset( $input['key'] ) ? trim( (string) $input['key'] ) : '';
+				$label  = '' !== $option ? $option : __( 'unspecified option', 'ahentic' );
 				if ( ! empty( $input['dry_run'] ) ) {
 					return sprintf(
 						/* translators: %s: option key */
@@ -307,6 +307,47 @@ if ( ! class_exists( 'Ahentic_Abilities_Settings' ) ) {
 				__( 'Update %d theme settings', 'ahentic' ),
 				$n
 			);
+		}
+
+		/**
+		 * Require option key + value before pausing for HITL.
+		 *
+		 * @param string $name  Ability.
+		 * @param array  $input Input.
+		 * @return true|\WP_Error
+		 */
+		public static function hitl_preflight( $name, $input = array() ) {
+			$input = is_array( $input ) ? $input : array();
+			$name  = (string) $name;
+
+			if ( self::UPDATE_OPTION !== $name ) {
+				return true;
+			}
+
+			$key = isset( $input['key'] ) ? trim( (string) $input['key'] ) : '';
+			if ( '' === $key ) {
+				return new WP_Error(
+					'ahentic_missing_option_key',
+					__( 'An option key is required.', 'ahentic' ),
+					array(
+						'status' => 400,
+						'hint'   => __( 'Call ahentic/update-option with {"key":"…","value":…} (for example timezone_string / Asia/Manila).', 'ahentic' ),
+					)
+				);
+			}
+
+			if ( ! array_key_exists( 'value', $input ) ) {
+				return new WP_Error(
+					'ahentic_missing_option_value',
+					__( 'Provide a value for the option.', 'ahentic' ),
+					array(
+						'status' => 400,
+						'hint'   => __( 'Include value in the update-option input; empty string is allowed when clearing a setting.', 'ahentic' ),
+					)
+				);
+			}
+
+			return true;
 		}
 
 		/**

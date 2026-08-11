@@ -128,4 +128,49 @@ class SettingsOptionWriteTest extends TestCase {
 		);
 		$this->assertStringContainsString( 'dry run', strtolower( $dry ) );
 	}
+
+	/**
+	 * Missing key uses “unspecified option”, never the opaque placeholder “option”.
+	 */
+	public function test_hitl_summary_unspecified_when_key_missing() {
+		$summary = Ahentic_Abilities_Settings::hitl_summary( 'ahentic/update-option', array() );
+		$this->assertStringContainsString( 'unspecified option', strtolower( $summary ) );
+		$this->assertStringNotContainsString( '“option”', $summary );
+		$this->assertStringNotContainsString( '"option"', $summary );
+	}
+
+	/**
+	 * HITL preflight requires key + value before an Allow card.
+	 */
+	public function test_hitl_preflight_requires_key_and_value() {
+		$err = Ahentic_Abilities_Settings::hitl_preflight( 'ahentic/update-option', array() );
+		$this->assertTrue( is_wp_error( $err ) );
+		$this->assertSame( 'ahentic_missing_option_key', $err->get_error_code() );
+
+		$missing_value = Ahentic_Abilities_Settings::hitl_preflight(
+			'ahentic/update-option',
+			array( 'key' => 'timezone_string' )
+		);
+		$this->assertTrue( is_wp_error( $missing_value ) );
+		$this->assertSame( 'ahentic_missing_option_value', $missing_value->get_error_code() );
+
+		$ok = Ahentic_Abilities_Settings::hitl_preflight(
+			'ahentic/update-option',
+			array(
+				'key'   => 'timezone_string',
+				'value' => 'Asia/Manila',
+			)
+		);
+		$this->assertTrue( $ok );
+
+		// Empty string value is allowed (array_key_exists); writability gates later.
+		$empty_ok = Ahentic_Abilities_Settings::hitl_preflight(
+			'ahentic/update-option',
+			array(
+				'key'   => 'blogdescription',
+				'value' => '',
+			)
+		);
+		$this->assertTrue( $empty_ok );
+	}
 }

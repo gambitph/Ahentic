@@ -247,9 +247,47 @@ class ThinkDebugTest extends TestCase {
 	}
 
 	/**
-	 * Available claims rewrite to use_tools so the loop continues.
+	 * When tools_planned already names the available ability, rewrite promotes to use_tools
+	 * and keeps the planned input (never invents empty args).
 	 */
-	public function test_rewrite_debug_to_use_tools() {
+	public function test_rewrite_debug_to_use_tools_preserves_planned_input() {
+		$debug = Ahentic_Think_Debug::rewrite_debug_to_use_tools(
+			array(
+				'next'           => 'missing_ability',
+				'ability_needed' => 'ahentic/update-option',
+				'tools_planned'  => array(
+					array(
+						'name'  => 'ahentic/update-option',
+						'input' => array(
+							'key'   => 'timezone_string',
+							'value' => 'Asia/Manila',
+						),
+					),
+				),
+			),
+			'ahentic/update-option'
+		);
+		$this->assertSame( 'use_tools', $debug['next'] );
+		$this->assertSame(
+			array(
+				array(
+					'name'  => 'ahentic/update-option',
+					'input' => array(
+						'key'   => 'timezone_string',
+						'value' => 'Asia/Manila',
+					),
+				),
+			),
+			$debug['tools_planned']
+		);
+		$this->assertArrayNotHasKey( 'ability_needed', $debug );
+	}
+
+	/**
+	 * Named available ability with no planned call must NOT inject input:[].
+	 * Empty forced calls produce useless HITL cards (e.g. Update option “option”).
+	 */
+	public function test_rewrite_debug_to_use_tools_does_not_inject_empty_input() {
 		$debug = Ahentic_Think_Debug::rewrite_debug_to_use_tools(
 			array(
 				'next'           => 'missing_ability',
@@ -258,17 +296,46 @@ class ThinkDebugTest extends TestCase {
 			),
 			'ahentic-browser/update-block-attributes'
 		);
-		$this->assertSame( 'use_tools', $debug['next'] );
-		$this->assertSame(
+		$this->assertSame( 'missing_ability', $debug['next'] );
+		$this->assertSame( 'ahentic-browser/update-block-attributes', $debug['ability_needed'] );
+		$planned = isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array();
+		$this->assertSame( array(), $planned );
+	}
+
+	/**
+	 * After reconsider, available-but-unplanned claims become a normal reply
+	 * (not an empty forced tool call).
+	 */
+	public function test_finish_available_missing_without_planned_tools() {
+		$debug = Ahentic_Think_Debug::finish_available_missing_without_plan(
 			array(
-				array(
-					'name'  => 'ahentic-browser/update-block-attributes',
-					'input' => array(),
+				'next'           => 'missing_ability',
+				'ability_needed' => 'ahentic/update-option',
+				'tools_planned'  => array(),
+			),
+			array( 'ahentic/update-option' )
+		);
+		$this->assertSame( 'reply', $debug['next'] );
+		$this->assertArrayNotHasKey( 'ability_needed', $debug );
+
+		$with_plan = Ahentic_Think_Debug::finish_available_missing_without_plan(
+			array(
+				'next'           => 'missing_ability',
+				'ability_needed' => 'ahentic/update-option',
+				'tools_planned'  => array(
+					array(
+						'name'  => 'ahentic/update-option',
+						'input' => array(
+							'key'   => 'blogname',
+							'value' => 'X',
+						),
+					),
 				),
 			),
-			$debug['tools_planned']
+			array( 'ahentic/update-option' )
 		);
-		$this->assertArrayNotHasKey( 'ability_needed', $debug );
+		$this->assertSame( 'use_tools', $with_plan['next'] );
+		$this->assertSame( 'blogname', $with_plan['tools_planned'][0]['input']['key'] );
 	}
 
 	/**

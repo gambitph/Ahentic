@@ -19,6 +19,7 @@ class PromptAssemblerTest extends TestCase {
 		require_once $root . '/src/abilities/class-abilities-plugins.php';
 		require_once $root . '/src/abilities/class-abilities-users.php';
 		require_once $root . '/src/abilities/class-abilities-site.php';
+		require_once $root . '/src/abilities/class-abilities-settings.php';
 	}
 
 	public function test_excerpt_truncates_with_ellipsis() {
@@ -640,6 +641,41 @@ class PromptAssemblerTest extends TestCase {
 	 * Ability index for a think follows selected routing packs (same map as sticky packs).
 	 * Unmapped names stay (core / site / guidance); out-of-pack modules drop.
 	 */
+	/**
+	 * Full-catalog reconsider uses every routing pack id (settings included).
+	 */
+	public function test_all_tool_routing_pack_ids_includes_settings() {
+		$ids = Ahentic_Prompt_Assembler::all_tool_routing_pack_ids();
+		$this->assertContains( 'core', $ids );
+		$this->assertContains( 'settings', $ids );
+		$this->assertContains( 'admin-forms', $ids );
+		$this->assertSame( $ids, array_values( array_unique( $ids ) ) );
+	}
+
+	/**
+	 * resolve_think_toolbox: full_ability_catalog keeps settings writes that pack gating would drop.
+	 */
+	public function test_resolve_think_toolbox_full_catalog_keeps_update_option() {
+		$available = array_merge(
+			Ahentic_Abilities_Content::names(),
+			Ahentic_Abilities_Settings::names(),
+			array( 'ahentic/get-site-snapshot' )
+		);
+		$dashboard = array( 'core', 'content' );
+
+		$gated = Ahentic_Prompt_Assembler::resolve_think_toolbox( $available, $dashboard, false );
+		$this->assertNotContains( 'ahentic/update-option', $gated['abilities'] );
+		$this->assertSame( $dashboard, $gated['packs'] );
+
+		$full = Ahentic_Prompt_Assembler::resolve_think_toolbox( $available, $dashboard, true );
+		$this->assertContains( 'ahentic/update-option', $full['abilities'] );
+		$this->assertContains( 'settings', $full['packs'] );
+		$this->assertSame(
+			Ahentic_Prompt_Assembler::all_tool_routing_pack_ids(),
+			$full['packs']
+		);
+	}
+
 	public function test_filter_available_abilities_for_packs_subsets_by_selected_packs() {
 		$available = array_merge(
 			Ahentic_Abilities_Content::names(),

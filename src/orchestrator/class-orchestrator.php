@@ -833,6 +833,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			$user      = $assembled['user'];
 			$slim      = ! empty( $opts['slim_debug_retry'] ) || ! empty( $assembled['slim_debug_retry'] );
 			$hop       = ! empty( $opts['mini_job_hop'] ) || ! empty( $assembled['mini_job_hop'] );
+			$full_cat  = ! empty( $opts['full_ability_catalog'] );
 
 			$step_summary = $bump_step
 				? sprintf( 'Step %d — %s', $step, $progress )
@@ -843,13 +844,14 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'step_start',
 				$step_summary,
 				array(
-					'progress'         => $progress,
-					'history_turns'    => count( $history ),
-					'debug_retry'      => ! $bump_step,
-					'slim_debug_retry' => $slim,
-					'mini_job_hop'     => $hop,
-					'compacted'        => ! empty( $assembled['compacted'] ),
-					'superseded'       => isset( $assembled['superseded'] ) ? (int) $assembled['superseded'] : 0,
+					'progress'             => $progress,
+					'history_turns'        => count( $history ),
+					'debug_retry'          => ! $bump_step,
+					'slim_debug_retry'     => $slim,
+					'mini_job_hop'         => $hop,
+					'full_ability_catalog' => $full_cat,
+					'compacted'            => ! empty( $assembled['compacted'] ),
+					'superseded'           => isset( $assembled['superseded'] ) ? (int) $assembled['superseded'] : 0,
 				),
 				$step
 			);
