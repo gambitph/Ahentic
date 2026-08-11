@@ -773,9 +773,11 @@ class PromptAssemblerTest extends TestCase {
 		$slim = Ahentic_Prompt_Assembler::slim_debug_retry_system( 'agent' );
 		$this->assertStringContainsString( 'AHENTIC_DEBUG', $slim );
 		$this->assertStringContainsString( 'tools_planned', $slim );
+		$this->assertStringContainsString( 'reply|ask_user|use_tools', $slim );
+		$this->assertStringContainsString( 'do not use missing_ability', $slim );
 		$this->assertStringNotContainsString( 'Available abilities:', $slim );
 		$this->assertStringNotContainsString( 'CRITICAL — content routing', $slim );
-		$this->assertLessThan( 1200, strlen( $slim ) );
+		$this->assertLessThan( 1400, strlen( $slim ) );
 
 		$built = Ahentic_Prompt_Assembler::assemble_slim_debug_retry(
 			'agent',

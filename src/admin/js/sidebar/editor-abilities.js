@@ -18,6 +18,7 @@ import {
 	wipeEditorRefs,
 } from './block-ref-registry'
 import { pickMediaEssentialAttrs } from './media-essentials'
+import { pickLinkEssentialAttrs } from './link-essentials'
 import { resolveMovePlacement } from './move-placement'
 import { planPostDocumentEdits } from './post-document-edits'
 import { looksLikeContentPlaceholder } from './content-placeholder'
@@ -26,6 +27,10 @@ const MAX_BLOCKS_DEFAULT = 80
 const MAX_BLOCKS_FULL_UNSCOPED_CAP = 8
 const MAX_ATTR_CHARS = 2000
 const MAX_TYPES_DEFAULT = 100
+/** Keep compact get-blocks under the PHP trailing snapshot prompt cap (12k). */
+export const GET_BLOCKS_COMPACT_MAX_CHARS = 10000
+/** Scoped / include_attributes reads — still hard-capped for the prompt. */
+export const GET_BLOCKS_FULL_MAX_CHARS = 14000
 
 const STYLE_ATTR_KEYS = [
 	'style',
@@ -324,7 +329,10 @@ function serializeBlockTree( block, budget, opts = {} ) {
 		// Compact media identity/alt fields — alt-text and describe-image need
 		// url/id without a second include_attributes pass. Known core maps plus
 		// key/value heuristics for third-party image blocks.
-		const picked = pickMediaEssentialAttrs( rawAttrs, block.name )
+		const picked = {
+			...pickMediaEssentialAttrs( rawAttrs, block.name ),
+			...pickLinkEssentialAttrs( rawAttrs ),
+		}
 		if ( Object.keys( picked ).length ) {
 			const essentials = {}
 			for ( const key of Object.keys( picked ) ) {
@@ -890,6 +898,123 @@ export function getEditorState() {
 	}
 }
 
+/**
+ * Shrink a get-blocks payload until JSON fits maxChars (valid JSON, keep refs).
+ *
+ * Drop optional fields first (attribute_keys, then large attribute values),
+ * then trim trailing blocks. Works for any block type — not vendor-specific.
+ *
+ * @param {Object} payload getBlocks result.
+ * @param {number} maxChars Soft char budget for JSON.stringify(payload).
+ * @return {Object}
+ */
+export function enforceGetBlocksByteBudget( payload, maxChars ) {
+	if ( ! payload || typeof payload !== 'object' ) {
+		return payload
+	}
+	const max = Math.max( 500, Number( maxChars ) || GET_BLOCKS_COMPACT_MAX_CHARS )
+	let out = payload
+	const size = () => JSON.stringify( out ).length
+	if ( size() <= max ) {
+		return out
+	}
+
+	out = {
+		...out,
+		truncated: true,
+		note: out.note || 'Block tree capped by size; re-read with refs or root_ref for details.',
+		blocks: Array.isArray( out.blocks ) ? out.blocks.map( stripAttributeKeysDeep ) : out.blocks,
+	}
+	if ( size() <= max ) {
+		return out
+	}
+
+	out = {
+		...out,
+		blocks: Array.isArray( out.blocks ) ? out.blocks.map( slimAttributesDeep ) : out.blocks,
+	}
+	if ( size() <= max ) {
+		return out
+	}
+
+	while ( Array.isArray( out.blocks ) && out.blocks.length > 1 && size() > max ) {
+		out = {
+			...out,
+			truncated: true,
+			blocks: out.blocks.slice( 0, -1 ),
+			count: out.blocks.length - 1,
+			refs: ( out.blocks.slice( 0, -1 ) ).map( node => node && node.ref ).filter( Boolean ),
+		}
+	}
+
+	if ( size() > max && Array.isArray( out.blocks ) && out.blocks.length === 1 ) {
+		const only = slimAttributesDeep( stripAttributeKeysDeep( out.blocks[ 0 ] ) )
+		out = {
+			...out,
+			truncated: true,
+			blocks: [ {
+				ref: only.ref,
+				name: only.name,
+				preview: only.preview,
+				content_attr: only.content_attr,
+				attributes: only.attributes,
+			} ],
+			count: 1,
+			refs: only.ref ? [ only.ref ] : [],
+		}
+	}
+
+	return out
+}
+
+/**
+ * @param {Object|null} node
+ * @return {Object|null}
+ */
+function stripAttributeKeysDeep( node ) {
+	if ( ! node || typeof node !== 'object' ) {
+		return node
+	}
+	const next = { ...node }
+	delete next.attribute_keys
+	if ( Array.isArray( next.innerBlocks ) ) {
+		next.innerBlocks = next.innerBlocks.map( stripAttributeKeysDeep )
+	}
+	return next
+}
+
+/**
+ * Keep only small essential attribute values (urls, short labels, ids).
+ *
+ * @param {Object|null} node
+ * @return {Object|null}
+ */
+function slimAttributesDeep( node ) {
+	if ( ! node || typeof node !== 'object' ) {
+		return node
+	}
+	const next = { ...node }
+	delete next.attribute_keys
+	if ( next.attributes && typeof next.attributes === 'object' ) {
+		const slim = {}
+		for ( const key of Object.keys( next.attributes ) ) {
+			const val = next.attributes[ key ]
+			if ( typeof val === 'string' && val.length > 300 ) {
+				continue
+			}
+			if ( val !== null && typeof val === 'object' ) {
+				continue
+			}
+			slim[ key ] = val
+		}
+		next.attributes = slim
+	}
+	if ( Array.isArray( next.innerBlocks ) ) {
+		next.innerBlocks = next.innerBlocks.map( slimAttributesDeep )
+	}
+	return next
+}
+
 export function getBlocks( input = {} ) {
 	const ctx = requireEditor()
 	if ( ! ctx.ok ) {
@@ -928,14 +1053,14 @@ export function getBlocks( input = {} ) {
 				break
 			}
 		}
-		return {
+		return enforceGetBlocksByteBudget( {
 			ok: true,
 			scoped: true,
 			count: tree.length,
 			truncated,
 			blocks: tree,
 			refs: tree.map( node => node.ref ).filter( Boolean ),
-		}
+		}, GET_BLOCKS_FULL_MAX_CHARS )
 	}
 
 	let rootId = ''
@@ -980,7 +1105,7 @@ export function getBlocks( input = {} ) {
 			break
 		}
 	}
-	return {
+	return enforceGetBlocksByteBudget( {
 		ok: true,
 		count: tree.length,
 		truncated,
@@ -990,7 +1115,7 @@ export function getBlocks( input = {} ) {
 				note: 'include_attributes without root_ref is capped to a few blocks to avoid an oversized result. Pass root_ref (from this or an earlier get-blocks/get-selection call) to see full attributes for one block/subtree in detail.',
 			}
 			: {} ),
-	}
+	}, includeAttributes ? GET_BLOCKS_FULL_MAX_CHARS : GET_BLOCKS_COMPACT_MAX_CHARS )
 }
 
 export function getSelection() {

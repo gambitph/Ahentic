@@ -20,13 +20,17 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 	 * Primary interface: run_think(), apply_live_progress(), finalize_result_text(),
 	 * should_finish_without_tools(), publish_thought_process(), queue_missing_ability().
 	 * Pure helpers (is_usable, signals_missing_ability, normalize_ability_name,
-	 * progress_label_from_debug, disposition_for_debug, resolve_thought_process_for_chat)
+	 * progress_label_from_debug, disposition_for_debug, classify_missing_ability_claim,
+	 * missing_ability_action, rewrite_debug_to_use_tools, resolve_thought_process_for_chat)
 	 * are part of the test surface; trace_debug / progress_label_from_debug are also
 	 * used from Orchestrator::run_llm_phase.
 	 */
 	class Ahentic_Think_Debug {
 		/** Max LLM attempts to obtain a valid AHENTIC_DEBUG block per think phase. */
 		const MAX_DEBUG_ATTEMPTS = 3;
+
+		/** Max full-catalog reconsider thinks after a missing_ability claim. */
+		const MAX_MISSING_ABILITY_RECONSIDERS = 1;
 
 		/**
 		 * Deep entry: progress label + LLM think with AHENTIC_DEBUG recovery.
@@ -43,6 +47,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
+			$result = self::resolve_missing_ability_after_think( $session_id, $result, $opts );
 			return array(
 				'result' => $result,
 				'label'  => $label,
@@ -101,7 +106,15 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		public static function should_finish_without_tools( $session_id, $debug ) {
 			$disposition = self::disposition_for_debug( $debug );
 			if ( 'finish_missing' === $disposition ) {
-				self::queue_missing_abilities( $session_id, is_array( $debug ) ? $debug : array() );
+				$debug     = is_array( $debug ) ? $debug : array();
+				$available = class_exists( 'Ahentic_Abilities' )
+					? Ahentic_Abilities::available_for_agent()
+					: array();
+				// Only queue a capability request for a concrete unknown ability —
+				// vague / new-ability placeholders are false positives after reconsider.
+				if ( 'unknown' === self::classify_missing_ability_claim( $debug, $available ) ) {
+					self::queue_missing_abilities( $session_id, $debug );
+				}
 			}
 			return 'continue' !== $disposition;
 		}
@@ -327,6 +340,346 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				return true;
 			}
 			return false;
+		}
+
+		/**
+		 * Classify a missing-ability claim against the available catalog.
+		 *
+		 * @param array    $debug     Debug block.
+		 * @param string[] $available Ability names available for this mode/agent.
+		 * @return string none|available|vague|unknown
+		 */
+		public static function classify_missing_ability_claim( array $debug, array $available ) {
+			if ( ! self::signals_missing_ability( $debug ) ) {
+				return 'none';
+			}
+
+			$names = self::collect_claimed_ability_names( $debug );
+			if ( empty( $names ) ) {
+				return 'vague';
+			}
+
+			$concrete = array();
+			foreach ( $names as $name ) {
+				if ( 'ahentic/new-ability' === $name ) {
+					continue;
+				}
+				$concrete[] = $name;
+				if ( in_array( $name, $available, true ) ) {
+					return 'available';
+				}
+			}
+
+			if ( empty( $concrete ) ) {
+				return 'vague';
+			}
+
+			return 'unknown';
+		}
+
+		/**
+		 * Decide how to handle a missing-ability signal.
+		 *
+		 * @param array    $debug             Debug block.
+		 * @param string[] $available         Available ability names.
+		 * @param int      $reconsider_count  Reconsider thinks already run this phase.
+		 * @return string none|use_available|reconsider|finish_missing|finish_reply
+		 */
+		public static function missing_ability_action( array $debug, array $available, $reconsider_count = 0 ) {
+			$class = self::classify_missing_ability_claim( $debug, $available );
+			if ( 'none' === $class ) {
+				return 'none';
+			}
+			if ( 'available' === $class ) {
+				return 'use_available';
+			}
+
+			$reconsider_count = max( 0, (int) $reconsider_count );
+			if ( $reconsider_count < self::MAX_MISSING_ABILITY_RECONSIDERS ) {
+				return 'reconsider';
+			}
+
+			return 'unknown' === $class ? 'finish_missing' : 'finish_reply';
+		}
+
+		/**
+		 * Rewrite a missing-ability debug block to call an available ability.
+		 *
+		 * @param array  $debug         Debug block.
+		 * @param string $ability_name  Ability that exists in the catalog.
+		 * @return array
+		 */
+		public static function rewrite_debug_to_use_tools( array $debug, $ability_name ) {
+			$ability_name = self::normalize_ability_name( $ability_name );
+			if ( '' === $ability_name ) {
+				return $debug;
+			}
+
+			$planned = array();
+			if ( class_exists( 'Ahentic_Orchestrator' ) ) {
+				$planned = Ahentic_Orchestrator::normalize_tool_calls(
+					isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array()
+				);
+			}
+			$has = false;
+			foreach ( $planned as $call ) {
+				if ( isset( $call['name'] ) && (string) $call['name'] === $ability_name ) {
+					$has = true;
+					break;
+				}
+			}
+			if ( ! $has ) {
+				$planned = array(
+					array(
+						'name'  => $ability_name,
+						'input' => array(),
+					),
+				);
+			}
+
+			$debug['next']           = 'use_tools';
+			$debug['tools_planned']  = $planned;
+			unset( $debug['ability_needed'] );
+			return $debug;
+		}
+
+		/**
+		 * First claimed ability name that is already available, or empty string.
+		 *
+		 * @param array    $debug     Debug block.
+		 * @param string[] $available Available ability names.
+		 * @return string
+		 */
+		public static function first_available_claimed_ability( array $debug, array $available ) {
+			foreach ( self::collect_claimed_ability_names( $debug ) as $name ) {
+				if ( in_array( $name, $available, true ) ) {
+					return $name;
+				}
+			}
+			return '';
+		}
+
+		/**
+		 * Ability names the model claimed it needs (normalized; may include new-ability).
+		 *
+		 * @param array $debug Debug block.
+		 * @return string[]
+		 */
+		public static function collect_claimed_ability_names( array $debug ) {
+			$names = array();
+
+			if ( ! empty( $debug['ability_needed'] ) ) {
+				$needed = $debug['ability_needed'];
+				if ( is_string( $needed ) ) {
+					$names[] = self::normalize_ability_name( $needed );
+				} elseif ( is_array( $needed ) ) {
+					foreach ( $needed as $item ) {
+						if ( is_string( $item ) ) {
+							$names[] = self::normalize_ability_name( $item );
+						} elseif ( is_array( $item ) ) {
+							$raw = '';
+							if ( isset( $item['name'] ) ) {
+								$raw = (string) $item['name'];
+							} elseif ( isset( $item['ability'] ) ) {
+								$raw = (string) $item['ability'];
+							}
+							if ( '' !== $raw ) {
+								$names[] = self::normalize_ability_name( $raw );
+							}
+						}
+					}
+				}
+			}
+
+			if ( class_exists( 'Ahentic_Orchestrator' ) ) {
+				$planned = Ahentic_Orchestrator::normalize_tool_calls(
+					isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array()
+				);
+				foreach ( $planned as $call ) {
+					if ( ! empty( $call['name'] ) ) {
+						$names[] = self::normalize_ability_name( (string) $call['name'] );
+					}
+				}
+			}
+
+			return array_values(
+				array_unique(
+					array_filter(
+						$names,
+						static function ( $n ) {
+							return is_string( $n ) && '' !== $n;
+						}
+					)
+				)
+			);
+		}
+
+		/**
+		 * After a think, challenge false missing_ability claims before the loop finishes.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $result     LLM result with debug.
+		 * @param array $opts       Think opts (mini_job_hop skips reconsider).
+		 * @return array
+		 */
+		private static function resolve_missing_ability_after_think( $session_id, array $result, array $opts = array() ) {
+			$debug = isset( $result['debug'] ) && is_array( $result['debug'] ) ? $result['debug'] : array();
+			if ( ! self::signals_missing_ability( $debug ) ) {
+				return $result;
+			}
+
+			// Hop thinks stay slim; main owns capability gaps.
+			if ( ! empty( $opts['mini_job_hop'] ) ) {
+				return $result;
+			}
+
+			$mode = 'agent';
+			if ( class_exists( 'Ahentic_Session_Repository' ) ) {
+				$session_mode = Ahentic_Session_Repository::get_mode( $session_id );
+				if ( is_string( $session_mode ) && '' !== $session_mode ) {
+					$mode = $session_mode;
+				}
+			}
+
+			$available = class_exists( 'Ahentic_Abilities' )
+				? Ahentic_Abilities::available_for_mode( $mode )
+				: array();
+
+			$action = self::missing_ability_action( $debug, $available, 0 );
+			if ( 'use_available' === $action ) {
+				$applied = self::apply_available_missing_claim( $debug, $available );
+				if ( null !== $applied ) {
+					$result['debug'] = $applied;
+					return $result;
+				}
+				// Named an available ability but did not plan it — reconsider with the catalog.
+				$action = 'reconsider';
+			}
+
+			if ( 'reconsider' !== $action ) {
+				if ( 'finish_reply' === $action ) {
+					$debug['next'] = 'reply';
+					unset( $debug['ability_needed'] );
+					$result['debug'] = $debug;
+				}
+				return $result;
+			}
+
+			$result = self::run_missing_ability_reconsider( $session_id, $result, $debug, $available );
+			return $result;
+		}
+
+		/**
+		 * If tools_planned already names an available ability, clear the false gap.
+		 *
+		 * @param array    $debug     Debug block.
+		 * @param string[] $available Available ability names.
+		 * @return array|null Rewritten debug, or null when a reconsider is still needed.
+		 */
+		private static function apply_available_missing_claim( array $debug, array $available ) {
+			$planned = array();
+			if ( class_exists( 'Ahentic_Orchestrator' ) ) {
+				$planned = Ahentic_Orchestrator::normalize_tool_calls(
+					isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array()
+				);
+			}
+			foreach ( $planned as $call ) {
+				$name = isset( $call['name'] ) ? (string) $call['name'] : '';
+				if ( '' !== $name && in_array( $name, $available, true ) ) {
+					$debug['next']          = 'use_tools';
+					$debug['tools_planned'] = $planned;
+					unset( $debug['ability_needed'] );
+					return $debug;
+				}
+			}
+			return null;
+		}
+
+		/**
+		 * One full-catalog reconsider think after a missing_ability claim.
+		 *
+		 * @param int      $session_id Session ID.
+		 * @param array    $result     Prior LLM result.
+		 * @param array    $debug      Prior debug block.
+		 * @param string[] $available  Available ability names.
+		 * @return array
+		 */
+		private static function run_missing_ability_reconsider( $session_id, array $result, array $debug, array $available ) {
+			if ( ! class_exists( 'Ahentic_Orchestrator' ) || ! class_exists( 'Ahentic_Session_Repository' ) ) {
+				return $result;
+			}
+
+			$claimed = self::collect_claimed_ability_names( $debug );
+			$claimed_label = ! empty( $claimed ) ? implode( ', ', $claimed ) : '(none named)';
+			$step = (int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true );
+
+			Ahentic_Session_Repository::append_trace(
+				$session_id,
+				'missing_ability_reconsider',
+				'Reconsidering missing-ability claim against the catalog',
+				array(
+					'claimed' => $claimed,
+					'class'   => self::classify_missing_ability_claim( $debug, $available ),
+				),
+				$step
+			);
+
+			$suffix = '[Internal — not shown to the user] You set next=missing_ability'
+				. ' (claimed: ' . $claimed_label . '). Before ending the job, reconsider with the full ability catalog: '
+				. '(1) If an existing ability can do the user goal, set next=use_tools with that ability in tools_planned '
+				. '(prefer ahentic-browser/update-block-attributes, set-blocks, and other registered tools over inventing a gap). '
+				. '(2) Only if NO registered ability can accomplish the goal, keep next=missing_ability and set ability_needed '
+				. 'to a concrete ahentic/… or ahentic-browser/… slug that is NOT in the catalog, and say why alternatives fail. '
+				. 'Do not use ahentic/new-ability or vague labels like "editor-control". '
+				. 'Respond again from scratch with a full <<<AHENTIC_DEBUG … AHENTIC_DEBUG>>> block FIRST, then a short reply.';
+
+			$progress = __( 'Checking available tools…', 'ahentic' );
+			$retry    = Ahentic_Orchestrator::run_llm_phase(
+				$session_id,
+				$progress,
+				null,
+				$suffix,
+				false,
+				array()
+			);
+
+			if ( is_wp_error( $retry ) || ! is_array( $retry ) ) {
+				return $result;
+			}
+
+			$new_debug = isset( $retry['debug'] ) && is_array( $retry['debug'] ) ? $retry['debug'] : array();
+			if ( ! self::is_usable( $new_debug ) ) {
+				return $result;
+			}
+
+			$result = $retry;
+			$debug  = $new_debug;
+			$action = self::missing_ability_action( $debug, $available, 1 );
+
+			if ( 'use_available' === $action ) {
+				$applied = self::apply_available_missing_claim( $debug, $available );
+				if ( null !== $applied ) {
+					$debug = $applied;
+				} else {
+					$ability = self::first_available_claimed_ability( $debug, $available );
+					if ( '' !== $ability ) {
+						$debug = self::rewrite_debug_to_use_tools( $debug, $ability );
+					} else {
+						$debug['next'] = 'reply';
+						unset( $debug['ability_needed'] );
+					}
+				}
+			} elseif ( 'finish_reply' === $action ) {
+				$debug['next'] = 'reply';
+				unset( $debug['ability_needed'] );
+			} elseif ( 'reconsider' === $action ) {
+				// Cap: do not loop — vague after one reconsider becomes a normal reply.
+				$debug['next'] = 'reply';
+				unset( $debug['ability_needed'] );
+			}
+
+			$result['debug'] = $debug;
+			return $result;
 		}
 
 		/**
