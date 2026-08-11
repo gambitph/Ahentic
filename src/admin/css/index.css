@@ -1660,7 +1660,7 @@ a.ahentic-empty__ai-install:hover {
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 6px 10px;
-	padding: 8px 12px;
+	padding: 12px 18px;
 	border-top: 1px solid var(--ah-border);
 	background: var(--ah-bg, transparent);
 }
@@ -1690,6 +1690,42 @@ a.ahentic-empty__ai-install:hover {
 	color: var(--ah-muted);
 }
 
+.ahentic-run-feedback.is-note {
+	align-items: stretch;
+	flex-direction: column;
+}
+
+.ahentic-run-feedback__label {
+	font-size: 13px;
+	line-height: 1.45;
+	color: var(--ah-fg);
+}
+
+.ahentic-run-feedback__note {
+	width: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 8px 10px;
+	border: 1px solid var(--ah-border);
+	border-radius: 8px;
+	background: var(--ah-bg, transparent);
+	color: var(--ah-fg);
+	font: inherit;
+	font-size: 13px;
+	line-height: 1.45;
+	resize: vertical;
+	min-height: 4.5em;
+}
+
+.ahentic-run-feedback__note:focus {
+	outline: 2px solid var(--ah-primary);
+	outline-offset: 1px;
+}
+
+.ahentic-run-feedback__note:disabled {
+	opacity: 0.7;
+}
+
 .ahentic-run-feedback__actions {
 	display: flex;
 	flex-wrap: wrap;
@@ -1698,7 +1734,8 @@ a.ahentic-empty__ai-install:hover {
 
 .ahentic button.ahentic-run-feedback__yes,
 .ahentic button.ahentic-run-feedback__no,
-.ahentic button.ahentic-run-feedback__dismiss {
+.ahentic button.ahentic-run-feedback__dismiss,
+.ahentic button.ahentic-run-feedback__submit {
 	margin: 0;
 	padding: 4px 10px;
 	border-radius: 8px;
@@ -1711,6 +1748,12 @@ a.ahentic-empty__ai-install:hover {
 	color: var(--ah-fg);
 }
 
+.ahentic button.ahentic-run-feedback__submit {
+	border-color: var(--ah-primary);
+	background: var(--ah-primary);
+	color: #fff;
+}
+
 .ahentic button.ahentic-run-feedback__yes:hover,
 .ahentic button.ahentic-run-feedback__yes:focus,
 .ahentic button.ahentic-run-feedback__no:hover,
@@ -1720,8 +1763,14 @@ a.ahentic-empty__ai-install:hover {
 	background: var(--ah-hover);
 }
 
+.ahentic button.ahentic-run-feedback__submit:hover,
+.ahentic button.ahentic-run-feedback__submit:focus {
+	background: var(--ah-primary-hover, var(--ah-primary));
+}
+
 .ahentic button.ahentic-run-feedback__yes:disabled,
-.ahentic button.ahentic-run-feedback__no:disabled {
+.ahentic button.ahentic-run-feedback__no:disabled,
+.ahentic button.ahentic-run-feedback__submit:disabled {
 	opacity: 0.55;
 	cursor: default;
 }

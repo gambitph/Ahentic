@@ -53,6 +53,13 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		const OPTION_CONSENTED_AT = 'ahentic_feedback_consented_at';
 
 		/**
+		 * Max length for optional admin user_note (keep in sync with sidebar maxLength).
+		 *
+		 * @var int
+		 */
+		const USER_NOTE_MAX_LENGTH = 1000;
+
+		/**
 		 * Refresh when this many seconds remain before expiry (14 days).
 		 *
 		 * @var int
@@ -536,6 +543,37 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
+		 * Append an optional user note to an AI (or override) summary.
+		 *
+		 * @param string $summary   Existing summary.
+		 * @param string $user_note Free-text note from the admin (may be empty).
+		 * @return string Summary, possibly with a scrubbed "User note:" block.
+		 */
+		public static function append_user_note_to_summary( $summary, $user_note ) {
+			$summary = (string) $summary;
+			$note    = (string) $user_note;
+			if ( function_exists( 'wp_strip_all_tags' ) ) {
+				$note = wp_strip_all_tags( $note );
+			} else {
+				$note = strip_tags( $note );
+			}
+			$note = trim( $note );
+			if ( '' === $note ) {
+				return $summary;
+			}
+			$note = self::scrub_text( $note );
+			$note = substr( $note, 0, self::USER_NOTE_MAX_LENGTH );
+			if ( '' === $note ) {
+				return $summary;
+			}
+			$block = 'User note: ' . $note;
+			if ( '' === trim( $summary ) ) {
+				return $block;
+			}
+			return rtrim( $summary ) . "\n\n" . $block;
+		}
+
+		/**
 		 * Draft AI summary for a report. Fails visibly when AI is unavailable.
 		 *
 		 * @param array  $diagnostics Diagnostics bundle.
@@ -693,6 +731,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		 *     @type string     $title
 		 *     @type string     $summary
 		 *     @type string     $prompt_excerpt
+		 *     @type string     $user_note
 		 *     @type int|null   $duplicate_of
 		 * }
 		 * @return array|\WP_Error Intake response { action, number, html_url }.
@@ -731,6 +770,9 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 					$summary = $drafted['summary'];
 				}
 			}
+
+			$user_note = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
+			$summary   = self::append_user_note_to_summary( $summary, $user_note );
 
 			$debug_pack = self::build_debug_pack( $diagnostics );
 			$token      = self::ensure_valid_token();

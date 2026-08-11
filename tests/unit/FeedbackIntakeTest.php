@@ -78,4 +78,29 @@ class FeedbackIntakeTest extends PHPUnit\Framework\TestCase {
 		$this->assertStringContainsString( 'ahentic/get-site-snapshot', $pack );
 		$this->assertStringContainsString( 'Model failed', $pack );
 	}
+
+	public function test_append_user_note_to_summary_adds_labeled_block() {
+		$out = Ahentic_Feedback_Intake::append_user_note_to_summary(
+			'AI said the run stalled.',
+			'It edited the wrong page.'
+		);
+		$this->assertSame(
+			"AI said the run stalled.\n\nUser note: It edited the wrong page.",
+			$out
+		);
+	}
+
+	public function test_append_user_note_to_summary_ignores_blank_and_scrubs() {
+		$this->assertSame(
+			'Only AI.',
+			Ahentic_Feedback_Intake::append_user_note_to_summary( 'Only AI.', "  \n\t  " )
+		);
+		$out = Ahentic_Feedback_Intake::append_user_note_to_summary(
+			'Base',
+			'Ping me@example.com'
+		);
+		$this->assertStringNotContainsString( 'me@example.com', $out );
+		$this->assertStringContainsString( '[EMAIL]', $out );
+		$this->assertStringStartsWith( "Base\n\nUser note: ", $out );
+	}
 }

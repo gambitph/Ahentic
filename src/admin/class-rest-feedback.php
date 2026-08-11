@@ -86,6 +86,10 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 							'required' => false,
 							'type'     => 'string',
 						),
+						'user_note'      => array(
+							'required' => false,
+							'type'     => 'string',
+						),
 						'prompt_excerpt' => array(
 							'required' => false,
 							'type'     => 'string',
@@ -162,6 +166,10 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 			$summary = $request->get_param( 'summary' );
 			if ( is_string( $summary ) && '' !== trim( $summary ) ) {
 				$args['summary'] = $summary;
+			}
+			$user_note = $request->get_param( 'user_note' );
+			if ( is_string( $user_note ) && '' !== trim( $user_note ) ) {
+				$args['user_note'] = $user_note;
 			}
 			$excerpt = $request->get_param( 'prompt_excerpt' );
 			if ( is_string( $excerpt ) && '' !== $excerpt ) {

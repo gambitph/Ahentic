@@ -84,7 +84,10 @@ test.describe( 'Run feedback intake proxy (REST)', () => {
 		const filed = await requestUtils.rest( {
 			path: '/ahentic/v1/feedback/reports',
 			method: 'POST',
-			data: { session_id: Number( sessionId ) },
+			data: {
+				session_id: Number( sessionId ),
+				user_note: 'It edited the wrong page.',
+			},
 		} )
 
 		expect( filed ).toMatchObject( {

@@ -31,7 +31,7 @@ test.describe( 'Sidebar run feedback', () => {
 		await waitForSession( requestUtils, session.id, s => s.status === 'idle' )
 
 		await expect( ahenticSidebar.runFeedback ).toBeVisible( { timeout: 15_000 } )
-		await expect( ahenticSidebar.runFeedback ).toContainText( /Did this run go okay/i )
+		await expect( ahenticSidebar.runFeedback ).toContainText( /Did Ahentic do well/i )
 		await expect( ahenticSidebar.runFeedback.getByRole( 'button', { name: 'Yes' } ) ).toBeVisible()
 		await expect( ahenticSidebar.runFeedback.getByRole( 'button', { name: 'No' } ) ).toBeVisible()
 	} )
@@ -107,6 +107,11 @@ test.describe( 'Sidebar run feedback', () => {
 			} ),
 		] )
 		await ahenticSidebar.runFeedback.getByRole( 'button', { name: 'No' } ).click()
+		await expect( ahenticSidebar.runFeedback.getByLabel( /What went wrong/i ) ).toBeVisible()
+		await ahenticSidebar.runFeedback.getByLabel( /What went wrong/i ).fill(
+			'It edited the wrong page.'
+		)
+		await ahenticSidebar.runFeedback.getByRole( 'button', { name: 'Send feedback' } ).click()
 
 		await expect( ahenticSidebar.runFeedback ).toContainText( /Thanks|View on GitHub|filed/i, {
 			timeout: 30_000,

@@ -46,6 +46,9 @@ export async function ensureFeedbackOptIn() {
 	return mintFeedbackSiteToken()
 }
 
+/** Max length for optional user_note — keep in sync with Ahentic_Feedback_Intake::USER_NOTE_MAX_LENGTH. */
+export const RUN_FEEDBACK_USER_NOTE_MAX = 1000
+
 /**
  * @param {Object}        props
  * @param {string|number} props.sessionId
@@ -55,10 +58,11 @@ export async function ensureFeedbackOptIn() {
 export default function RunFeedbackBar( {
 	sessionId, onDismiss, disabled = false,
 } ) {
-	const [ phase, setPhase ] = useState( 'ask' ) // ask | working | done | error
+	const [ phase, setPhase ] = useState( 'ask' ) // ask | note | working | done | error
 	const [ error, setError ] = useState( '' )
 	const [ resultUrl, setResultUrl ] = useState( '' )
 	const [ busy, setBusy ] = useState( false )
+	const [ userNote, setUserNote ] = useState( '' )
 
 	const onYes = useCallback( () => {
 		if ( busy || disabled ) {
@@ -67,7 +71,24 @@ export default function RunFeedbackBar( {
 		onDismiss()
 	}, [ busy, disabled, onDismiss ] )
 
-	const onNo = useCallback( async () => {
+	const onNo = useCallback( () => {
+		if ( busy || disabled ) {
+			return
+		}
+		setError( '' )
+		setPhase( 'note' )
+	}, [ busy, disabled ] )
+
+	const onCancelNote = useCallback( () => {
+		if ( busy ) {
+			return
+		}
+		setUserNote( '' )
+		setError( '' )
+		setPhase( 'ask' )
+	}, [ busy ] )
+
+	const onSubmitNote = useCallback( async () => {
 		if ( busy || disabled ) {
 			return
 		}
@@ -76,7 +97,12 @@ export default function RunFeedbackBar( {
 		setPhase( 'working' )
 		try {
 			await ensureFeedbackOptIn()
-			const filed = await fileRunFeedbackReport( sessionId )
+			const note = String( userNote || '' ).trim()
+			const filed = await fileRunFeedbackReport(
+				sessionId,
+				/* eslint-disable-next-line camelcase -- user_note matches PHP REST args. */
+				note ? { user_note: note } : {}
+			)
 			setResultUrl( filed?.html_url || '' )
 			setPhase( 'done' )
 		} catch ( err ) {
@@ -97,7 +123,7 @@ export default function RunFeedbackBar( {
 		} finally {
 			setBusy( false )
 		}
-	}, [ busy, disabled, sessionId ] )
+	}, [ busy, disabled, sessionId, userNote ] )
 
 	if ( phase === 'done' ) {
 		return (
@@ -129,6 +155,53 @@ export default function RunFeedbackBar( {
 		)
 	}
 
+	if ( phase === 'note' || phase === 'error' ) {
+		return (
+			<div
+				className="ahentic-run-feedback is-note"
+				role="group"
+				aria-label={ __( 'Run feedback', 'ahentic' ) }
+			>
+				<label className="ahentic-run-feedback__label" htmlFor="ahentic-run-feedback-note">
+					{ __( 'What went wrong? (optional)', 'ahentic' ) }
+				</label>
+				<textarea
+					id="ahentic-run-feedback-note"
+					className="ahentic-run-feedback__note"
+					value={ userNote }
+					onChange={ event => setUserNote( event.target.value ) }
+					rows={ 3 }
+					maxLength={ RUN_FEEDBACK_USER_NOTE_MAX }
+					disabled={ busy || disabled }
+					placeholder={ __( 'Share a short note for the Ahentic team…', 'ahentic' ) }
+				/>
+				<div className="ahentic-run-feedback__actions">
+					<button
+						type="button"
+						className="ahentic-run-feedback__submit"
+						disabled={ busy || disabled }
+						onClick={ onSubmitNote }
+					>
+						{ __( 'Send feedback', 'ahentic' ) }
+					</button>
+					<button
+						type="button"
+						className="ahentic-run-feedback__dismiss"
+						disabled={ busy }
+						onClick={ onCancelNote }
+					>
+						{ __( 'Cancel', 'ahentic' ) }
+					</button>
+				</div>
+				{ error ? (
+					<span className="ahentic-run-feedback__error" role="alert">
+						{ error }
+					</span>
+				) : null }
+			</div>
+		)
+	}
+
 	return (
 		<div
 			className={ `ahentic-run-feedback${ phase === 'working' ? ' is-working' : '' }` }
@@ -149,7 +222,7 @@ export default function RunFeedbackBar( {
 				</div>
 			) : (
 				<span className="ahentic-run-feedback__text">
-					{ __( 'Did this run go okay?', 'ahentic' ) }
+					{ __( 'Did Ahentic do well?', 'ahentic' ) }
 				</span>
 			) }
 			{ phase !== 'working' ? (
@@ -171,11 +244,6 @@ export default function RunFeedbackBar( {
 						{ __( 'No', 'ahentic' ) }
 					</button>
 				</div>
-			) : null }
-			{ error ? (
-				<span className="ahentic-run-feedback__error" role="alert">
-					{ error }
-				</span>
 			) : null }
 		</div>
 	)
