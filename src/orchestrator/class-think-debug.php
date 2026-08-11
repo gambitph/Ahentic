@@ -21,7 +21,8 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 	 * should_finish_without_tools(), publish_thought_process(), queue_missing_ability().
 	 * Pure helpers (is_usable, signals_missing_ability, normalize_ability_name,
 	 * progress_label_from_debug, disposition_for_debug, classify_missing_ability_claim,
-	 * missing_ability_action, rewrite_debug_to_use_tools, resolve_thought_process_for_chat)
+	 * missing_ability_action, rewrite_debug_to_use_tools, finish_available_missing_without_plan,
+	 * resolve_thought_process_for_chat)
 	 * are part of the test surface; trace_debug / progress_label_from_debug are also
 	 * used from Orchestrator::run_llm_phase.
 	 */
@@ -405,6 +406,9 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		/**
 		 * Rewrite a missing-ability debug block to call an available ability.
 		 *
+		 * Only promotes when tools_planned already names the ability (preserving input).
+		 * Does not inject {name, input:[]} — empty forced calls produce useless HITL cards.
+		 *
 		 * @param array  $debug         Debug block.
 		 * @param string $ability_name  Ability that exists in the catalog.
 		 * @return array
@@ -415,13 +419,8 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				return $debug;
 			}
 
-			$planned = array();
-			if ( class_exists( 'Ahentic_Orchestrator' ) ) {
-				$planned = Ahentic_Orchestrator::normalize_tool_calls(
-					isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array()
-				);
-			}
-			$has = false;
+			$planned = self::normalized_tools_planned_from_debug( $debug );
+			$has     = false;
 			foreach ( $planned as $call ) {
 				if ( isset( $call['name'] ) && (string) $call['name'] === $ability_name ) {
 					$has = true;
@@ -429,18 +428,79 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				}
 			}
 			if ( ! $has ) {
-				$planned = array(
-					array(
-						'name'  => $ability_name,
-						'input' => array(),
-					),
-				);
+				return $debug;
 			}
 
-			$debug['next']           = 'use_tools';
-			$debug['tools_planned']  = $planned;
+			$debug['next']          = 'use_tools';
+			$debug['tools_planned'] = $planned;
 			unset( $debug['ability_needed'] );
 			return $debug;
+		}
+
+		/**
+		 * After reconsider: promote a planned available tool, or reply without forcing empty input.
+		 *
+		 * @param array    $debug     Debug block.
+		 * @param string[] $available Available ability names.
+		 * @return array
+		 */
+		public static function finish_available_missing_without_plan( array $debug, array $available ) {
+			$applied = self::apply_available_missing_claim( $debug, $available );
+			if ( null !== $applied ) {
+				return $applied;
+			}
+			$debug['next'] = 'reply';
+			unset( $debug['ability_needed'] );
+			return $debug;
+		}
+
+		/**
+		 * Normalize tools_planned from a debug block (Orchestrator when loaded; else light shape).
+		 *
+		 * @param array $debug Debug block.
+		 * @return array<int, array{name: string, input: array}>
+		 */
+		private static function normalized_tools_planned_from_debug( array $debug ) {
+			$raw = isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array();
+			if ( class_exists( 'Ahentic_Orchestrator' ) ) {
+				return Ahentic_Orchestrator::normalize_tool_calls( $raw );
+			}
+			if ( ! is_array( $raw ) ) {
+				return array();
+			}
+			$out = array();
+			foreach ( $raw as $item ) {
+				if ( is_string( $item ) && '' !== $item ) {
+					$out[] = array(
+						'name'  => $item,
+						'input' => array(),
+					);
+					continue;
+				}
+				if ( ! is_array( $item ) ) {
+					continue;
+				}
+				$name = '';
+				if ( isset( $item['name'] ) ) {
+					$name = (string) $item['name'];
+				} elseif ( isset( $item['ability'] ) ) {
+					$name = (string) $item['ability'];
+				}
+				if ( '' === $name ) {
+					continue;
+				}
+				$input = array();
+				if ( isset( $item['input'] ) && is_array( $item['input'] ) ) {
+					$input = $item['input'];
+				} elseif ( isset( $item['args'] ) && is_array( $item['args'] ) ) {
+					$input = $item['args'];
+				}
+				$out[] = array(
+					'name'  => $name,
+					'input' => $input,
+				);
+			}
+			return $out;
 		}
 
 		/**
@@ -491,14 +551,10 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				}
 			}
 
-			if ( class_exists( 'Ahentic_Orchestrator' ) ) {
-				$planned = Ahentic_Orchestrator::normalize_tool_calls(
-					isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array()
-				);
-				foreach ( $planned as $call ) {
-					if ( ! empty( $call['name'] ) ) {
-						$names[] = self::normalize_ability_name( (string) $call['name'] );
-					}
+			$planned = self::normalized_tools_planned_from_debug( $debug );
+			foreach ( $planned as $call ) {
+				if ( ! empty( $call['name'] ) ) {
+					$names[] = self::normalize_ability_name( (string) $call['name'] );
 				}
 			}
 
@@ -577,12 +633,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 		 * @return array|null Rewritten debug, or null when a reconsider is still needed.
 		 */
 		private static function apply_available_missing_claim( array $debug, array $available ) {
-			$planned = array();
-			if ( class_exists( 'Ahentic_Orchestrator' ) ) {
-				$planned = Ahentic_Orchestrator::normalize_tool_calls(
-					isset( $debug['tools_planned'] ) ? $debug['tools_planned'] : array()
-				);
-			}
+			$planned = self::normalized_tools_planned_from_debug( $debug );
 			foreach ( $planned as $call ) {
 				$name = isset( $call['name'] ) ? (string) $call['name'] : '';
 				if ( '' !== $name && in_array( $name, $available, true ) ) {
@@ -627,7 +678,8 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 			$suffix = '[Internal — not shown to the user] You set next=missing_ability'
 				. ' (claimed: ' . $claimed_label . '). Before ending the job, reconsider with the full ability catalog: '
 				. '(1) If an existing ability can do the user goal, set next=use_tools with that ability in tools_planned '
-				. '(prefer ahentic-browser/update-block-attributes, set-blocks, and other registered tools over inventing a gap). '
+				. 'as {"name","input"} objects with all required fields (never a bare name string and never empty input for writes). '
+				. '(prefer ahentic-browser/update-block-attributes, set-blocks, ahentic/update-option, and other registered tools over inventing a gap). '
 				. '(2) Only if NO registered ability can accomplish the goal, keep next=missing_ability and set ability_needed '
 				. 'to a concrete ahentic/… or ahentic-browser/… slug that is NOT in the catalog, and say why alternatives fail. '
 				. 'Do not use ahentic/new-ability or vague labels like "editor-control". '
@@ -640,7 +692,9 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				null,
 				$suffix,
 				false,
-				array()
+				array(
+					'full_ability_catalog' => true,
+				)
 			);
 
 			if ( is_wp_error( $retry ) || ! is_array( $retry ) ) {
@@ -657,18 +711,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 			$action = self::missing_ability_action( $debug, $available, 1 );
 
 			if ( 'use_available' === $action ) {
-				$applied = self::apply_available_missing_claim( $debug, $available );
-				if ( null !== $applied ) {
-					$debug = $applied;
-				} else {
-					$ability = self::first_available_claimed_ability( $debug, $available );
-					if ( '' !== $ability ) {
-						$debug = self::rewrite_debug_to_use_tools( $debug, $ability );
-					} else {
-						$debug['next'] = 'reply';
-						unset( $debug['ability_needed'] );
-					}
-				}
+				$debug = self::finish_available_missing_without_plan( $debug, $available );
 			} elseif ( 'finish_reply' === $action ) {
 				$debug['next'] = 'reply';
 				unset( $debug['ability_needed'] );
