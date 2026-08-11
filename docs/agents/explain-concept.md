@@ -1,6 +1,6 @@
 # Explain a codebase concept
 
-Use the **`explain-codebase-concept`** skill (`.agents/skills/explain-codebase-concept/`) when you want a beginner-friendly, cross-stack walkthrough of **one** Ahentic concept, feature, or subsystem.
+Use the **`explain-codebase-concept`** skill (`.cursor/skills/explain-codebase-concept/`) when you want a beginner-friendly, cross-stack walkthrough of **one** Ahentic concept, feature, or subsystem.
 
 ## What you get
 
