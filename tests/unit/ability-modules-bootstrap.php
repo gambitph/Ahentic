@@ -41,6 +41,7 @@ function ahentic_phpunit_require_ability_modules( $include_artifacts_and_playboo
 	}
 
 	if ( $include_artifacts_and_playbooks && ! $loaded_extra ) {
+		require_once $root . '/src/orchestrator/class-prompt-assembler.php';
 		require_once $root . '/src/session/class-artifacts.php';
 		require_once $root . '/src/playbooks/class-playbooks.php';
 		$loaded_extra = true;

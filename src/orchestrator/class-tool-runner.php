@@ -919,11 +919,7 @@ if ( ! class_exists( 'Ahentic_Tool_Runner' ) ) {
 		 * @return string
 		 */
 		private static function excerpt( $text, $max = 120 ) {
-			$text = trim( preg_replace( '/\s+/', ' ', (string) $text ) );
-			if ( strlen( $text ) <= $max ) {
-				return $text;
-			}
-			return rtrim( substr( $text, 0, $max - 1 ) ) . '…';
+			return Ahentic_Prompt_Assembler::excerpt( $text, $max );
 		}
 	}
 }

@@ -16,6 +16,7 @@ class ArtifactStagePayloadTest extends TestCase {
 		parent::setUpBeforeClass();
 		require_once dirname( __DIR__, 2 ) . '/src/abilities/class-ahentic-content-placeholder.php';
 		Ahentic_Content_Placeholder::reset_rules_for_tests();
+		require_once dirname( __DIR__, 2 ) . '/src/orchestrator/class-prompt-assembler.php';
 		require_once dirname( __DIR__, 2 ) . '/src/session/class-artifacts.php';
 	}
 

@@ -16,7 +16,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 	 * Deep module: build the LLM system + history + user payload for a think.
 	 *
 	 * Primary interface: for_llm(). Pure helpers (build_chat_payload, excerpt,
-	 * truncate_tool_result_for_prompt) are part of the test surface.
+	 * truncate_tool_result_for_prompt, ensure_utf8, utf8_byte_slice) are part of the test surface.
 	 */
 	class Ahentic_Prompt_Assembler {
 		const MAX_HISTORY_TURNS = 40;
@@ -1358,13 +1358,13 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 
 			$summary = implode( "\n", $lines );
 			if ( strlen( $summary ) > self::COMPACT_SUMMARY_MAX_CHARS ) {
-				$summary = substr( $summary, -1 * self::COMPACT_SUMMARY_MAX_CHARS );
+				$summary = self::utf8_byte_suffix( $summary, self::COMPACT_SUMMARY_MAX_CHARS );
 				$nl      = strpos( $summary, "\n" );
 				if ( false !== $nl && $nl < 200 ) {
-					$summary = substr( $summary, $nl + 1 );
+					$summary = self::ensure_utf8( substr( $summary, $nl + 1 ) );
 				}
 			}
-			return trim( $summary );
+			return trim( self::ensure_utf8( $summary ) );
 		}
 
 		/**
@@ -1835,6 +1835,9 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		/**
 		 * Cap tool-result JSON injected into the next think prompt.
 		 *
+		 * Byte caps must not split multi-byte UTF-8 — Core AI json_encodes the
+		 * prompt and fails with "Malformed UTF-8 characters" otherwise.
+		 *
 		 * @param string $content Raw tool entry content.
 		 * @param int    $max     Optional cap override (0 uses the default).
 		 * @return string
@@ -1844,24 +1847,99 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			$max     = (int) $max > 0 ? (int) $max : self::MAX_TOOL_RESULT_CHARS;
 
 			if ( strlen( $content ) <= $max ) {
-				return $content;
+				return self::ensure_utf8( $content );
 			}
-			return rtrim( substr( $content, 0, $max - 1 ) ) . '…';
+			return rtrim( self::utf8_byte_slice( $content, 0, $max - 1 ) ) . '…';
 		}
 
 		/**
-		 * Truncate text for trace payloads.
+		 * Truncate text for trace payloads / compact notes.
 		 *
 		 * @param string $text Text.
-		 * @param int    $max  Max length.
+		 * @param int    $max  Max length in bytes (ellipsis may add UTF-8 bytes).
 		 * @return string
 		 */
 		public static function excerpt( $text, $max = 120 ) {
 			$text = trim( preg_replace( '/\s+/', ' ', (string) $text ) );
 			if ( strlen( $text ) <= $max ) {
+				return self::ensure_utf8( $text );
+			}
+			return rtrim( self::utf8_byte_slice( $text, 0, $max - 1 ) ) . '…';
+		}
+
+		/**
+		 * Return a valid UTF-8 string, stripping malformed bytes.
+		 *
+		 * @param string $text Possibly invalid UTF-8.
+		 * @return string
+		 */
+		public static function ensure_utf8( $text ) {
+			$text = (string) $text;
+			if ( '' === $text ) {
+				return '';
+			}
+			if ( function_exists( 'mb_check_encoding' ) && mb_check_encoding( $text, 'UTF-8' ) ) {
 				return $text;
 			}
-			return rtrim( substr( $text, 0, $max - 1 ) ) . '…';
+			if ( function_exists( 'wp_check_invalid_utf8' ) ) {
+				$clean = wp_check_invalid_utf8( $text, true );
+				if ( is_string( $clean ) && ( '' === $clean || ( function_exists( 'mb_check_encoding' ) && mb_check_encoding( $clean, 'UTF-8' ) ) ) ) {
+					return $clean;
+				}
+			}
+			if ( function_exists( 'iconv' ) ) {
+				$clean = @iconv( 'UTF-8', 'UTF-8//IGNORE', $text ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- intentional strip of invalid sequences.
+				if ( is_string( $clean ) ) {
+					return $clean;
+				}
+			}
+			return (string) preg_replace( '/[\x80-\xFF]+/', '', $text );
+		}
+
+		/**
+		 * Slice by byte length without splitting a UTF-8 character.
+		 *
+		 * @param string $text   Source.
+		 * @param int    $start  Byte offset.
+		 * @param int    $length Max bytes.
+		 * @return string
+		 */
+		public static function utf8_byte_slice( $text, $start, $length ) {
+			$text   = (string) $text;
+			$start  = (int) $start;
+			$length = (int) $length;
+			if ( $length <= 0 ) {
+				return '';
+			}
+			if ( function_exists( 'mb_strcut' ) ) {
+				return (string) mb_strcut( $text, $start, $length, 'UTF-8' );
+			}
+			return self::ensure_utf8( substr( $text, $start, $length ) );
+		}
+
+		/**
+		 * Keep the last $max bytes of $text without splitting a UTF-8 character.
+		 *
+		 * @param string $text Source.
+		 * @param int    $max  Max bytes to keep.
+		 * @return string
+		 */
+		public static function utf8_byte_suffix( $text, $max ) {
+			$text = (string) $text;
+			$max  = (int) $max;
+			if ( $max <= 0 ) {
+				return '';
+			}
+			$len = strlen( $text );
+			if ( $len <= $max ) {
+				return self::ensure_utf8( $text );
+			}
+			$start = $len - $max;
+			// Skip UTF-8 continuation bytes so the suffix starts on a codepoint.
+			while ( $start < $len && ( ord( $text[ $start ] ) & 0xC0 ) === 0x80 ) {
+				++$start;
+			}
+			return self::ensure_utf8( substr( $text, $start ) );
 		}
 
 		/**

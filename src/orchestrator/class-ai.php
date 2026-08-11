@@ -615,7 +615,16 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		 * @return array|\WP_Error
 		 */
 		private static function complete_via_core( $system, array $history, $user, $options = array() ) {
+			$system      = class_exists( 'Ahentic_Prompt_Assembler' )
+				? Ahentic_Prompt_Assembler::ensure_utf8( (string) $system )
+				: (string) $system;
+			$user        = class_exists( 'Ahentic_Prompt_Assembler' )
+				? Ahentic_Prompt_Assembler::ensure_utf8( (string) $user )
+				: (string) $user;
 			$prompt_text = self::flatten_prompt( $history, $user );
+			if ( class_exists( 'Ahentic_Prompt_Assembler' ) ) {
+				$prompt_text = Ahentic_Prompt_Assembler::ensure_utf8( $prompt_text );
+			}
 			$max_tokens  = self::resolve_max_output_tokens( $options );
 
 			try {
@@ -1127,6 +1136,9 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			foreach ( $history as $turn ) {
 				$role    = isset( $turn['role'] ) ? $turn['role'] : 'user';
 				$content = isset( $turn['content'] ) ? (string) $turn['content'] : '';
+				if ( class_exists( 'Ahentic_Prompt_Assembler' ) ) {
+					$content = Ahentic_Prompt_Assembler::ensure_utf8( $content );
+				}
 				if ( '' === $content ) {
 					continue;
 				}

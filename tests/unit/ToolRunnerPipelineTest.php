@@ -26,6 +26,7 @@ class ToolRunnerPipelineTest extends TestCase {
 		$root = dirname( __DIR__, 2 );
 		require_once $root . '/src/abilities/class-abilities-content.php';
 		require_once $root . '/src/abilities/class-abilities-browser.php';
+		require_once $root . '/src/orchestrator/class-prompt-assembler.php';
 		require_once $root . '/src/orchestrator/class-tool-runner.php';
 	}
 

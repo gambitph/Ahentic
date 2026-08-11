@@ -37,6 +37,41 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertStringStartsWith( str_repeat( 'x', 19 ), $out );
 	}
 
+	/**
+	 * Byte caps must not split multi-byte UTF-8 (Core AI json_encode → Malformed UTF-8).
+	 * Em dash is 3 bytes; a 12-byte budget cuts inside it after 10 ASCII chars.
+	 */
+	public function test_truncate_tool_result_does_not_split_multibyte_utf8() {
+		$body = str_repeat( 'a', 10 ) . '—' . str_repeat( 'b', 20 );
+		$out  = Ahentic_Prompt_Assembler::truncate_tool_result_for_prompt( $body, 12 );
+
+		$this->assertTrue( mb_check_encoding( $out, 'UTF-8' ), 'truncated output must be valid UTF-8' );
+		$this->assertNotFalse( json_encode( $out ), 'json_encode must succeed (Core AI prompt path)' );
+		$this->assertStringEndsWith( '…', $out );
+		$this->assertStringStartsWith( str_repeat( 'a', 10 ), $out );
+		$this->assertStringNotContainsString( 'b', $out );
+	}
+
+	public function test_excerpt_does_not_split_multibyte_utf8() {
+		$text = str_repeat( 'x', 8 ) . '‹' . str_repeat( 'y', 20 );
+		$out  = Ahentic_Prompt_Assembler::excerpt( $text, 10 );
+
+		$this->assertTrue( mb_check_encoding( $out, 'UTF-8' ), 'excerpt must be valid UTF-8' );
+		$this->assertNotFalse( json_encode( $out ), 'json_encode must succeed' );
+		$this->assertStringEndsWith( '…', $out );
+	}
+
+	public function test_ensure_utf8_strips_orphaned_lead_bytes() {
+		// Lone UTF-8 lead byte (invalid), as left by a mid-character byte cut.
+		$broken = "hello\xE2world";
+		$fixed  = Ahentic_Prompt_Assembler::ensure_utf8( $broken );
+
+		$this->assertTrue( mb_check_encoding( $fixed, 'UTF-8' ) );
+		$this->assertNotFalse( json_encode( $fixed ) );
+		$this->assertStringContainsString( 'hello', $fixed );
+		$this->assertStringContainsString( 'world', $fixed );
+	}
+
 	public function test_build_chat_payload_appends_trailing_tool_results_to_user() {
 		$entries = array(
 			array(
