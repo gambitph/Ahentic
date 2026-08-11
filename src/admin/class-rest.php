@@ -35,6 +35,20 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 		const REQUIRED_ABILITY = 'core/read-content';
 
 		/**
+		 * Transient key for last successful text-generation probe.
+		 *
+		 * @var string
+		 */
+		const TEXT_GEN_CACHE_KEY = 'ahentic_text_gen_ok';
+
+		/**
+		 * How long a successful probe stays trusted across flakes (seconds).
+		 *
+		 * @var int
+		 */
+		const TEXT_GEN_CACHE_TTL = 300;
+
+		/**
 		 * Singleton instance.
 		 *
 		 * @var Ahentic_REST|null
@@ -70,11 +84,12 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 		}
 
 		/**
-		 * Whether at least one configured connector can run text generation.
+		 * Live probe of text-generation support (no cache).
 		 *
-		 * @return bool
+		 * @return bool|null True when supported, false when confirmed unsupported /
+		 *                   no client, null when the probe threw (transport / SDK flake).
 		 */
-		public static function has_text_generation() {
+		public static function probe_text_generation() {
 			if ( function_exists( 'wp_ai_client_prompt' ) ) {
 				try {
 					$builder = wp_ai_client_prompt( 'ping' );
@@ -83,9 +98,9 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 						return (bool) $builder->is_supported_for_text_generation();
 					}
 				} catch ( Exception $e ) {
-					return false;
+					return null;
 				} catch ( Throwable $e ) {
-					return false;
+					return null;
 				}
 			}
 
@@ -96,13 +111,68 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 						return (bool) $builder->isSupportedForTextGeneration();
 					}
 				} catch ( Exception $e ) {
-					return false;
+					return null;
 				} catch ( Throwable $e ) {
-					return false;
+					return null;
 				}
 			}
 
 			return false;
+		}
+
+/**
+ * Resolve connector readiness: last-known-good cache, then live probe.
+ *
+ * A warm cache skips the remote support probe so slow networks do not
+ * re-hit list-models on every localize/status GET. Soft-false still
+ * clears the cache when a cold probe confirms missing.
+ *
+ * @return array{hasConnector: bool|null, connectorStatus: string}
+ */
+public static function resolve_text_generation() {
+	$cached = get_transient( self::TEXT_GEN_CACHE_KEY );
+	if ( false !== $cached && (bool) $cached ) {
+		return array(
+			'hasConnector'    => true,
+			'connectorStatus' => 'ready',
+		);
+	}
+
+	$probe = self::probe_text_generation();
+
+	if ( true === $probe ) {
+		set_transient( self::TEXT_GEN_CACHE_KEY, true, self::TEXT_GEN_CACHE_TTL );
+		return array(
+			'hasConnector'    => true,
+			'connectorStatus' => 'ready',
+		);
+	}
+
+	if ( false === $probe ) {
+		delete_transient( self::TEXT_GEN_CACHE_KEY );
+		return array(
+			'hasConnector'    => false,
+			'connectorStatus' => 'missing',
+		);
+	}
+
+	return array(
+		'hasConnector'    => null,
+		'connectorStatus' => 'unknown',
+	);
+}
+
+		/**
+		 * Whether at least one configured connector can run text generation.
+		 *
+		 * Bool convenience for call sites that cannot handle unknown. Uses the
+		 * last-known-good cache when the live probe throws.
+		 *
+		 * @return bool
+		 */
+		public static function has_text_generation() {
+			$resolved = self::resolve_text_generation();
+			return true === $resolved['hasConnector'];
 		}
 
 		/**
@@ -230,16 +300,15 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 					);
 				}
 
+				$status = self::build_status_payload();
 				return rest_ensure_response(
-					array(
-						'success'     => true,
-						'isReady'     => self::is_ai_ready(),
-						'hasConnector'=> self::is_ai_ready() ? self::has_text_generation() : false,
-						'needsReload' => true,
-						'message'     => __( 'WordPress AI plugin installed and activated. Reloading…', 'ahentic' ),
-						'pluginFile'  => self::AI_PLUGIN_FILE,
-						'pluginSlug'  => self::AI_PLUGIN_SLUG,
-						'connectorsUrl' => self::connectors_url(),
+					array_merge(
+						$status,
+						array(
+							'success'     => true,
+							'needsReload' => true,
+							'message'     => __( 'WordPress AI plugin installed and activated. Reloading…', 'ahentic' ),
+						)
 					)
 				);
 			}
@@ -286,12 +355,21 @@ if ( ! class_exists( 'Ahentic_REST' ) ) {
 			$installed = self::is_ai_plugin_installed();
 			$active    = $installed && is_plugin_active( self::AI_PLUGIN_FILE );
 			$ready     = self::is_ai_ready();
-			$has_model = $ready ? self::has_text_generation() : false;
+
+			if ( $ready ) {
+				$resolved         = self::resolve_text_generation();
+				$has_model        = $resolved['hasConnector'];
+				$connector_status = $resolved['connectorStatus'];
+			} else {
+				$has_model        = false;
+				$connector_status = 'missing';
+			}
 
 			return array(
 				'isReady'         => $ready,
 				'hasConnector'    => $has_model,
-				'canGenerate'     => $ready && $has_model,
+				'canGenerate'     => $ready && true === $has_model,
+				'connectorStatus' => $connector_status,
 				'requiredAbility' => self::REQUIRED_ABILITY,
 				'pluginSlug'      => self::AI_PLUGIN_SLUG,
 				'pluginFile'      => self::AI_PLUGIN_FILE,

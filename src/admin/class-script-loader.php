@@ -166,10 +166,11 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 			$ai_status    = class_exists( 'Ahentic_REST' )
 				? Ahentic_REST::build_status_payload()
 				: array(
-					'isReady'      => false,
-					'hasConnector' => false,
-					'canGenerate'  => false,
-					'connectorsUrl' => admin_url( 'options-connectors.php' ),
+					'isReady'         => false,
+					'hasConnector'    => false,
+					'canGenerate'     => false,
+					'connectorStatus' => 'missing',
+					'connectorsUrl'   => admin_url( 'options-connectors.php' ),
 				);
 
 			wp_localize_script(

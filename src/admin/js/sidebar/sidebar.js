@@ -37,6 +37,8 @@ import {
 	createSession,
 	getSession,
 	getAiPluginStatus,
+	normalizeHasConnector,
+	checkingModelConnectionLabel,
 	patchSession,
 	postMessage,
 	continueSession,
@@ -119,7 +121,7 @@ export default function Sidebar() {
 		() => Boolean( window.ahentic?.aiPlugin?.isReady )
 	)
 	const [ hasConnector, setHasConnector ] = useState(
-		() => Boolean( window.ahentic?.aiPlugin?.hasConnector )
+		() => normalizeHasConnector( window.ahentic?.aiPlugin?.hasConnector )
 	)
 	// Bumps when hydratedRef changes so session-loading UI can re-render.
 	const [ hydratedVersion, setHydratedVersion ] = useState( 0 )
@@ -257,47 +259,77 @@ export default function Sidebar() {
 	const shortcutLabel = useMemo( () => getShortcutLabel(), [] )
 	const adminBarId = window.ahentic?.adminBarId || 'ahentic-toggle'
 	const aiPlugin = window.ahentic?.aiPlugin || {}
-	const canGenerate = aiReady && hasConnector
+	const canGenerate = aiReady && hasConnector === true
 	const connectorsUrl = aiPlugin.connectorsUrl || ''
 	const pluginInstalled = Boolean( aiPlugin.pluginInstalled )
 
 	/**
-	 * One-shot AI/connector status reconcile over REST.
+	 * AI/connector status reconcile over REST.
 	 *
 	 * Boot `window.ahentic.aiPlugin` is a localize-time probe and can
-	 * false-negative (list-models flake) while a later GET is green — without
-	 * this, the "Add an AI connector" banner sticks until a full page reload.
-	 *
-	 * Soft-false results never downgrade a previously green gate; mid-session
-	 * connector failures surface as chat/run errors instead of re-locking the
-	 * composer. Do not re-call after mount (no open/focus/visibility retries).
+	 * false-negative (list-models / network flake). Soft-false never
+	 * downgrades a previously green gate; unknown never shows the
+	 * "Add an AI connector" CTA. One short retry when the live GET is
+	 * still unknown. Do not re-call on open/focus/visibility.
 	 */
 	const syncAiPluginStatus = useCallback( async () => {
-		try {
-			const status = await getAiPluginStatus()
+		/**
+		 * @param {Object} status
+		 * @return {boolean|null} Normalized connector flag after apply.
+		 */
+		const applyStatus = status => {
 			if ( ! status || typeof status !== 'object' ) {
-				return
+				return null
 			}
 			const nextReady = Boolean( status.isReady )
-			const nextConnector = Boolean( status.hasConnector )
+			const nextConnector = normalizeHasConnector( status.hasConnector )
 			// Upgrade-only: recover localize false-negatives; never flip green→red.
 			setAiReady( prev => ( nextReady ? true : prev ) )
-			setHasConnector( prev => ( nextConnector ? true : prev ) )
+			setHasConnector( prev => {
+				if ( nextConnector === true ) {
+					return true
+				}
+				if ( prev === true ) {
+					return true
+				}
+				// Once confirmed missing, stay missing until a true upgrade.
+				if ( prev === false || nextConnector === false ) {
+					return false
+				}
+				return null
+			} )
 			if ( window.ahentic?.aiPlugin && typeof window.ahentic.aiPlugin === 'object' ) {
 				const prev = window.ahentic.aiPlugin
 				const isReady = nextReady || Boolean( prev.isReady )
-				const hasConnector = nextConnector || Boolean( prev.hasConnector )
+				const prevConnector = normalizeHasConnector( prev.hasConnector )
+				let hasConnectorNext = nextConnector
+				if ( hasConnectorNext !== true && prevConnector === true ) {
+					hasConnectorNext = true
+				} else if ( hasConnectorNext === null && prevConnector === false ) {
+					hasConnectorNext = false
+				}
 				window.ahentic.aiPlugin = {
 					...prev,
 					...status,
 					isReady,
-					hasConnector,
-					canGenerate: isReady && hasConnector,
+					hasConnector: hasConnectorNext,
+					canGenerate: isReady && hasConnectorNext === true,
 				}
 			}
+			return nextConnector
+		}
+
+		try {
+			let nextConnector = applyStatus( await getAiPluginStatus() )
+			if ( nextConnector === null ) {
+				await new Promise( resolve => setTimeout( resolve, 750 ) )
+				nextConnector = applyStatus( await getAiPluginStatus() )
+			}
+			return nextConnector
 		} catch {
 			// Keep boot values — offline / permission errors should not clear a
 			// previously green composer.
+			return normalizeHasConnector( window.ahentic?.aiPlugin?.hasConnector )
 		}
 	}, [] )
 
@@ -1559,14 +1591,17 @@ export default function Sidebar() {
 										? __( 'Activate WordPress AI to continue chatting.', 'ahentic' )
 										: __( 'Install WordPress AI to start chatting.', 'ahentic' )
 									)
-									: ( ! hasConnector
+									: ( hasConnector === false
 										? __( 'Add an AI connector in Settings → Connectors to start chatting.', 'ahentic' )
-										: ''
+										: ( hasConnector === null
+											? checkingModelConnectionLabel()
+											: ''
+										)
 									)
 								)
 						}
 						connectorsUrl={
-							! canGenerate && activeMessages.length > 0 && ! hasConnector
+							! canGenerate && activeMessages.length > 0 && hasConnector === false
 								? connectorsUrl
 								: ''
 						}

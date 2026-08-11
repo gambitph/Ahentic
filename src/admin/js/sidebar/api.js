@@ -2,6 +2,8 @@
  * Ahentic REST helpers for sessions / orchestrator.
  */
 
+import { __ } from '@wordpress/i18n'
+
 /**
  * @return {{ restUrl: string, restNonce: string }} REST url + nonce from the localized config.
  */
@@ -51,13 +53,40 @@ export async function apiRequest( path, options = {} ) {
 
 /**
  * AI readiness / connector status (same payload as script localization).
- * Used once on sidebar mount to recover localize-time false negatives — not
+ * Used on sidebar mount to recover localize-time false negatives - not
  * for ongoing health checks (mid-session failures surface as chat errors).
+ *
+ * `hasConnector` is tri-state: true | false | null (unknown / probe flake).
  *
  * @return {Promise<Object>} Status payload (`isReady`, `hasConnector`, …).
  */
 export function getAiPluginStatus() {
 	return apiRequest( '/ai-plugin/status' )
+}
+
+/**
+ * Normalize localize/REST `hasConnector` (true | false | null/unknown).
+ *
+ * @param {*} value Raw payload value.
+ * @return {boolean|null} Confirmed true/false, or null when unknown.
+ */
+export function normalizeHasConnector( value ) {
+	if ( value === true || value === 1 || value === '1' || value === 'true' ) {
+		return true
+	}
+	if ( value === false || value === 0 || value === '0' || value === 'false' ) {
+		return false
+	}
+	return null
+}
+
+/**
+ * Empty-state / composer copy while connector status is unknown.
+ *
+ * @return {string} Translated label.
+ */
+export function checkingModelConnectionLabel() {
+	return __( 'Checking model connection…', 'ahentic' )
 }
 
 /**

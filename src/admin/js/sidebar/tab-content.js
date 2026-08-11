@@ -19,6 +19,7 @@ import HitlApprovalCard from './hitl-approval-card'
 import SuggestedActions from './suggested-actions'
 import { MessageBody } from './message-body'
 import PlanCard, { shouldShowPlanCard } from './plan-card'
+import { normalizeHasConnector, checkingModelConnectionLabel } from './api'
 
 /**
  * Suggested empty-state prompts (translated at call time).
@@ -73,30 +74,30 @@ async function installAiPlugin() {
 /**
  * Sidebar message list / empty state for the active tab.
  *
- * @param {Object}      props
- * @param {boolean}     props.aiReady
- * @param {boolean}     props.hasConnector
- * @param {Object}      props.aiPlugin
- * @param {Function}    props.onAiReady
- * @param {Function}    props.onHasConnector
- * @param {Array}       props.messages
- * @param {string}      props.sessionId
- * @param {Function}    props.onSuggestedPrompt
- * @param {boolean}     props.ready
- * @param {boolean}     props.loading
- * @param {boolean}     props.busy
- * @param {string}      props.progressLabel
- * @param {string}      [props.progressHint]      Secondary live-status note (e.g. keep-tab-visible).
- * @param {Object|null} props.pendingTool
- * @param {Object|null} props.plan
- * @param {string}      [props.thoughtProcess]    Ephemeral faded thought while busy.
- * @param {string}      props.sessionStatus
- * @param {string}      [props.approvingDecision] HITL decision in flight (hides card, shows live status).
- * @param {Function}    props.onApproval
- * @param {Function}    props.onSuggestedAction
- * @param {string}      [props.liveness]          '' | 'stuck' | 'resumable' | 'token_budget'
- * @param {Function}    [props.onContinue]
- * @param {Function}    [props.onCancelRun]
+ * @param {Object}       props
+ * @param {boolean}      props.aiReady
+ * @param {boolean|null} props.hasConnector        Tri-state: true | false | null (unknown).
+ * @param {Object}       props.aiPlugin
+ * @param {Function}     props.onAiReady
+ * @param {Function}     props.onHasConnector
+ * @param {Array}        props.messages
+ * @param {string}       props.sessionId
+ * @param {Function}     props.onSuggestedPrompt
+ * @param {boolean}      props.ready
+ * @param {boolean}      props.loading
+ * @param {boolean}      props.busy
+ * @param {string}       props.progressLabel
+ * @param {string}       [props.progressHint]      Secondary live-status note (e.g. keep-tab-visible).
+ * @param {Object|null}  props.pendingTool
+ * @param {Object|null}  props.plan
+ * @param {string}       [props.thoughtProcess]    Ephemeral faded thought while busy.
+ * @param {string}       props.sessionStatus
+ * @param {string}       [props.approvingDecision] HITL decision in flight (hides card, shows live status).
+ * @param {Function}     props.onApproval
+ * @param {Function}     props.onSuggestedAction
+ * @param {string}       [props.liveness]          '' | 'stuck' | 'resumable' | 'token_budget'
+ * @param {Function}     [props.onContinue]
+ * @param {Function}     [props.onCancelRun]
  */
 export default function TabContent( {
 	aiReady,
@@ -291,7 +292,8 @@ export default function TabContent( {
 	const pluginInstalled = Boolean( aiPlugin?.pluginInstalled )
 	const pluginUrl = aiPlugin?.pluginUrl || 'https://wordpress.org/plugins/ai/'
 	const connectorsUrl = aiPlugin?.connectorsUrl || ''
-	const canGenerate = Boolean( aiReady && hasConnector )
+	const canGenerate = Boolean( aiReady && hasConnector === true )
+	const connectorMissing = Boolean( aiReady && hasConnector === false )
 	const actionLabel = pluginInstalled
 		? __( 'Activate', 'ahentic' )
 		: __( 'Install & Activate', 'ahentic' )
@@ -317,8 +319,9 @@ export default function TabContent( {
 
 			if ( result?.success ) {
 				onAiReady?.( Boolean( result.isReady ) )
-				onHasConnector?.( Boolean( result.hasConnector ) )
-				if ( result.isReady && ! result.hasConnector ) {
+				const nextConnector = normalizeHasConnector( result.hasConnector )
+				onHasConnector?.( nextConnector )
+				if ( result.isReady && nextConnector === false ) {
 					setInstalling( false )
 					return
 				}
@@ -448,7 +451,7 @@ export default function TabContent( {
 								</p>
 							) : null }
 						</div>
-					) : (
+					) : connectorMissing ? (
 						<div className="ahentic-empty__ai-notice" role="status">
 							<p className="ahentic-empty__ai-notice-text">
 								{ createInterpolateElement(
@@ -469,6 +472,12 @@ export default function TabContent( {
 									{ __( 'Open Connectors', 'ahentic' ) }
 								</a>
 							) : null }
+						</div>
+					) : (
+						<div className="ahentic-empty__ai-notice" role="status" aria-live="polite">
+							<p className="ahentic-empty__ai-notice-text">
+								{ checkingModelConnectionLabel() }
+							</p>
 						</div>
 					) ) }
 
