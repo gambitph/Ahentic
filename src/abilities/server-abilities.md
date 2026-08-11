@@ -142,6 +142,8 @@ Stage with `ahentic/stage-artifact`, then `create-post` / `update-post` with `fr
 - Public URLs → server HTTP API.
 - `as_user: true` (same-site / wp-admin) → `requires_browser_runtime` → sidebar credentialed `fetch`.
 - Do not pretend a headless logged-in fetch works without the sidebar.
+- Response includes a capped plain-text `excerpt` (head+tail when truncated) and `page_signals` (emails, mailto/tel links) for visitor-facing checks.
+- Prefer this ability when the goal is what a visitor can see or find on a public URL.
 
 ---
 

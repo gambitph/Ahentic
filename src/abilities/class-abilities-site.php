@@ -20,8 +20,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 		const ADMIN_CONTEXT = 'ahentic/get-admin-context';
 		const LIST_THEMES   = 'ahentic/list-themes';
 
-		const HTTP_MAX_BYTES     = 32768;
-		const HTTP_TIMEOUT       = 12;
+		const HTTP_MAX_BYTES      = 32768;
+		const HTTP_EXCERPT_MAX    = 4000;
+		const HTTP_TIMEOUT        = 12;
 		const DEBUG_LOG_MAX_BYTES = 32768;
 
 		/**
@@ -169,7 +170,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 				self::HTTP_FETCH,
 				array(
 					'label'               => __( 'HTTP fetch', 'ahentic' ),
-					'description'         => __( 'Fetches a URL and returns status plus a capped body excerpt. Public URLs run on the server. Same-site URLs with as_user=true run in the browser with your login (required for wp-admin).', 'ahentic' ),
+					'description'         => __( 'Fetches a URL and returns status, a capped body excerpt (head+tail when truncated), and public page signals (emails, mailto/tel links). Public URLs run on the server. Same-site URLs with as_user=true run in the browser with your login (required for wp-admin). Prefer this for visitor-facing “can people see/find X” checks.', 'ahentic' ),
 					'category'            => 'ahentic-site-ops',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -612,8 +613,9 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 				$body = substr( $body, 0, self::HTTP_MAX_BYTES );
 			}
 
-			$excerpt = self::http_body_excerpt( $body );
-			$lower   = strtolower( $body );
+			$excerpt       = self::http_body_excerpt( $body );
+			$page_signals  = self::http_page_signals( $body );
+			$lower         = strtolower( $body );
 
 			$looks_login = ( false !== strpos( $lower, 'name="log"' ) && false !== strpos( $lower, 'name="pwd"' ) )
 				|| false !== strpos( $lower, 'id="loginform"' )
@@ -635,6 +637,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 				'body_bytes'       => $bytes,
 				'truncated'       => $trunc,
 				'excerpt'          => $excerpt,
+				'page_signals'     => $page_signals,
 				'same_site'        => $same_site,
 				'as_user'          => $as_user,
 				'auth_used'        => $used_auth,
@@ -918,21 +921,93 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 		/**
 		 * Strip tags and collapse whitespace for model-sized excerpt.
 		 *
+		 * When the plain text exceeds HTTP_EXCERPT_MAX, keep the head and tail so
+		 * footer/header visitor content is not lost to a head-only truncate.
+		 *
 		 * @param string $body Response body.
 		 * @return string
 		 */
-		private static function http_body_excerpt( $body ) {
+		public static function http_body_excerpt( $body ) {
+			$text = self::http_plain_text( $body );
+			$max  = self::HTTP_EXCERPT_MAX;
+			$len  = strlen( $text );
+			if ( $len <= $max ) {
+				return $text;
+			}
+
+			$marker     = ' … ';
+			$marker_len = strlen( $marker );
+			$budget     = $max - $marker_len;
+			$head_len   = (int) floor( $budget / 2 );
+			$tail_len   = $budget - $head_len;
+			$head       = rtrim( substr( $text, 0, $head_len ) );
+			$tail       = ltrim( substr( $text, -1 * $tail_len ) );
+			return $head . $marker . $tail;
+		}
+
+		/**
+		 * Lightweight public-page signals from HTML (emails + mailto/tel links).
+		 *
+		 * Not a full contact crawler: hints so visitor-facing checks survive excerpt truncation.
+		 *
+		 * @param string $body Response body (may already be byte-capped).
+		 * @return array{emails: string[], mailto_links: string[], tel_links: string[]}
+		 */
+		public static function http_page_signals( $body ) {
 			$body = (string) $body;
-			// Avoid leaking auth forms wholesale.
+			$emails = array();
+			$mailto = array();
+			$tel    = array();
+
+			foreach ( array( 'mailto' => &$mailto, 'tel' => &$tel ) as $scheme => &$bucket ) {
+				$pattern = '/href\s*=\s*([\'"])\s*(' . $scheme . ':[^\'"#?]+)\1/i';
+				if ( preg_match_all( $pattern, $body, $m ) ) {
+					foreach ( $m[2] as $href ) {
+						$href = html_entity_decode( trim( (string) $href ), ENT_QUOTES, 'UTF-8' );
+						if ( '' !== $href ) {
+							$bucket[ strtolower( $href ) ] = $href;
+						}
+					}
+				}
+			}
+			unset( $bucket );
+
+			$plain = self::http_plain_text( $body );
+			if ( preg_match_all( '/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i', $plain, $m ) ) {
+				foreach ( $m[0] as $email ) {
+					$email = strtolower( (string) $email );
+					$emails[ $email ] = $email;
+				}
+			}
+			foreach ( $mailto as $href ) {
+				if ( preg_match( '/^mailto:([^?]+)/i', $href, $mm ) ) {
+					$email = strtolower( rawurldecode( trim( $mm[1] ) ) );
+					if ( '' !== $email ) {
+						$emails[ $email ] = $email;
+					}
+				}
+			}
+
+			return array(
+				'emails'       => array_values( $emails ),
+				'mailto_links' => array_values( $mailto ),
+				'tel_links'    => array_values( $tel ),
+			);
+		}
+
+		/**
+		 * Strip scripts/styles/tags and collapse whitespace (WP-free for unit tests).
+		 *
+		 * @param string $body HTML or text.
+		 * @return string
+		 */
+		public static function http_plain_text( $body ) {
+			$body = (string) $body;
 			$body = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', ' ', $body );
 			$body = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', ' ', $body );
-			$text = wp_strip_all_tags( $body );
-			$text = preg_replace( '/\s+/', ' ', $text );
-			$text = trim( (string) $text );
-			if ( strlen( $text ) > 4000 ) {
-				$text = rtrim( substr( $text, 0, 3999 ) ) . '…';
-			}
-			return $text;
+			$text = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $body ) : strip_tags( $body );
+			$text = preg_replace( '/\s+/', ' ', (string) $text );
+			return trim( (string) $text );
 		}
 
 		/**

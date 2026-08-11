@@ -206,6 +206,7 @@ async function fetchPageAsUser( input ) {
 			body_bytes: raw.length,
 			truncated,
 			excerpt: htmlToExcerpt( body ),
+			page_signals: htmlPageSignals( body ),
 			same_site: true,
 			as_user: true,
 			auth_used: true,
@@ -263,19 +264,76 @@ function isSameSiteUrl( parsed ) {
 }
 
 /**
+ * Strip tags and collapse whitespace for model-sized excerpt.
+ * When over EXCERPT_MAX, keep head and tail (parity with PHP http_body_excerpt).
+ *
  * @param {string} html
  * @return {string} Plain-text excerpt, truncated to EXCERPT_MAX.
  */
-function htmlToExcerpt( html ) {
+export function htmlToExcerpt( html ) {
+	const text = htmlPlainText( html )
+	if ( text.length <= EXCERPT_MAX ) {
+		return text
+	}
+	const marker = ' … '
+	const budget = EXCERPT_MAX - marker.length
+	const headLen = Math.floor( budget / 2 )
+	const tailLen = budget - headLen
+	return `${ text.slice( 0, headLen ).replace( /\s+$/, '' ) }${ marker }${ text.slice( -tailLen ).replace( /^\s+/, '' ) }`
+}
+
+/**
+ * Public-page signals from HTML (emails + mailto/tel). Parity with PHP http_page_signals.
+ *
+ * @param {string} html HTML body.
+ * @return {{ emails: string[], mailto_links: string[], tel_links: string[] }} Emails and contact link hints.
+ */
+export function htmlPageSignals( html ) {
+	const body = String( html || '' )
+	const emails = {}
+	const mailto = {}
+	const tel = {}
+
+	const hrefRe = /href\s*=\s*(['"])\s*((?:mailto|tel):[^'"#?]+)\1/gi
+	let match
+	while ( ( match = hrefRe.exec( body ) ) ) {
+		const href = match[ 2 ].trim()
+		const key = href.toLowerCase()
+		if ( key.startsWith( 'mailto:' ) ) {
+			mailto[ key ] = href
+			const email = decodeURIComponent( href.slice( 7 ).split( '?' )[ 0 ] || '' ).toLowerCase()
+			if ( email ) {
+				emails[ email ] = email
+			}
+		} else if ( key.startsWith( 'tel:' ) ) {
+			tel[ key ] = href
+		}
+	}
+
+	const plain = htmlPlainText( body )
+	const emailRe = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi
+	while ( ( match = emailRe.exec( plain ) ) ) {
+		const email = match[ 0 ].toLowerCase()
+		emails[ email ] = email
+	}
+
+	return {
+		emails: Object.values( emails ),
+		mailto_links: Object.values( mailto ),
+		tel_links: Object.values( tel ),
+	}
+}
+
+/**
+ * @param {string} html
+ * @return {string} Plain text with scripts/styles/tags removed.
+ */
+function htmlPlainText( html ) {
 	let text = String( html || '' )
 	text = text.replace( /<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ' )
 	text = text.replace( /<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ' )
 	text = text.replace( /<[^>]+>/g, ' ' )
-	text = text.replace( /\s+/g, ' ' ).trim()
-	if ( text.length > EXCERPT_MAX ) {
-		text = `${ text.slice( 0, EXCERPT_MAX - 1 ) }…`
-	}
-	return text
+	return text.replace( /\s+/g, ' ' ).trim()
 }
 
 /**
