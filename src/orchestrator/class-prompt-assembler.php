@@ -463,19 +463,22 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				&& class_exists( 'Ahentic_Session_Artifacts' )
 				&& Ahentic_Session_Artifacts::session_has_content_work( $session_id );
 			$recent_abilities = self::recent_ability_names_from_entries( $entries );
-			$want_media       = false;
+			$want_media = false;
+			$want_http  = false;
 			if ( $session_id && class_exists( 'Ahentic_Session_Repository' ) ) {
-				$stored_goal    = Ahentic_Session_Repository::get_active_goal( $session_id );
-				$goal_for_media = class_exists( 'Ahentic_Job_Resume' )
+				$stored_goal   = Ahentic_Session_Repository::get_active_goal( $session_id );
+				$goal_for_packs = class_exists( 'Ahentic_Job_Resume' )
 					? Ahentic_Job_Resume::active_goal_from_entries( $entries, $stored_goal )
 					: $stored_goal;
-				$want_media = self::goal_suggests_media_pack( $goal_for_media );
+				$want_media = self::goal_suggests_media_pack( $goal_for_packs );
+				$want_http  = self::goal_suggests_http_pack( $goal_for_packs );
 			}
 			$routing_packs = self::select_tool_routing_packs(
 				$page_context,
 				(bool) $has_content_work,
 				$recent_abilities,
-				$want_media
+				$want_media,
+				$want_http
 			);
 			$toolbox = self::resolve_think_toolbox(
 				$available,
@@ -732,9 +735,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 		 * @param bool     $has_content_work  Whether the session is mid long-form content work.
 		 * @param string[] $recent_abilities  Trailing tool ability names this run (optional).
 		 * @param bool     $want_media        Goal / caller asks for image/media work.
+		 * @param bool     $want_http         Goal / caller asks for visitor-facing public URL checks.
 		 * @return string[] Pack ids.
 		 */
-		public static function select_tool_routing_packs( array $page_context, $has_content_work = false, array $recent_abilities = array(), $want_media = false ) {
+		public static function select_tool_routing_packs( array $page_context, $has_content_work = false, array $recent_abilities = array(), $want_media = false, $want_http = false ) {
 			$packs = array( 'core' );
 			$url   = isset( $page_context['url'] ) ? (string) $page_context['url'] : '';
 			$in_editor = ! empty( $page_context['is_block_editor'] )
@@ -793,8 +797,16 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 			if ( self::url_matches_any( $url, array( 'nav-menus.php' ) ) || in_array( 'menus', $sticky, true ) ) {
 				$packs[] = 'menus';
 			}
-			if ( self::url_matches_any( $url, array( 'site-health.php', 'tools.php' ) ) || in_array( 'http', $sticky, true ) ) {
+			if (
+				$want_http
+				|| self::url_matches_any( $url, array( 'site-health.php', 'tools.php' ) )
+				|| in_array( 'http', $sticky, true )
+			) {
 				$packs[] = 'http';
+			}
+			// Visitor-facing checks often need search-site after the public fetch.
+			if ( $want_http ) {
+				$packs[] = 'content';
 			}
 
 			return array_values( array_unique( $packs ) );
@@ -824,6 +836,40 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				. 'upload\s+(?:(?:an?|some|our|the|my)\s+)?(?:images?|pictures?|photos?|media)|'
 				. '(?:delete|remove|restore|untrash)\s+(?:(?:an?|some|our|the|my|unused|deleted)\s+)*(?:images?|pictures?|photos?|media)|'
 				. 'unused\s+media|trashed\s+media'
+				. ')\b/i',
+				$goal
+			);
+		}
+
+		/**
+		 * Whether the active goal is asking what a visitor can see / find on the public site.
+		 *
+		 * Routing-only heuristic for attaching the http pack (and thus listing ahentic/http-fetch).
+		 * Storage / edit asks ("where is it stored", "change the footer") should stay false.
+		 *
+		 * @param string $goal Active goal text.
+		 * @return bool
+		 */
+		public static function goal_suggests_http_pack( $goal ) {
+			$goal = strtolower( trim( (string) $goal ) );
+			if ( '' === $goal ) {
+				return false;
+			}
+			// Storage / edit intent: not a visitor-facing check.
+			if ( preg_match( '/\bwhere\s+(?:is|are)\b[\s\S]{0,80}\b(stored|storage|coming from)\b/i', $goal ) ) {
+				return false;
+			}
+			if ( preg_match( '/\b(edit|change|update|replace)\b[\s\S]{0,60}\b(widget|footer|header|option|theme\s*mod|post meta)\b/i', $goal ) ) {
+				return false;
+			}
+			return (bool) preg_match(
+				'/\b('
+				. '(?:can|could)\s+(?:people|visitors?|customers?|users?|someone|anyone)\s+(?:(?:easily|quickly|still)\s+)?(?:find|see|reach|get|locate)|'
+				. '(?:is|are)\s+(?:(?:our|the|my|this)\s+)?[\w\s\'-]{0,48}?\s*(?:visible|public|findable|discoverable)|'
+				. 'what\s+(?:does|do)\s+(?:(?:our|the|my)\s+)?(?:site|homepage|home\s*page|front\s*page|landing(?:\s+page)?)\s+look|'
+				. 'visitor(?:-|\s)?facing|as\s+a\s+visitor|public\s+(?:page|site|url)|live\s+site|'
+				. 'find\s+(?:(?:our|the|my)\s+)?(?:phone|email|address|contact)|'
+				. 'soft\s+white\s+screen|broken\s+link|404\s+on\s+(?:the\s+)?(?:live|public)'
 				. ')\b/i',
 				$goal
 			);
@@ -1033,6 +1079,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				case 'content':
 					return 'Prefer ahentic/search-site with {"query":"…"} (optional mode:"regex") when finding or changing a string whose storage is unknown '
 						. '(phone, email, address, footer/header text) — covers posts/template parts, post meta, and options/widgets/theme mods; returns identifiers + match + snippets. '
+						. 'Visitor-facing “can people find / is X visible” questions: verify with ahentic/http-fetch on the relevant public URL(s) first (see http pack). Do not answer not-found from search-site or admin alone; use search-site for where it is stored or how to edit. '
 						. 'Refuse common/short queries (min 3 chars). Prefer ahentic/search-content with {"query":"…"} or {"queries":["…","…"]} (up to 5 phrases in ONE call) for normal post/page research; '
 						. 'ahentic/list-content to browse by type/status (prefer per_page 10–20, default 15, max 25 — use page:2+ or a tighter search/type when you need more). '
 						. 'Research: put every list-content / search-content / search-site you need in the FIRST tools_planned, then draft or reply — '
@@ -1091,8 +1138,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. '(ahentic/set-featured-image or ahentic-browser/set-featured-image with attachment_id — use 0 as placeholder after upload, or from_upload with the image artifact key; inline: ahentic-browser/insert-blocks) '
 						. 'in ONE tools_planned so steps can run without another full think between them — never both featured and inline. '
 						. 'Also: ahentic/list-media / ahentic/get-media / ahentic/find-unused-media; ahentic/delete-media quarantines to trash; ahentic/restore-media untrashes (HITL). '
-						. 'To find trashed attachments for restore, ahentic/list-media with status=trash. '
-						. 'Call get-wordpress-guidance topic web-image-fit before post images; default 16:9 not tall/square. '
+						. 'To find trashed attachments for restore, ahentic/list-media with status=trash. '						. 'Call get-wordpress-guidance topic web-image-fit before post images; default 16:9 not tall/square. '
 						. 'Alt text: get-blocks compact media attrs → describe-image (attachment_id or url) → update-block-attributes with the block\'s alt key. '
 						. 'Never from_memory on insert-blocks for image artifacts. ';
 
@@ -1126,7 +1172,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'ahentic/update-menu to create-or-replace the item tree and/or theme locations (HITL; never create-post on nav_menu_item). ';
 
 				case 'http':
-					return 'Prefer ahentic/http-fetch to GET a URL. For public pages omit as_user. For wp-admin / logged-in same-site pages pass {"url":"…","as_user":true} — that runs in the user’s browser with their session. Judge soft white screens by success_marker/body, not status alone. '
+					return 'Visitor-facing questions (what the public can see or find): ahentic/http-fetch the relevant public URL(s) first without as_user. '
+						. 'When no specific page is named, fetch the site home; otherwise fetch the named public page (and Contact only if the ask is about contact details there). '
+						. 'Do not answer “not found / not visible” from search-site, admin, or the open wp-admin tab alone; use those for storage or edits after (or beside) the public fetch. '
+						. 'Prefer ahentic/http-fetch to GET a URL. For public pages omit as_user. For wp-admin / logged-in same-site pages pass {"url":"…","as_user":true} — that runs in the user’s browser with their session. Judge soft white screens by success_marker/body, not status alone. '
 						. 'Prefer ahentic/get-debug-log for PHP fatals when WP_DEBUG_LOG is available. ';
 
 				default:

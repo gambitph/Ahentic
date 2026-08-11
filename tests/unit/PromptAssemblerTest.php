@@ -588,6 +588,71 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertContains( 'ahentic/generate-image', $filtered );
 	}
 
+	public function test_goal_suggests_http_pack_for_visitor_facing_asks() {
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'can people easily find our phone number' )
+		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'Can visitors see our contact email?' )
+		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'is our address visible on the site' )
+		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'what does the homepage look like' )
+		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'check the live site for a soft white screen' )
+		);
+		$this->assertFalse(
+			Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'where is the phone stored so we can edit it' )
+		);
+		$this->assertFalse(
+			Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'update our email in the footer widget' )
+		);
+		$this->assertFalse(
+			Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'add our phone number to the contact page' )
+		);
+		$this->assertFalse(
+			Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'add internal links in our article' )
+		);
+		$this->assertFalse( Ahentic_Prompt_Assembler::goal_suggests_http_pack( '' ) );
+	}
+
+	public function test_visitor_goal_selects_http_pack_on_dashboard() {
+		$dashboard = array(
+			'is_block_editor' => false,
+			'isAdmin'         => true,
+			'url'             => 'https://example.com/wp-admin/index.php',
+		);
+		$want_http = Ahentic_Prompt_Assembler::goal_suggests_http_pack( 'can people find our phone number' );
+		$packs     = Ahentic_Prompt_Assembler::select_tool_routing_packs(
+			$dashboard,
+			false,
+			array(),
+			false,
+			$want_http
+		);
+
+		$this->assertTrue( $want_http );
+		$this->assertContains( 'http', $packs );
+		$this->assertContains( 'content', $packs );
+		$this->assertNotContains( 'http', Ahentic_Prompt_Assembler::select_tool_routing_packs( $dashboard, false ) );
+
+		$guidance = Ahentic_Prompt_Assembler::tool_routing_guidance_for_packs( array( 'http', 'content' ) );
+		$this->assertStringContainsString( 'Visitor-facing', $guidance );
+		$this->assertStringContainsString( 'http-fetch', $guidance );
+		$this->assertStringContainsString( 'search-site', $guidance );
+
+		$available = array_merge(
+			Ahentic_Abilities_Content::names(),
+			Ahentic_Abilities_Site::names()
+		);
+		$filtered = Ahentic_Prompt_Assembler::filter_available_abilities_for_packs( $available, $packs );
+		$this->assertContains( 'ahentic/http-fetch', $filtered );
+		$this->assertContains( 'ahentic/search-site', $filtered );
+	}
+
 	public function test_compose_system_prompt_orders_stable_prefix_then_variable_suffix() {
 		$out = Ahentic_Prompt_Assembler::compose_system_prompt(
 			array(
