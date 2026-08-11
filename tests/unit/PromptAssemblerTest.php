@@ -543,10 +543,42 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertTrue(
 			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'Upload an image for the hero' )
 		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'create an image of a mountain' )
+		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'add an image to this post' )
+		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'make a picture for the hero' )
+		);
+		$this->assertTrue(
+			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'generate images for the article' )
+		);
 		$this->assertFalse(
 			Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'add internal links in our article' )
 		);
 		$this->assertFalse( Ahentic_Prompt_Assembler::goal_suggests_media_pack( '' ) );
+	}
+
+	public function test_create_image_goal_selects_media_pack_on_editor() {
+		$editor = array(
+			'is_block_editor' => true,
+			'url'             => 'https://example.com/wp-admin/post.php?post=1&action=edit',
+		);
+		$want_media = Ahentic_Prompt_Assembler::goal_suggests_media_pack( 'create an image' );
+		$packs      = Ahentic_Prompt_Assembler::select_tool_routing_packs( $editor, false, array(), $want_media );
+
+		$this->assertTrue( $want_media );
+		$this->assertContains( 'media', $packs );
+
+		$available = array_merge(
+			Ahentic_Abilities_Content::names(),
+			Ahentic_Abilities_Browser::names(),
+			Ahentic_Abilities_Media::names()
+		);
+		$filtered = Ahentic_Prompt_Assembler::filter_available_abilities_for_packs( $available, $packs );
+		$this->assertContains( 'ahentic/generate-image', $filtered );
 	}
 
 	public function test_compose_system_prompt_orders_stable_prefix_then_variable_suffix() {
