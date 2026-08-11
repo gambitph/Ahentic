@@ -140,6 +140,26 @@ _Avoid_: durable assistant message, chain-of-thought log (as the product name)
 The durable site profile and facts Ahentic builds (with consent) and injects as a brief into later runs.
 _Avoid_: memory (alone), embeddings store, RAG index
 
+**Run feedback**:
+Yes/No chrome after an unsure idle run in the sidebar (not an Ability); Yes dismisses, No starts the draft/file path.
+_Avoid_: bug report form (alone), thumbs, NPS, HITL Allow/Skip
+
+**Run feedback report**:
+Anonymized JSON posted to intake (title, summary, debug pack, versions) with no site URL or admin identity.
+_Avoid_: GitHub issue body (the filed artifact), support ticket
+
+**Run feedback debug pack**:
+Decluttered, scrubbed export derived from session diagnostics for remote debugging (stored Debugger trace is not rewritten).
+_Avoid_: raw `to_diagnostics()` dump, full prompt bodies
+
+**Run feedback intake**:
+Ahentic-operated Cloudflare Worker at `feedback.wpahentic.com` that mints site tokens and files reports into `gambitph/Ahentic` (`run-feedback` label).
+_Avoid_: plugin-embedded GitHub bot, site OAuth to GitHub
+
+**Site token**:
+Stateless HMAC credential from intake after Turnstile (stored in site options; silent refresh; re-opt-in only if lost).
+_Avoid_: API key, license key, Turnstile token (that is the bot check, not the site credential)
+
 ### Packaging
 
 **Free**:

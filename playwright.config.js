@@ -73,7 +73,7 @@ module.exports = defineConfig( {
 			// Specs that seed `ahentic_e2e_ai_queue` or `ahentic_e2e_ai_status_false_remaining`
 			// must not run in parallel — both are single WP options inside Playground.
 			name: 'ai-orchestrator',
-			testMatch: /(?:orchestrator-pipeline|job-resume|hitl-and-undo|sidebar-chat|sidebar-plan-and-status|sidebar-tabs|sidebar-multi-window|sidebar-chrome|sidebar-access|sidebar-persistence|connector-status-recovery|ai-plugin-status|admin-fill-fields|token-usage-limits)\.spec\.js/,
+			testMatch: /(?:orchestrator-pipeline|job-resume|hitl-and-undo|sidebar-chat|sidebar-plan-and-status|sidebar-tabs|sidebar-multi-window|sidebar-chrome|sidebar-run-feedback|sidebar-access|sidebar-persistence|connector-status-recovery|ai-plugin-status|admin-fill-fields|token-usage-limits|run-feedback)\.spec\.js/,
 			fullyParallel: false,
 			workers: 1,
 		},

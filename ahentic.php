@@ -91,6 +91,8 @@ require_once __DIR__ . '/src/orchestrator/class-subagent.php';
 require_once __DIR__ . '/src/orchestrator/class-orchestrator.php';
 require_once __DIR__ . '/src/admin/class-rest.php';
 require_once __DIR__ . '/src/admin/class-rest-sessions.php';
+require_once __DIR__ . '/src/admin/class-feedback-intake.php';
+require_once __DIR__ . '/src/admin/class-rest-feedback.php';
 require_once __DIR__ . '/src/admin/class-script-loader.php';
 require_once __DIR__ . '/src/admin/class-admin.php';
 
@@ -99,6 +101,7 @@ Ahentic_Abilities::init();
 Ahentic_Step_Queue::init();
 Ahentic_Orchestrator::init();
 Ahentic_REST_Sessions::init();
+Ahentic_REST_Feedback::init();
 
 /**
  * Plugin activation hook.

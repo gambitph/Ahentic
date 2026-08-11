@@ -131,6 +131,8 @@ per-ability specs are too granular to maintain.
 | `sidebar-tabs.spec.js` | Multi-tab new / switch / close / clear all / title update |
 | `sidebar-multi-window.spec.js` | Controller vs viewer overlay, viewer Stop, viewer progress |
 | `sidebar-chrome.spec.js` | Admin-bar / shortcut open, resize, float snap-back, Ask mode UI, debugger |
+| `sidebar-run-feedback.spec.js` | Run feedback Yes/No after unsure idle; dismiss; mocked No → filed |
+| `run-feedback.spec.js` | REST mint + report proxy to mocked `feedback.wpahentic.com` intake |
 | `sidebar-access.spec.js` | Admin-bar presence across admin + front end; editor / visitor gating |
 | `sidebar-persistence.spec.js` | Refresh keeps open/closed chrome, tabs, and transcripts |
 | `token-usage-limits.spec.js` | Site-wide daily token limit defaults (1M) + sticky temp-boost raise regression |

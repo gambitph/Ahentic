@@ -1049,3 +1049,49 @@ add_action(
 	},
 	100
 );
+
+/**
+ * E2E: mock Run feedback intake (no live Cloudflare Worker / Turnstile).
+ */
+add_filter(
+	'ahentic_turnstile_site_key',
+	static function () {
+		return 'e2e-turnstile-site-key';
+	}
+);
+
+add_filter(
+	'pre_ahentic_feedback_duplicate_search',
+	static function () {
+		return null;
+	}
+);
+
+add_filter(
+	'pre_ahentic_feedback_intake_request',
+	static function ( $pre, $path ) {
+		if ( null !== $pre ) {
+			return $pre;
+		}
+		if ( '/v1/site-tokens' === $path || '/v1/site-tokens/refresh' === $path ) {
+			return array(
+				'site_token' => 'e2e.site-token.' . wp_generate_password( 24, false ),
+				'expires_at' => time() + ( 90 * DAY_IN_SECONDS ),
+			);
+		}
+		if ( '/v1/reports' === $path ) {
+			return array(
+				'action'   => 'created',
+				'number'   => 4242,
+				'html_url' => 'https://github.com/gambitph/Ahentic/issues/4242',
+			);
+		}
+		return new WP_Error(
+			'ahentic_e2e_unknown_intake_path',
+			'Unknown intake path in e2e mock: ' . $path,
+			array( 'status' => 500 )
+		);
+	},
+	10,
+	2
+);
