@@ -6,6 +6,8 @@ import {
 	assertBlocksApplied,
 	blockTextChars,
 	convertBlocks,
+	enforceGetBlocksByteBudget,
+	GET_BLOCKS_COMPACT_MAX_CHARS,
 	getBlockType,
 	getBlocks,
 	measureEditorTextChars,
@@ -409,6 +411,130 @@ describe( 'getBlocks scoped refs', () => {
 		expect( result.blocks[ 0 ].attributes.dropCap ).toBeUndefined()
 		expect( result.blocks[ 1 ].attributes.content ).toBe( 'Why people choose a private car' )
 		expect( result.blocks[ 1 ].attributes.level ).toBeUndefined()
+	} )
+
+	it( 'includes link essentials on compact third-party button blocks', () => {
+		const blocksById = {
+			cid_btn: {
+				clientId: 'cid_btn',
+				name: 'greenshift-blocks/buttonbox',
+				attributes: {
+					buttonContent: 'Shop Now',
+					buttonUrl: 'http://ai.local/shop/',
+					backBackgroundColor: '#000000b3',
+					width: 100,
+				},
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_btn ]
+		syncFromBlocks( root, 1 )
+
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: () => ( {} ),
+			},
+		}
+
+		const result = getBlocks( {} )
+		expect( result.ok ).toBe( true )
+		expect( result.blocks[ 0 ].attributes.buttonContent ).toBe( 'Shop Now' )
+		expect( result.blocks[ 0 ].attributes.buttonUrl ).toBe( 'http://ai.local/shop/' )
+		expect( result.blocks[ 0 ].attributes.backBackgroundColor ).toBeUndefined()
+	} )
+
+	it( 'enforces a compact byte budget without mid-JSON clipping', () => {
+		const fatKeys = {}
+		for ( let i = 0; i < 40; i++ ) {
+			fatKeys[ `designToken${ i }_${ 'x'.repeat( 20 ) }` ] = `value-${ i }`
+		}
+		const blocksById = {}
+		const root = []
+		for ( let n = 0; n < 30; n++ ) {
+			const id = `cid_${ n }`
+			blocksById[ id ] = {
+				clientId: id,
+				name: 'vendor/huge-row',
+				attributes: {
+					...fatKeys,
+					buttonContent: `CTA ${ n }`,
+					buttonUrl: `http://example.com/p/${ n }`,
+				},
+				innerBlocks: [],
+			}
+			root.push( blocksById[ id ] )
+		}
+		syncFromBlocks( root, 1 )
+
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: () => ( {} ),
+			},
+		}
+
+		const result = getBlocks( {} )
+		expect( result.ok ).toBe( true )
+		expect( JSON.stringify( result ).length ).toBeLessThanOrEqual( GET_BLOCKS_COMPACT_MAX_CHARS )
+		expect( result.truncated ).toBe( true )
+		expect( result.blocks[ 0 ].ref ).toMatch( /^b\d+$/ )
+		expect( result.blocks[ 0 ].attributes.buttonContent ).toBeDefined()
+		// attribute_keys are the first thing dropped under budget pressure.
+		expect( result.blocks.every( b => ! b.attribute_keys ) ).toBe( true )
+	} )
+
+	it( 'enforceGetBlocksByteBudget keeps valid JSON under the cap', () => {
+		const huge = {
+			ok: true,
+			count: 2,
+			truncated: false,
+			blocks: [
+				{
+					ref: 'b1',
+					name: 'vendor/row',
+					attribute_keys: Array.from( { length: 40 }, ( _, i ) => `k${ i }_${ 'y'.repeat( 50 ) }` ),
+					attributes: { buttonContent: 'Go', buttonUrl: '/about/' },
+					preview: 'Go',
+				},
+				{
+					ref: 'b2',
+					name: 'vendor/row',
+					attribute_keys: Array.from( { length: 40 }, ( _, i ) => `k${ i }_${ 'z'.repeat( 50 ) }` ),
+					innerBlocks: [],
+				},
+			],
+		}
+		// Force over budget with a tiny cap.
+		const fitted = enforceGetBlocksByteBudget( huge, 800 )
+		expect( JSON.stringify( fitted ).length ).toBeLessThanOrEqual( 800 )
+		expect( fitted.truncated ).toBe( true )
+		expect( fitted.blocks[ 0 ].ref ).toBe( 'b1' )
+		expect( () => JSON.parse( JSON.stringify( fitted ) ) ).not.toThrow()
 	} )
 
 	it( 'errors when scoped refs are missing', () => {

@@ -139,6 +139,139 @@ class ThinkDebugTest extends TestCase {
 	}
 
 	/**
+	 * Classify missing-ability claims against an available catalog before finishing.
+	 */
+	public function test_classify_missing_ability_claim() {
+		$available = array(
+			'ahentic-browser/update-block-attributes',
+			'ahentic/search-content',
+		);
+
+		$this->assertSame(
+			'none',
+			Ahentic_Think_Debug::classify_missing_ability_claim(
+				array( 'next' => 'use_tools' ),
+				$available
+			)
+		);
+		$this->assertSame(
+			'available',
+			Ahentic_Think_Debug::classify_missing_ability_claim(
+				array(
+					'next'           => 'missing_ability',
+					'ability_needed' => 'ahentic-browser/update-block-attributes',
+				),
+				$available
+			)
+		);
+		$this->assertSame(
+			'vague',
+			Ahentic_Think_Debug::classify_missing_ability_claim(
+				array( 'next' => 'missing_ability' ),
+				$available
+			)
+		);
+		$this->assertSame(
+			'vague',
+			Ahentic_Think_Debug::classify_missing_ability_claim(
+				array(
+					'next'           => 'missing_ability',
+					'ability_needed' => 'ahentic/new-ability',
+				),
+				$available
+			)
+		);
+		$this->assertSame(
+			'unknown',
+			Ahentic_Think_Debug::classify_missing_ability_claim(
+				array(
+					'next'           => 'missing_ability',
+					'ability_needed' => 'ahentic/teleport-posts',
+				),
+				$available
+			)
+		);
+	}
+
+	/**
+	 * Missing-ability action: use existing tools, reconsider once, then finish only for real gaps.
+	 */
+	public function test_missing_ability_action() {
+		$available = array( 'ahentic-browser/update-block-attributes' );
+
+		$this->assertSame(
+			'none',
+			Ahentic_Think_Debug::missing_ability_action( array( 'next' => 'reply' ), $available, 0 )
+		);
+		$this->assertSame(
+			'use_available',
+			Ahentic_Think_Debug::missing_ability_action(
+				array(
+					'next'           => 'missing_ability',
+					'ability_needed' => 'ahentic-browser/update-block-attributes',
+				),
+				$available,
+				0
+			)
+		);
+		$this->assertSame(
+			'reconsider',
+			Ahentic_Think_Debug::missing_ability_action(
+				array(
+					'next'           => 'missing_ability',
+					'ability_needed' => 'ahentic/teleport-posts',
+				),
+				$available,
+				0
+			)
+		);
+		$this->assertSame(
+			'finish_missing',
+			Ahentic_Think_Debug::missing_ability_action(
+				array(
+					'next'           => 'missing_ability',
+					'ability_needed' => 'ahentic/teleport-posts',
+				),
+				$available,
+				1
+			)
+		);
+		$this->assertSame(
+			'finish_reply',
+			Ahentic_Think_Debug::missing_ability_action(
+				array( 'next' => 'missing_ability' ),
+				$available,
+				1
+			)
+		);
+	}
+
+	/**
+	 * Available claims rewrite to use_tools so the loop continues.
+	 */
+	public function test_rewrite_debug_to_use_tools() {
+		$debug = Ahentic_Think_Debug::rewrite_debug_to_use_tools(
+			array(
+				'next'           => 'missing_ability',
+				'ability_needed' => 'ahentic-browser/update-block-attributes',
+				'thinking'       => 'Need an editor control.',
+			),
+			'ahentic-browser/update-block-attributes'
+		);
+		$this->assertSame( 'use_tools', $debug['next'] );
+		$this->assertSame(
+			array(
+				array(
+					'name'  => 'ahentic-browser/update-block-attributes',
+					'input' => array(),
+				),
+			),
+			$debug['tools_planned']
+		);
+		$this->assertArrayNotHasKey( 'ability_needed', $debug );
+	}
+
+	/**
 	 * Attempt 2+ uses a slim prompt (not a second full backpack).
 	 */
 	public function test_should_use_slim_debug_retry() {
