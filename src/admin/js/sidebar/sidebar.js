@@ -73,6 +73,7 @@ import { useRunnerLockEffects } from './use-runner-lock-effects'
 import { useFloatInteraction } from './use-float-interaction'
 import { useSessionPoll } from './use-session-poll'
 import { useBrowserResume } from './use-browser-resume'
+import RunFeedbackBar, { shouldShowRunFeedback } from './run-feedback-bar'
 
 export default function Sidebar() {
 	const initial = useMemo( () => loadPersistedState(), [] )
@@ -107,6 +108,7 @@ export default function Sidebar() {
 	const [ sendError, setSendError ] = useState( '' )
 	const [ sendErrorCode, setSendErrorCode ] = useState( '' )
 	const [ focusSignal, setFocusSignal ] = useState( 0 )
+	const [ feedbackDismissed, setFeedbackDismissed ] = useState( {} )
 	const [ isMobile, setIsMobile ] = useState(
 		() => typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
 	)
@@ -806,6 +808,33 @@ export default function Sidebar() {
 		: ( isSessionSoftBudgetPause
 			? 'token_budget'
 			: ( isJobResumable ? 'resumable' : '' ) )
+	const showRunFeedback = shouldShowRunFeedback(
+		activeSession,
+		Boolean( feedbackDismissed[ String( activeTabId ) ] )
+	) && ! isViewerSession
+	const dismissRunFeedback = useCallback( () => {
+		const id = String( activeTabId )
+		setFeedbackDismissed( current => ( {
+			...current,
+			[ id ]: true,
+		} ) )
+	}, [ activeTabId ] )
+
+	// Clear dismiss when a new run starts so the next idle can ask again.
+	useEffect( () => {
+		if ( activeSession.status === 'idle' ) {
+			return
+		}
+		setFeedbackDismissed( current => {
+			const id = String( activeTabId )
+			if ( ! current[ id ] ) {
+				return current
+			}
+			const next = { ...current }
+			delete next[ id ]
+			return next
+		} )
+	}, [ activeSession.status, activeTabId ] )
 	// Existing session tabs show a spinner until fetched; only while the sidebar is open.
 	const isSessionLoading = useMemo(
 		() => open && isSessionId( activeTabId ) && ! hydratedRef.current.has( activeTabId ),
@@ -1467,6 +1496,14 @@ export default function Sidebar() {
 							onCancelRun={ stopSession }
 						/>
 					) }
+
+					{ showRunFeedback ? (
+						<RunFeedbackBar
+							sessionId={ activeTabId }
+							onDismiss={ dismissRunFeedback }
+							disabled={ isBusy || Boolean( activePendingTool ) }
+						/>
+					) : null }
 
 					<Composer
 						mode={ mode }

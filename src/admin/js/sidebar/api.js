@@ -219,3 +219,57 @@ export function mapEntriesToMessages( entries ) {
 export function isSessionId( id ) {
 	return /^\d+$/.test( String( id ) )
 }
+
+/**
+ * Run feedback intake status (consented / hasToken / Turnstile site key).
+ *
+ * @return {Promise<Object>} Status payload.
+ */
+export function getFeedbackStatus() {
+	return apiRequest( '/feedback' )
+}
+
+/**
+ * Fresh mint after Turnstile (token stays server-side).
+ *
+ * @param {string} turnstileToken Cloudflare Turnstile response.
+ * @return {Promise<Object>} Updated feedback status.
+ */
+export function mintFeedbackSiteToken( turnstileToken ) {
+	return apiRequest( '/feedback/site-tokens', {
+		method: 'POST',
+		// Intake / REST wire format uses snake_case.
+		/* eslint-disable-next-line camelcase -- turnstile_token matches PHP / intake. */
+		body: JSON.stringify( { turnstile_token: turnstileToken } ),
+	} )
+}
+
+/**
+ * Silent site-token refresh.
+ *
+ * @return {Promise<Object>} Updated feedback status.
+ */
+export function refreshFeedbackSiteToken() {
+	return apiRequest( '/feedback/site-tokens/refresh', {
+		method: 'POST',
+		body: '{}',
+	} )
+}
+
+/**
+ * File a Run feedback report for a session via the PHP proxy.
+ *
+ * @param {number|string} id
+ * @param {Object}        [body] Optional title/summary/duplicate_of overrides.
+ * @return {Promise<{ action: string, number: number, html_url: string }>} Intake result.
+ */
+export function fileRunFeedbackReport( id, body = {} ) {
+	return apiRequest( '/feedback/reports', {
+		method: 'POST',
+		body: JSON.stringify( {
+			/* eslint-disable-next-line camelcase -- session_id matches PHP REST args. */
+			session_id: Number( id ),
+			...body,
+		} ),
+	} )
+}

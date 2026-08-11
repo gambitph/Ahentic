@@ -313,6 +313,11 @@ class AhenticSidebar {
 		return this.sidebar.locator( '.ahentic-live-status' )
 	}
 
+	/** @return {import('@playwright/test').Locator} Run feedback Yes/No row. */
+	get runFeedback() {
+		return this.sidebar.locator( '.ahentic-run-feedback' )
+	}
+
 	/** @return {import('@playwright/test').Locator} Viewer overlay. */
 	get viewerOverlay() {
 		return this.sidebar.locator( '.ahentic-viewer-overlay' )

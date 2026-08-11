@@ -190,6 +190,21 @@ Ability failures usually appear as **tool entries** in `messages` / `trace`, not
 
 ---
 
+## Run feedback (`Ahentic_REST_Feedback`)
+
+Proxies to **Run feedback intake** at `https://feedback.wpahentic.com` (see ADR-0008). Site tokens stay in WP options — responses never echo `site_token`.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/feedback` | Status: `consented`, `hasToken`, `expiresAt`, `turnstileSiteKey`, `intakeBase` |
+| `POST` | `/feedback/site-tokens` | Fresh mint `{ turnstile_token }` → stores token; returns status |
+| `POST` | `/feedback/site-tokens/refresh` | Silent refresh (no Turnstile) |
+| `POST` | `/feedback/reports` | `{ session_id, title?, summary?, duplicate_of? }` → debug pack + AI summary → intake |
+
+Intake may return `429` / `rate_limited` (including **1 new issue per client IP per minute**). Clients should surface that and prefer `duplicate_of` when search finds a match.
+
+---
+
 ## Extending REST
 
 1. Register on `rest_api_init` in `Ahentic_REST_Sessions` (or a sibling controller).
