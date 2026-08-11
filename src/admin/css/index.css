@@ -1665,14 +1665,29 @@ a.ahentic-empty__ai-install:hover {
 	background: var(--ah-bg, transparent);
 }
 
+.ahentic-run-feedback__copy {
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
 .ahentic-run-feedback__text {
 	font-size: 13px;
 	line-height: 1.45;
 	color: var(--ah-muted);
 }
 
-.ahentic-run-feedback.is-done .ahentic-run-feedback__text {
+.ahentic-run-feedback.is-done .ahentic-run-feedback__text,
+.ahentic-run-feedback.is-working .ahentic-run-feedback__text {
 	color: var(--ah-fg);
+}
+
+.ahentic-run-feedback__hint {
+	font-size: 12px;
+	line-height: 1.4;
+	color: var(--ah-muted);
 }
 
 .ahentic-run-feedback__actions {

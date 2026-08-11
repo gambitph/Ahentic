@@ -103,7 +103,7 @@ export default function RunFeedbackBar( {
 		return (
 			<div className="ahentic-run-feedback is-done" role="status">
 				<span className="ahentic-run-feedback__text">
-					{ __( 'Thanks — Run feedback was filed.', 'ahentic' ) }
+					{ __( 'Thanks! Agent feedback was filed.', 'ahentic' ) }
 					{ resultUrl ? (
 						<>
 							{ ' ' }
@@ -131,15 +131,27 @@ export default function RunFeedbackBar( {
 
 	return (
 		<div
-			className="ahentic-run-feedback"
+			className={ `ahentic-run-feedback${ phase === 'working' ? ' is-working' : '' }` }
 			role="group"
 			aria-label={ __( 'Run feedback', 'ahentic' ) }
 		>
-			<span className="ahentic-run-feedback__text">
-				{ phase === 'working'
-					? __( 'Drafting and filing Run feedback…', 'ahentic' )
-					: __( 'Did this run go okay?', 'ahentic' ) }
-			</span>
+			{ phase === 'working' ? (
+				<div className="ahentic-run-feedback__copy" role="status">
+					<span className="ahentic-run-feedback__text">
+						{ __(
+							'Thanks! Drafting an anonymous report for the Ahentic team…',
+							'ahentic'
+						) }
+					</span>
+					<span className="ahentic-run-feedback__hint">
+						{ __( 'Keep this window open.', 'ahentic' ) }
+					</span>
+				</div>
+			) : (
+				<span className="ahentic-run-feedback__text">
+					{ __( 'Did this run go okay?', 'ahentic' ) }
+				</span>
+			) }
 			{ phase !== 'working' ? (
 				<div className="ahentic-run-feedback__actions">
 					<button
