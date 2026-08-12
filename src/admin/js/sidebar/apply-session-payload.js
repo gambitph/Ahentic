@@ -24,6 +24,9 @@ export function applySessionPayload( session, setTabs, setSessionsById, pendingL
 				...tab,
 				title: session.title || tab.title,
 				status: session.status,
+				...( typeof session.autoTitle === 'boolean'
+					? { autoTitle: session.autoTitle }
+					: {} ),
 			}
 			: tab
 	) ) )

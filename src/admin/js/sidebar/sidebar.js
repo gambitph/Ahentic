@@ -23,7 +23,9 @@ import {
 	isFloatingPlacement,
 	getDefaultFloatingRect,
 	recoverFloatingRectOnOpen,
-	defaultAgentTitle,
+	tabAllowsAutoTitle,
+	createSessionTitleFromTab,
+	tabFromSession,
 } from './constants'
 import {
 	loadPersistedState,
@@ -408,7 +410,8 @@ export default function Sidebar() {
 			return
 		}
 
-		const tabTitle = tabsRef.current.find( tab => tab.id === tabId )?.title || defaultAgentTitle()
+		const tab = tabsRef.current.find( item => item.id === tabId )
+		const tabTitle = createSessionTitleFromTab( tab )
 
 		const run = ( async () => {
 			try {
@@ -432,18 +435,17 @@ export default function Sidebar() {
 				try {
 					const session = await createSession( {
 						mode,
-						title: tabTitle,
+						...( tabTitle ? { title: tabTitle } : {} ),
 					} )
 					const id = String( session.id )
-					setTabs( current => current.map( tab => (
-						tab.id === tabId
-							? {
-								id,
-								title: session.title || tab.title || defaultAgentTitle(),
-								createdAt: tab.createdAt || Date.now(),
-								status: session.status || 'idle',
-							}
-							: tab
+					setTabs( current => current.map( item => (
+						item.id === tabId
+							? tabFromSession( session, {
+								createdAt: item.createdAt || Date.now(),
+								title: item.title,
+								autoTitle: item.autoTitle,
+							} )
+							: item
 					) ) )
 					setActiveTabId( current => ( current === tabId ? id : current ) )
 					setSessionsById( sessions => remapSessionRecord(
@@ -505,9 +507,10 @@ export default function Sidebar() {
 				const previousId = tab.id
 				promotingTabsRef.current.add( previousId )
 				try {
+					const customTitle = createSessionTitleFromTab( tab )
 					const session = await createSession( {
 						mode,
-						title: tab.title && tab.title !== defaultAgentTitle() ? tab.title : undefined,
+						...( customTitle ? { title: customTitle } : {} ),
 					} )
 					const id = String( session.id )
 					setTabs( current => {
@@ -516,12 +519,11 @@ export default function Sidebar() {
 						}
 						return current.map( item => (
 							item.id === previousId
-								? {
-									id,
-									title: session.title || item.title || defaultAgentTitle(),
+								? tabFromSession( session, {
 									createdAt: item.createdAt || Date.now(),
-									status: session.status || 'idle',
-								}
+									title: item.title,
+									autoTitle: item.autoTitle,
+								} )
 								: item
 						) )
 					} )
@@ -921,13 +923,8 @@ export default function Sidebar() {
 	const addTab = useCallback( async () => {
 		try {
 			const session = await createSession( { mode } )
-			const id = String( session.id )
-			const tab = {
-				id,
-				title: session.title || defaultAgentTitle(),
-				createdAt: Date.now(),
-				status: session.status || 'idle',
-			}
+			const tab = tabFromSession( session )
+			const id = tab.id
 			setTabs( current => [ ...current, tab ] )
 			setSessionsById( sessions => patchSessionRecord( sessions, id, {
 				messages: mapEntriesToMessages( session.messages ),
@@ -960,12 +957,7 @@ export default function Sidebar() {
 				}
 				pendingLocalRef.current = {}
 				setHydratedVersion( version => version + 1 )
-				setTabs( [ {
-					id: nextId,
-					title: session.title || defaultAgentTitle(),
-					createdAt: Date.now(),
-					status: session.status || 'idle',
-				} ] )
+				setTabs( [ tabFromSession( session ) ] )
 				setActiveTabId( nextId )
 				setSessionsById( {
 					[ nextId ]: {
@@ -1015,12 +1007,7 @@ export default function Sidebar() {
 			}
 			pendingLocalRef.current = {}
 			setHydratedVersion( version => version + 1 )
-			setTabs( [ {
-				id,
-				title: session.title || defaultAgentTitle(),
-				createdAt: Date.now(),
-				status: 'idle',
-			} ] )
+			setTabs( [ tabFromSession( session ) ] )
 			setActiveTabId( id )
 			setSessionsById( {
 				[ id ]: {
@@ -1067,16 +1054,20 @@ export default function Sidebar() {
 
 		if ( ! isSessionId( sessionId ) ) {
 			try {
-				const session = await createSession( { mode } )
+				const priorTab = tabsRef.current.find( tab => tab.id === sessionId )
+				const customTitle = createSessionTitleFromTab( priorTab )
+				const session = await createSession( {
+					mode,
+					...( customTitle ? { title: customTitle } : {} ),
+				} )
 				sessionId = String( session.id )
 				setTabs( current => current.map( tab => (
 					tab.id === activeTabId
-						? {
-							id: sessionId,
-							title: session.title || tab.title,
+						? tabFromSession( session, {
 							createdAt: tab.createdAt,
-							status: 'idle',
-						}
+							title: tab.title,
+							autoTitle: tab.autoTitle,
+						} )
 						: tab
 				) ) )
 				setActiveTabId( sessionId )
@@ -1137,7 +1128,7 @@ export default function Sidebar() {
 			if ( tab.id !== sessionId ) {
 				return tab
 			}
-			if ( tab.title && tab.title !== defaultAgentTitle() ) {
+			if ( ! tabAllowsAutoTitle( tab ) ) {
 				return tab
 			}
 			return { ...tab, title: truncateTitle( text ) }

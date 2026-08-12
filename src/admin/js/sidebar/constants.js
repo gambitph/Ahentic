@@ -193,12 +193,58 @@ export function recoverFloatingRectOnOpen( rect, placement, options = {} ) {
  * Create a local tab shell (used before a server session exists).
  * Prefer createSession() via REST for real tabs — id becomes the session post ID.
  *
- * @return {{ id: string, title: string, createdAt: number }} New tab object.
+ * @return {{ id: string, title: string, createdAt: number, autoTitle: boolean }} New tab object.
  */
 export function createTab() {
 	return {
 		id: `tab_${ Date.now() }_${ Math.random().toString( 36 ).slice( 2, 8 ) }`,
 		title: defaultAgentTitle(),
 		createdAt: Date.now(),
+		autoTitle: true,
+	}
+}
+
+/**
+ * Whether a tab still allows auto-renaming of its title.
+ *
+ * @param {{ autoTitle?: boolean }|null|undefined} tab
+ * @return {boolean} True when the title may still be auto-renamed.
+ */
+export function tabAllowsAutoTitle( tab ) {
+	return tab?.autoTitle !== false
+}
+
+/**
+ * Title to send when creating a session from a local tab.
+ *
+ * @param {{ title?: string, autoTitle?: boolean }|null|undefined} tab
+ * @return {string|undefined} Custom title, or undefined for the server default.
+ */
+export function createSessionTitleFromTab( tab ) {
+	if ( ! tab || tabAllowsAutoTitle( tab ) ) {
+		return undefined
+	}
+	const title = typeof tab.title === 'string' ? tab.title.trim() : ''
+	return title || undefined
+}
+
+/**
+ * Build a chrome tab from a session REST payload.
+ *
+ * @param {Object}                                              session
+ * @param {{ createdAt?: number, title?: string, status?: string, autoTitle?: boolean }} [fallback]
+ * @return {{ id: string, title: string, createdAt: number, status: string, autoTitle: boolean }} Tab.
+ */
+export function tabFromSession( session, fallback = {} ) {
+	const autoTitle = typeof session?.autoTitle === 'boolean'
+		? session.autoTitle
+		: ( fallback.autoTitle !== false )
+
+	return {
+		id: String( session.id ),
+		title: session.title || fallback.title || defaultAgentTitle(),
+		createdAt: fallback.createdAt || Date.now(),
+		status: session.status || fallback.status || 'idle',
+		autoTitle,
 	}
 }
