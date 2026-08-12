@@ -2,7 +2,19 @@
  * Shared constants for the Ahentic sidebar.
  */
 
+import { __ } from '@wordpress/i18n'
+
 export const STORAGE_KEY = 'ahentic.sidebar.v1'
+
+/**
+ * Default session/tab title (keep in sync with Ahentic_Session_Repository).
+ *
+ * @return {string} Translated default title.
+ */
+export function defaultAgentTitle() {
+	return __( 'New Agent', 'ahentic' )
+}
+
 /** Per-session active-runner claims (multi-window); not chrome state. */
 export const RUNNER_LOCK_KEY = 'ahentic.session-runner.v1'
 
@@ -186,7 +198,7 @@ export function recoverFloatingRectOnOpen( rect, placement, options = {} ) {
 export function createTab() {
 	return {
 		id: `tab_${ Date.now() }_${ Math.random().toString( 36 ).slice( 2, 8 ) }`,
-		title: 'New Agent',
+		title: defaultAgentTitle(),
 		createdAt: Date.now(),
 	}
 }

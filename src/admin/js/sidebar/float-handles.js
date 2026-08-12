@@ -2,6 +2,8 @@
  * Floating placement resize handles for the Ahentic sidebar.
  */
 
+import { __ } from '@wordpress/i18n'
+
 /**
  * @param {Object}   props
  * @param {Function} props.onResizeStart (event, dir) => void
@@ -16,7 +18,7 @@ export default function FloatHandles( { onResizeStart } ) {
 				onMouseDown={ event => onResizeStart( event, 'n' ) }
 				role="separator"
 				aria-orientation="horizontal"
-				aria-label="Resize Ahentic sidebar from top"
+				aria-label={ __( 'Resize Ahentic sidebar from top', 'ahentic' ) }
 			/>
 			{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
 			<div
@@ -24,7 +26,7 @@ export default function FloatHandles( { onResizeStart } ) {
 				onMouseDown={ event => onResizeStart( event, 's' ) }
 				role="separator"
 				aria-orientation="horizontal"
-				aria-label="Resize Ahentic sidebar from bottom"
+				aria-label={ __( 'Resize Ahentic sidebar from bottom', 'ahentic' ) }
 			/>
 			{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
 			<div
@@ -32,7 +34,7 @@ export default function FloatHandles( { onResizeStart } ) {
 				onMouseDown={ event => onResizeStart( event, 'e' ) }
 				role="separator"
 				aria-orientation="vertical"
-				aria-label="Resize Ahentic sidebar from right"
+				aria-label={ __( 'Resize Ahentic sidebar from right', 'ahentic' ) }
 			/>
 			{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
 			<div
@@ -40,35 +42,35 @@ export default function FloatHandles( { onResizeStart } ) {
 				onMouseDown={ event => onResizeStart( event, 'w' ) }
 				role="separator"
 				aria-orientation="vertical"
-				aria-label="Resize Ahentic sidebar from left"
+				aria-label={ __( 'Resize Ahentic sidebar from left', 'ahentic' ) }
 			/>
 			{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
 			<div
 				className="ahentic-float-handle ahentic-float-handle--nw"
 				onMouseDown={ event => onResizeStart( event, 'nw' ) }
 				role="separator"
-				aria-label="Resize Ahentic sidebar from top-left corner"
+				aria-label={ __( 'Resize Ahentic sidebar from top-left corner', 'ahentic' ) }
 			/>
 			{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
 			<div
 				className="ahentic-float-handle ahentic-float-handle--ne"
 				onMouseDown={ event => onResizeStart( event, 'ne' ) }
 				role="separator"
-				aria-label="Resize Ahentic sidebar from top-right corner"
+				aria-label={ __( 'Resize Ahentic sidebar from top-right corner', 'ahentic' ) }
 			/>
 			{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
 			<div
 				className="ahentic-float-handle ahentic-float-handle--sw"
 				onMouseDown={ event => onResizeStart( event, 'sw' ) }
 				role="separator"
-				aria-label="Resize Ahentic sidebar from bottom-left corner"
+				aria-label={ __( 'Resize Ahentic sidebar from bottom-left corner', 'ahentic' ) }
 			/>
 			{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
 			<div
 				className="ahentic-float-handle ahentic-float-handle--se"
 				onMouseDown={ event => onResizeStart( event, 'se' ) }
 				role="separator"
-				aria-label="Resize Ahentic sidebar from bottom-right corner"
+				aria-label={ __( 'Resize Ahentic sidebar from bottom-right corner', 'ahentic' ) }
 			/>
 		</>
 	)

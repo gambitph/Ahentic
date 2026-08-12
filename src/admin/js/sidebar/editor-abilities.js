@@ -9,6 +9,7 @@
 /* eslint-disable camelcase -- Ability I/O matches PHP schema snake_case. */
 /* eslint-disable jsdoc/require-returns-description, jsdoc/check-line-alignment -- Compact helpers. */
 
+import { __, sprintf } from '@wordpress/i18n'
 import {
 	refForClientId,
 	refsForClientIds,
@@ -213,7 +214,7 @@ function requireEditor() {
 		return {
 			ok: false,
 			error: 'editor_unavailable',
-			message: 'WordPress data stores are not available on this page.',
+			message: __( 'WordPress data stores are not available on this page.', 'ahentic' ),
 		}
 	}
 
@@ -223,7 +224,7 @@ function requireEditor() {
 		return {
 			ok: false,
 			error: 'not_block_editor',
-			message: 'Open a post or page in the block editor to use this ability.',
+			message: __( 'Open a post or page in the block editor to use this ability.', 'ahentic' ),
 		}
 	}
 
@@ -554,8 +555,8 @@ function rejectPlaceholderBlocks( raw ) {
 	return {
 		ok: false,
 		error: 'placeholder_content',
-		message: 'Blocks payload looks like a placeholder stub (e.g. [full article] or “expanded guide content”). Pass real Gutenberg block objects {name, attributes, innerBlocks} unless the user asked for placeholders.',
-		hint: 'Rewrite with actual heading/paragraph/list content. For long articles, use set-blocks or insert one section at a time.',
+		message: __( 'Blocks payload looks like a placeholder stub (e.g. [full article] or “expanded guide content”). Pass real Gutenberg block objects {name, attributes, innerBlocks} unless the user asked for placeholders.', 'ahentic' ),
+		hint: __( 'Rewrite with actual heading/paragraph/list content. For long articles, use set-blocks or insert one section at a time.', 'ahentic' ),
 	}
 }
 
@@ -580,15 +581,15 @@ function normalizeBlocksInput( raw, wp ) {
 	if ( typeof raw === 'string' ) {
 		if ( ! looksLikeSerializedBlocks( raw ) ) {
 			throw new Error(
-				'Pass an array of block objects {name, attributes, innerBlocks}. Plain text is not accepted — use createBlock-shaped objects (or <!-- wp:… --> serialized markup).'
+				__( 'Pass an array of block objects {name, attributes, innerBlocks}. Plain text is not accepted — use createBlock-shaped objects (or <!-- wp:… --> serialized markup).', 'ahentic' )
 			)
 		}
 		if ( ! wp.blocks?.parse ) {
-			throw new Error( 'wp.blocks.parse is not available.' )
+			throw new Error( __( 'wp.blocks.parse is not available.', 'ahentic' ) )
 		}
 		const parsed = wp.blocks.parse( raw )
 		if ( ! parsed.length ) {
-			throw new Error( 'Serialized markup produced no blocks.' )
+			throw new Error( __( 'Serialized markup produced no blocks.', 'ahentic' ) )
 		}
 		return parsed
 	}
@@ -596,16 +597,16 @@ function normalizeBlocksInput( raw, wp ) {
 		raw = raw ? [ raw ] : []
 	}
 	if ( ! wp.blocks?.createBlock ) {
-		throw new Error( 'wp.blocks.createBlock is not available.' )
+		throw new Error( __( 'wp.blocks.createBlock is not available.', 'ahentic' ) )
 	}
 
 	const toBlock = item => {
 		if ( ! item || typeof item !== 'object' ) {
-			throw new Error( 'Each block must be an object with a name.' )
+			throw new Error( __( 'Each block must be an object with a name.', 'ahentic' ) )
 		}
 		const name = item.name
 		if ( ! name || typeof name !== 'string' ) {
-			throw new Error( 'Each block requires a name (e.g. core/paragraph).' )
+			throw new Error( __( 'Each block requires a name (e.g. core/paragraph).', 'ahentic' ) )
 		}
 		const attrs = item.attributes && typeof item.attributes === 'object' ? item.attributes : {}
 		const normalizedAttrs = normalizeAttributesForBlock( name, attrs, wp )
@@ -710,7 +711,7 @@ export function assertBlocksApplied( applied, live ) {
 			return {
 				ok: false,
 				error: 'write_not_applied',
-				message: 'The editor did not apply this write (canvas unchanged). Keep this WordPress tab visible and retry — background tabs can drop Gutenberg updates.',
+				message: __( 'The editor did not apply this write (canvas unchanged). Keep this WordPress tab visible and retry — background tabs can drop Gutenberg updates.', 'ahentic' ),
 			}
 		}
 		return { ok: true }
@@ -721,7 +722,7 @@ export function assertBlocksApplied( applied, live ) {
 		return {
 			ok: false,
 			error: 'write_not_applied',
-			message: 'The editor did not apply this write (canvas unchanged). Keep this WordPress tab visible and retry — background tabs can drop Gutenberg updates.',
+			message: __( 'The editor did not apply this write (canvas unchanged). Keep this WordPress tab visible and retry — background tabs can drop Gutenberg updates.', 'ahentic' ),
 		}
 	}
 	return { ok: true }
@@ -740,7 +741,7 @@ function missingRefsError( missing ) {
 		error: 'block_not_found',
 		missing,
 		wiped: true,
-		message: 'One or more block refs were not found. The ref map was cleared — re-call get-blocks or get-selection and use the fresh ref strings (b1, b2, …) — do not invent refs or paste clientId hashes.',
+		message: __( 'One or more block refs were not found. The ref map was cleared — re-call get-blocks or get-selection and use the fresh ref strings (b1, b2, …) — do not invent refs or paste clientId hashes.', 'ahentic' ),
 	}
 }
 
@@ -757,7 +758,7 @@ function missingRefsError( missing ) {
  */
 export function resolveTargetClientIds( input, ctx, {
 	allowSelection = true,
-	missingMessage = 'Provide refs or select blocks.',
+	missingMessage = __( 'Provide refs or select blocks.', 'ahentic' ),
 	requireExisting = false,
 } = {} ) {
 	const blockSelect = ctx.select( 'core/block-editor' )
@@ -798,7 +799,7 @@ export function resolveTargetClientIds( input, ctx, {
  * @return {{ ok: true, blocks: Array } | { ok: false, error: string, message?: string, hint?: string }}
  */
 export function prepareBlocksPayload( input, ctx, {
-	emptyMessage = 'Blocks cannot be empty.',
+	emptyMessage = __( 'Blocks cannot be empty.', 'ahentic' ),
 } = {} ) {
 	const stub = rejectPlaceholderBlocks( input.blocks )
 	if ( stub ) {
@@ -811,7 +812,7 @@ export function prepareBlocksPayload( input, ctx, {
 		return {
 			ok: false,
 			error: 'invalid_blocks',
-			message: error?.message || 'Invalid blocks payload.',
+			message: error?.message || __( 'Invalid blocks payload.', 'ahentic' ),
 		}
 	}
 	if ( ! blocks.length ) {
@@ -922,7 +923,7 @@ export function enforceGetBlocksByteBudget( payload, maxChars ) {
 	out = {
 		...out,
 		truncated: true,
-		note: out.note || 'Block tree capped by size; re-read with refs or root_ref for details.',
+		note: out.note || __( 'Block tree capped by size; re-read with refs or root_ref for details.', 'ahentic' ),
 		blocks: Array.isArray( out.blocks ) ? out.blocks.map( stripAttributeKeysDeep ) : out.blocks,
 	}
 	if ( size() <= max ) {
@@ -1112,7 +1113,7 @@ export function getBlocks( input = {} ) {
 		blocks: tree,
 		...( includeAttributes && ! rootId && truncated
 			? {
-				note: 'include_attributes without root_ref is capped to a few blocks to avoid an oversized result. Pass root_ref (from this or an earlier get-blocks/get-selection call) to see full attributes for one block/subtree in detail.',
+				note: __( 'include_attributes without root_ref is capped to a few blocks to avoid an oversized result. Pass root_ref (from this or an earlier get-blocks/get-selection call) to see full attributes for one block/subtree in detail.', 'ahentic' ),
 			}
 			: {} ),
 	}, includeAttributes ? GET_BLOCKS_FULL_MAX_CHARS : GET_BLOCKS_COMPACT_MAX_CHARS )
@@ -1722,14 +1723,14 @@ export function getBlockType( input = {} ) {
 		return {
 			ok: false,
 			error: 'missing_name',
-			message: 'A block name is required (e.g. core/heading). Prefer {name}. For core/* blocks, skip get-block-type and edit attributes directly.',
+			message: __( 'A block name is required (e.g. core/heading). Prefer {name}. For core/* blocks, skip get-block-type and edit attributes directly.', 'ahentic' ),
 		}
 	}
 	if ( ! wp?.blocks?.getBlockType ) {
 		return {
 			ok: false,
 			error: 'blocks_api_unavailable',
-			message: 'wp.blocks is not available on this page.',
+			message: __( 'wp.blocks is not available on this page.', 'ahentic' ),
 		}
 	}
 	const type = wp.blocks.getBlockType( name )
@@ -1737,7 +1738,11 @@ export function getBlockType( input = {} ) {
 		return {
 			ok: false,
 			error: 'unknown_block_type',
-			message: `Block type “${ name }” is not registered.`,
+			message: sprintf(
+				/* translators: %s: block type name */
+				__( 'Block type “%s” is not registered.', 'ahentic' ),
+				name
+			),
 			name,
 		}
 	}
@@ -1766,7 +1771,7 @@ export function getBlockType( input = {} ) {
 			attribute: def.attribute || undefined,
 			rich_text: richText || undefined,
 			hint: richText
-				? 'Pass an HTML string; Ahentic converts to rich-text for the editor store.'
+				? __( 'Pass an HTML string; Ahentic converts to rich-text for the editor store.', 'ahentic' )
 				: undefined,
 		}
 	}
@@ -1786,10 +1791,10 @@ export function getBlockType( input = {} ) {
 		rich_text_attributes: richTextKeys,
 		fields: slim ? fields : 'full',
 		hint: slim
-			? 'Slim convert/content schema — content and media attrs only. Prefer ahentic-browser/convert-blocks with target for library conversion.'
+			? __( 'Slim convert/content schema — content and media attrs only. Prefer ahentic-browser/convert-blocks with target for library conversion.', 'ahentic' )
 			: ( isCore
-				? 'Core block — prefer update-block-attributes / replace-blocks with known attrs; get-block-type is usually unnecessary.'
-				: 'Study attributes/supports before patching third-party blocks. For library conversion prefer convert-blocks { target }.' ),
+				? __( 'Core block — prefer update-block-attributes / replace-blocks with known attrs; get-block-type is usually unnecessary.', 'ahentic' )
+				: __( 'Study attributes/supports before patching third-party blocks. For library conversion prefer convert-blocks { target }.', 'ahentic' ) ),
 		variations: variations.slice( 0, 20 ).map( variation => ( {
 			name: variation.name,
 			title: variation.title,
@@ -1806,7 +1811,7 @@ export function listBlockTypes( input = {} ) {
 		return {
 			ok: false,
 			error: 'blocks_api_unavailable',
-			message: 'wp.blocks is not available on this page.',
+			message: __( 'wp.blocks is not available on this page.', 'ahentic' ),
 		}
 	}
 	const namespace = typeof input.namespace === 'string' ? input.namespace.trim().replace( /\/$/, '' ) : ''
@@ -1844,7 +1849,7 @@ export function focusBlock( input = {} ) {
 		return missing.length
 			? missingRefsError( missing )
 			: {
-				ok: false, error: 'missing_ref', message: 'ref is required (from get-blocks / get-selection).',
+				ok: false, error: 'missing_ref', message: __( 'ref is required (from get-blocks / get-selection).', 'ahentic' ),
 			}
 	}
 	const clientId = clientIds[ 0 ]
@@ -1877,12 +1882,12 @@ export function updateBlockAttributes( input = {} ) {
 		return missingTokens.length
 			? missingRefsError( missingTokens )
 			: {
-				ok: false, error: 'missing_ref', message: 'ref (or refs) is required.',
+				ok: false, error: 'missing_ref', message: __( 'ref (or refs) is required.', 'ahentic' ),
 			}
 	}
 	if ( ! attributes || typeof attributes !== 'object' || Array.isArray( attributes ) ) {
 		return {
-			ok: false, error: 'missing_attributes', message: 'attributes object is required.',
+			ok: false, error: 'missing_attributes', message: __( 'attributes object is required.', 'ahentic' ),
 		}
 	}
 	for ( const key of [ 'content', 'text', 'caption', 'citation' ] ) {
@@ -1890,8 +1895,8 @@ export function updateBlockAttributes( input = {} ) {
 			return {
 				ok: false,
 				error: 'placeholder_content',
-				message: 'Attribute looks like a placeholder stub. Pass the real text unless the user asked for placeholders.',
-				hint: 'Rewrite with the actual prose/HTML for this attribute.',
+				message: __( 'Attribute looks like a placeholder stub. Pass the real text unless the user asked for placeholders.', 'ahentic' ),
+				hint: __( 'Rewrite with the actual prose/HTML for this attribute.', 'ahentic' ),
 			}
 		}
 	}
@@ -1916,7 +1921,7 @@ export function updateBlockAttributes( input = {} ) {
 		attributes: capValue( attributes ),
 		...( missing.length
 			? {
-				message: 'One or more block refs were not found. Re-call get-blocks or get-selection and use the fresh refs.',
+				message: __( 'One or more block refs were not found. Re-call get-blocks or get-selection and use the fresh refs.', 'ahentic' ),
 			}
 			: {} ),
 	}
@@ -1928,14 +1933,14 @@ export function replaceBlocks( input = {} ) {
 		return ctx
 	}
 	const targets = resolveTargetClientIds( input, ctx, {
-		missingMessage: 'Provide refs (from get-blocks) or select blocks.',
+		missingMessage: __( 'Provide refs (from get-blocks) or select blocks.', 'ahentic' ),
 		requireExisting: true,
 	} )
 	if ( ! targets.ok ) {
 		return targets
 	}
 	const payload = prepareBlocksPayload( input, ctx, {
-		emptyMessage: 'Replacement blocks cannot be empty.',
+		emptyMessage: __( 'Replacement blocks cannot be empty.', 'ahentic' ),
 	} )
 	if ( ! payload.ok ) {
 		return payload
@@ -2026,7 +2031,7 @@ export function insertBlocks( input = {} ) {
 		return ctx
 	}
 	const payload = prepareBlocksPayload( input, ctx, {
-		emptyMessage: 'No blocks to insert.',
+		emptyMessage: __( 'No blocks to insert.', 'ahentic' ),
 	} )
 	if ( ! payload.ok ) {
 		return payload
@@ -2146,7 +2151,7 @@ export function moveBlocks( input = {} ) {
 	}
 	const targets = resolveTargetClientIds( input, ctx, {
 		allowSelection: false,
-		missingMessage: 'refs is required.',
+		missingMessage: __( 'refs is required.', 'ahentic' ),
 	} )
 	if ( ! targets.ok ) {
 		return targets
@@ -2259,7 +2264,7 @@ export function restyleBlocksToPalette( input = {} ) {
 	const palette = normalizePalette( input.colors )
 	if ( ! palette.length ) {
 		return {
-			ok: false, error: 'missing_colors', message: 'Provide colors: [{ slug, color }] or hex strings.',
+			ok: false, error: 'missing_colors', message: __( 'Provide colors: [{ slug, color }] or hex strings.', 'ahentic' ),
 		}
 	}
 	const clientIds = resolveScopeClientIds( input, ctx.select, 'selection' )
@@ -2438,7 +2443,7 @@ export function auditAccessibility() {
 					issues.push( {
 						type: 'empty_heading',
 						ref,
-						message: 'Heading block has no text.',
+						message: __( 'Heading block has no text.', 'ahentic' ),
 						path: here,
 					} )
 				}
@@ -2446,7 +2451,12 @@ export function auditAccessibility() {
 					issues.push( {
 						type: 'heading_skip',
 						ref,
-						message: `Heading level skips from h${ lastHeadingLevel } to h${ level }.`,
+						message: sprintf(
+							/* translators: %1$d: previous heading level, %2$d: current heading level */
+							__( 'Heading level skips from h%1$d to h%2$d.', 'ahentic' ),
+							lastHeadingLevel,
+							level
+						),
 						path: here,
 					} )
 				}
@@ -2463,11 +2473,11 @@ export function auditAccessibility() {
 						type: 'missing_alt',
 						ref,
 						attachment_id: Number.isFinite( attachmentId ) && attachmentId > 0 ? attachmentId : null,
-						message: 'Image is missing alt text.',
+						message: __( 'Image is missing alt text.', 'ahentic' ),
 						path: here,
 						hint: attachmentId > 0
-							? 'Set library alt with ahentic/update-media, then ahentic-browser/update-block-attributes { alt } on this ref so the canvas matches.'
-							: 'Set alt via ahentic-browser/update-block-attributes on this ref.',
+							? __( 'Set library alt with ahentic/update-media, then ahentic-browser/update-block-attributes { alt } on this ref so the canvas matches.', 'ahentic' )
+							: __( 'Set alt via ahentic-browser/update-block-attributes on this ref.', 'ahentic' ),
 					} )
 				}
 			}
@@ -2483,7 +2493,7 @@ export function auditAccessibility() {
 					issues.push( {
 						type: 'empty_button',
 						ref,
-						message: 'Button has no accessible label.',
+						message: __( 'Button has no accessible label.', 'ahentic' ),
 						path: here,
 					} )
 				}
@@ -2496,7 +2506,11 @@ export function auditAccessibility() {
 					issues.push( {
 						type: 'empty_heading_like',
 						ref,
-						message: `Block ${ name } looks like a heading but has no text.`,
+						message: sprintf(
+							/* translators: %s: block name */
+							__( 'Block %s looks like a heading but has no text.', 'ahentic' ),
+							name
+						),
 						path: here,
 					} )
 				}
@@ -2540,14 +2554,19 @@ export function updatePostDocument( input = {} ) {
 			return {
 				ok: false,
 				error: 'invalid_post_id',
-				message: 'post_id must be a positive integer when provided.',
+				message: __( 'post_id must be a positive integer when provided.', 'ahentic' ),
 			}
 		}
 		if ( ! Number.isFinite( openId ) || openId !== expected ) {
 			return {
 				ok: false,
 				error: 'post_mismatch',
-				message: `Open editor post (${ currentPostId ?? 'none' }) does not match post_id ${ expected }. Use ahentic/update-post when the target post is not open in the block editor.`,
+				message: sprintf(
+					/* translators: %1$s: open post id or "none", %2$d: expected post id */
+					__( 'Open editor post (%1$s) does not match post_id %2$d. Use ahentic/update-post when the target post is not open in the block editor.', 'ahentic' ),
+					currentPostId ?? 'none',
+					expected
+				),
 				post_id: currentPostId,
 				expected_post_id: expected,
 			}
@@ -2613,14 +2632,19 @@ export function setFeaturedImage( input = {} ) {
 			return {
 				ok: false,
 				error: 'invalid_post_id',
-				message: 'post_id must be a positive integer when provided.',
+				message: __( 'post_id must be a positive integer when provided.', 'ahentic' ),
 			}
 		}
 		if ( ! Number.isFinite( openId ) || openId !== expected ) {
 			return {
 				ok: false,
 				error: 'post_mismatch',
-				message: `Open editor post (${ currentPostId ?? 'none' }) does not match post_id ${ expected }. Use ahentic/set-featured-image when the target post is not open in the block editor.`,
+				message: sprintf(
+					/* translators: %1$s: open post id or "none", %2$d: expected post id */
+					__( 'Open editor post (%1$s) does not match post_id %2$d. Use ahentic/set-featured-image when the target post is not open in the block editor.', 'ahentic' ),
+					currentPostId ?? 'none',
+					expected
+				),
 				post_id: currentPostId,
 				expected_post_id: expected,
 			}
@@ -2631,7 +2655,7 @@ export function setFeaturedImage( input = {} ) {
 		return {
 			ok: false,
 			error: 'invalid_attachment_id',
-			message: 'attachment_id is required (use 0 to clear the featured image).',
+			message: __( 'attachment_id is required (use 0 to clear the featured image).', 'ahentic' ),
 		}
 	}
 
@@ -2640,7 +2664,7 @@ export function setFeaturedImage( input = {} ) {
 		return {
 			ok: false,
 			error: 'invalid_attachment_id',
-			message: 'attachment_id must be a non-negative integer (0 clears the featured image).',
+			message: __( 'attachment_id must be a non-negative integer (0 clears the featured image).', 'ahentic' ),
 		}
 	}
 
@@ -2680,7 +2704,7 @@ function normalizeTermIdList( refs ) {
 			return {
 				ok: false,
 				error: 'invalid_term_id',
-				message: 'Term refs must be positive integer IDs when using ahentic-browser/set-post-terms (resolve names via list-terms/create-term first).',
+				message: __( 'Term refs must be positive integer IDs when using ahentic-browser/set-post-terms (resolve names via list-terms/create-term first).', 'ahentic' ),
 			}
 		}
 		ids.push( id )
@@ -2713,14 +2737,19 @@ export function setPostTerms( input = {} ) {
 			return {
 				ok: false,
 				error: 'invalid_post_id',
-				message: 'post_id must be a positive integer when provided.',
+				message: __( 'post_id must be a positive integer when provided.', 'ahentic' ),
 			}
 		}
 		if ( ! Number.isFinite( openId ) || openId !== expected ) {
 			return {
 				ok: false,
 				error: 'post_mismatch',
-				message: `Open editor post (${ currentPostId ?? 'none' }) does not match post_id ${ expected }. Use ahentic/update-post with categories/tags/tax_input when the target post is not open in the block editor.`,
+				message: sprintf(
+					/* translators: %1$s: open post id or "none", %2$d: expected post id */
+					__( 'Open editor post (%1$s) does not match post_id %2$d. Use ahentic/update-post with categories/tags/tax_input when the target post is not open in the block editor.', 'ahentic' ),
+					currentPostId ?? 'none',
+					expected
+				),
 				post_id: currentPostId,
 				expected_post_id: expected,
 			}
@@ -2754,7 +2783,7 @@ export function setPostTerms( input = {} ) {
 			return {
 				ok: false,
 				error: 'invalid_tax_input',
-				message: 'tax_input must be an object mapping taxonomy slug → list of term IDs.',
+				message: __( 'tax_input must be an object mapping taxonomy slug → list of term IDs.', 'ahentic' ),
 			}
 		}
 		for ( const [ taxonomy, refs ] of Object.entries( taxInput ) ) {
@@ -2777,7 +2806,7 @@ export function setPostTerms( input = {} ) {
 		return {
 			ok: false,
 			error: 'nothing_to_update',
-			message: 'Provide at least one of: categories, tags, or tax_input.',
+			message: __( 'Provide at least one of: categories, tags, or tax_input.', 'ahentic' ),
 		}
 	}
 
@@ -2802,7 +2831,7 @@ export async function savePost() {
 	const postId = editor.getCurrentPostId?.() ?? null
 	if ( editor.isSavingPost?.() ) {
 		return {
-			ok: false, error: 'already_saving', message: 'A save is already in progress.',
+			ok: false, error: 'already_saving', message: __( 'A save is already in progress.', 'ahentic' ),
 		}
 	}
 	try {
@@ -2815,7 +2844,7 @@ export async function savePost() {
 		return {
 			ok: false,
 			error: 'save_failed',
-			message: error?.message || 'Failed to save the post.',
+			message: error?.message || __( 'Failed to save the post.', 'ahentic' ),
 		}
 	}
 	return {

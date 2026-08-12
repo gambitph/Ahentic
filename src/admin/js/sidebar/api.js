@@ -2,7 +2,7 @@
  * Ahentic REST helpers for sessions / orchestrator.
  */
 
-import { __ } from '@wordpress/i18n'
+import { __, sprintf } from '@wordpress/i18n'
 
 /**
  * @return {{ restUrl: string, restNonce: string }} REST url + nonce from the localized config.
@@ -22,7 +22,7 @@ function getRestConfig() {
 export async function apiRequest( path, options = {} ) {
 	const { restUrl, restNonce } = getRestConfig()
 	if ( ! restUrl || ! restNonce ) {
-		throw new Error( 'Ahentic REST configuration is missing.' )
+		throw new Error( __( 'Ahentic REST configuration is missing.', 'ahentic' ) )
 	}
 
 	const response = await fetch( `${ restUrl }${ path }`, {
@@ -40,7 +40,11 @@ export async function apiRequest( path, options = {} ) {
 	if ( ! response.ok ) {
 		const message = payload?.message ||
 			payload?.data?.message ||
-			`Request failed (${ response.status })`
+			sprintf(
+				/* translators: %d: HTTP status code */
+				__( 'Request failed (%d)', 'ahentic' ),
+				response.status
+			)
 		const error = new Error( message )
 		error.code = payload?.code || payload?.data?.code
 		error.status = response.status

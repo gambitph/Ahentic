@@ -4,6 +4,7 @@
 
 /* eslint-disable camelcase -- Ability output matches PHP schema snake_case. */
 
+import { __, sprintf } from '@wordpress/i18n'
 import { collectPageContext } from './page-context'
 
 const HEADINGS_MAX = 20
@@ -61,7 +62,7 @@ export function collectVisiblePage() {
 			fields: [],
 			excerpt: '',
 			excerpt_truncated: false,
-			notes: [ 'No main content root found.' ],
+			notes: [ __( 'No main content root found.', 'ahentic' ) ],
 		}
 	}
 
@@ -89,8 +90,8 @@ export function collectVisiblePage() {
 			fields: fields.length,
 		},
 		notes: [
-			'Read-only snapshot of visible page content (Ahentic UI excluded).',
-			'On admin non-editor screens, use this to see if a setting is on the form, then ahentic-browser/fill-fields (does not submit). Prefer fill over update-option when the control is visible.',
+			__( 'Read-only snapshot of visible page content (Ahentic UI excluded).', 'ahentic' ),
+			__( 'On admin non-editor screens, use this to see if a setting is on the form, then ahentic-browser/fill-fields (does not submit). Prefer fill over update-option when the control is visible.', 'ahentic' ),
 		],
 	}
 }
@@ -108,15 +109,15 @@ export function fillFields( input ) {
 	const filled = []
 	const skipped = []
 	const notes = [
-		'Does not submit the form — user must click Save/Update.',
-		'On admin forms, prefer fill over server update-option when the control is on this screen.',
+		__( 'Does not submit the form — user must click Save/Update.', 'ahentic' ),
+		__( 'On admin forms, prefer fill over server update-option when the control is on this screen.', 'ahentic' ),
 	]
 
 	if ( requests.length === 0 ) {
 		return {
 			ok: false,
 			filled,
-			skipped: [ { reason: 'empty_fields', message: 'fields array is required and must not be empty.' } ],
+			skipped: [ { reason: 'empty_fields', message: __( 'fields array is required and must not be empty.', 'ahentic' ) } ],
 			notes,
 		}
 	}
@@ -129,7 +130,7 @@ export function fillFields( input ) {
 			skipped: requests.map( field => ( {
 				...pickTarget( field ),
 				reason: 'no_content_root',
-				message: 'No main content root found.',
+				message: __( 'No main content root found.', 'ahentic' ),
 			} ) ),
 			notes,
 		}
@@ -141,7 +142,7 @@ export function fillFields( input ) {
 		if ( ! field || typeof field !== 'object' || ! Object.prototype.hasOwnProperty.call( field, 'value' ) ) {
 			skipped.push( {
 				reason: 'invalid_field',
-				message: 'Each field needs a value.',
+				message: __( 'Each field needs a value.', 'ahentic' ),
 			} )
 			continue
 		}
@@ -152,7 +153,11 @@ export function fillFields( input ) {
 			skipped.push( {
 				...target,
 				reason: 'option_denied',
-				message: `Field “${ deniedKey }” is hard-denied (same denylist as ahentic/update-option).`,
+				message: sprintf(
+					/* translators: %s: field name or id */
+					__( 'Field “%s” is hard-denied (same denylist as ahentic/update-option).', 'ahentic' ),
+					deniedKey
+				),
 			} )
 			continue
 		}
@@ -485,7 +490,7 @@ function matchFillableNode( nodes, field ) {
 		return {
 			error: {
 				reason: 'missing_target',
-				message: 'Provide name, id, or label to target a field.',
+				message: __( 'Provide name, id, or label to target a field.', 'ahentic' ),
 			},
 		}
 	}
@@ -514,7 +519,7 @@ function matchFillableNode( nodes, field ) {
 		return {
 			error: {
 				reason: 'not_found',
-				message: 'No matching visible field.',
+				message: __( 'No matching visible field.', 'ahentic' ),
 			},
 		}
 	}
@@ -523,7 +528,11 @@ function matchFillableNode( nodes, field ) {
 		return {
 			error: {
 				reason: 'ambiguous',
-				message: `Matched ${ candidates.length } fields — add id or label to disambiguate.`,
+				message: sprintf(
+					/* translators: %d: number of matching fields */
+					__( 'Matched %d fields — add id or label to disambiguate.', 'ahentic' ),
+					candidates.length
+				),
 			},
 		}
 	}
@@ -545,7 +554,7 @@ function applyFieldValue( node, rawValue ) {
 			return {
 				error: {
 					reason: 'invalid_value',
-					message: 'Checkbox/radio value must be boolean or checked/unchecked/on/off/1/0.',
+					message: __( 'Checkbox/radio value must be boolean or checked/unchecked/on/off/1/0.', 'ahentic' ),
 				},
 			}
 		}
@@ -562,7 +571,11 @@ function applyFieldValue( node, rawValue ) {
 			return {
 				error: {
 					reason: 'invalid_value',
-					message: `No select option matches “${ stringValue }”.`,
+					message: sprintf(
+						/* translators: %s: select option value */
+						__( 'No select option matches “%s”.', 'ahentic' ),
+						stringValue
+					),
 				},
 			}
 		}

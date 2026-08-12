@@ -4,6 +4,7 @@
 
 /* eslint-disable camelcase -- Ability I/O matches PHP schema snake_case. */
 
+import { __, sprintf } from '@wordpress/i18n'
 import { collectPageContext } from './page-context'
 import { collectVisiblePage, fillFields } from './visible-page'
 import {
@@ -101,12 +102,16 @@ export async function runBrowserAbility( pending ) {
 				return { result: await fetchPageAsUser( input ) }
 			default:
 				return {
-					error: `Unsupported browser ability: ${ name || 'unknown' }`,
+					error: sprintf(
+						/* translators: %s: ability name */
+						__( 'Unsupported browser ability: %s', 'ahentic' ),
+						name || 'unknown'
+					),
 				}
 		}
 	} catch ( error ) {
 		return {
-			error: error?.message || 'Browser ability failed.',
+			error: error?.message || __( 'Browser ability failed.', 'ahentic' ),
 		}
 	}
 }
@@ -123,7 +128,7 @@ async function fetchPageAsUser( input ) {
 		return {
 			ok: false,
 			error: 'missing_url',
-			message: 'A URL is required.',
+			message: __( 'A URL is required.', 'ahentic' ),
 			as_user: true,
 			via: 'browser',
 		}
@@ -137,7 +142,7 @@ async function fetchPageAsUser( input ) {
 			ok: false,
 			error: 'invalid_url',
 			url,
-			message: 'That URL is not valid.',
+			message: __( 'That URL is not valid.', 'ahentic' ),
 			as_user: true,
 			via: 'browser',
 		}
@@ -148,7 +153,7 @@ async function fetchPageAsUser( input ) {
 			ok: false,
 			error: 'invalid_url',
 			url: parsed.href,
-			message: 'Only http and https URLs are allowed.',
+			message: __( 'Only http and https URLs are allowed.', 'ahentic' ),
 			as_user: true,
 			via: 'browser',
 		}
@@ -162,7 +167,7 @@ async function fetchPageAsUser( input ) {
 			same_site: false,
 			as_user: true,
 			via: 'browser',
-			message: 'as_user is only allowed for URLs on this WordPress site.',
+			message: __( 'as_user is only allowed for URLs on this WordPress site.', 'ahentic' ),
 		}
 	}
 
@@ -229,8 +234,8 @@ async function fetchPageAsUser( input ) {
 			duration_ms: durationMs,
 			timed_out: aborted,
 			message: aborted
-				? 'The request timed out.'
-				: ( error?.message || 'Browser fetch failed.' ),
+				? __( 'The request timed out.', 'ahentic' )
+				: ( error?.message || __( 'Browser fetch failed.', 'ahentic' ) ),
 		}
 	} finally {
 		if ( timer ) {

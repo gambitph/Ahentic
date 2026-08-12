@@ -15,6 +15,7 @@ import {
 	DEFAULT_PLACEMENT,
 	MODES,
 	createTab,
+	defaultAgentTitle,
 	MIN_WIDTH,
 	MAX_WIDTH,
 	normalizePlacement,
@@ -106,7 +107,7 @@ export function loadPersistedState() {
 		const tabs = Array.isArray( parsed.tabs ) && parsed.tabs.length
 			? parsed.tabs.map( tab => ( {
 				id: String( tab.id ),
-				title: String( tab.title || 'New Agent' ),
+				title: String( tab.title || defaultAgentTitle() ),
 				createdAt: Number( tab.createdAt ) || Date.now(),
 			} ) )
 			: defaults.tabs
