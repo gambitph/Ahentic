@@ -75,7 +75,6 @@ test.describe( 'Sidebar chrome', () => {
 		const evidenceDir = process.env.NO_MISTAKES_EVIDENCE_DIR
 		await ahenticSidebar.openWithSession( {
 			mode: 'agent',
-			title: 'New Agent',
 		} )
 
 		await expect( ahenticSidebar.composer ).toBeVisible()

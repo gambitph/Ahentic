@@ -497,7 +497,9 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				. 'Be concise and WordPress-specific. '
 				. 'Avoid dashes in user-facing prose, especially as sentence punctuation; prefer commas, periods, or colons. Never use em dash "—" or en dash "–". '
 				. 'Do not invent site changes unless a tool confirmed them. '
-				. 'When you need verified site data, call tools — do not guess plugins or stack details.'
+				. 'When you need verified site data, call tools — do not guess plugins or stack details. '
+				. 'Ability names (ahentic/…, ahentic-browser/…) and machine error codes are always English; '
+				. 'tool result message text may be localized — decide from codes and ability names, not translated prose.'
 				. "\n\n"
 				. 'When pointing the user to wp-admin, ALWAYS use a Markdown link with a full URL from the map below '
 				. 'or from tool results (admin_links / edit URLs). Example: [Settings → General](https://example.com/wp-admin/options-general.php). '

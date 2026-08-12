@@ -109,7 +109,7 @@ export function loadPersistedState() {
 				const id = String( tab.id )
 				const autoTitle = typeof tab.autoTitle === 'boolean'
 					? tab.autoTitle
-					: ! /^\d+$/.test( id )
+					: true
 				return {
 					id,
 					title: String( tab.title || defaultAgentTitle() ),

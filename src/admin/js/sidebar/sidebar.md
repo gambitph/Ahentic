@@ -116,6 +116,8 @@ Live status shows “Keep this tab visible while this runs” under the awaiting
 - **Modes:** Agent vs Ask (Ask = readonly tools server-side).
 - **Tab titles:** Default label is translated `New Agent` (`defaultAgentTitle()` / session repository).
   Whether a tab may still auto-rename is `autoTitle` from the session REST payload (and chrome storage), not string equality against the default title.
+  Tabs are matched by session id. After the first auto-rename, `autoTitle` becomes `false` (client + server).
+  Legacy chrome blobs missing `autoTitle` load as `true` so the first prompt can still rename.
   See [session.md](../../../session/session.md).
 - **Send / Stop:** right-most circle control — ArrowUp Send when idle (disabled if empty/locked); Stop replaces it while a run is active (`canStop`). Never both.
 - **Composer attach / mic:** markup kept in `composer.js` but **visually hidden** (`hidden` + `.ahentic-composer__affordance--deferred`). Attach = free v3 ([future-prompt-file-attachments.md](../../../../pro__premium_only/docs/future-prompt-file-attachments.md)); voice = Premium v3 ([future-prompt-voice-input.md](../../../../pro__premium_only/docs/future-prompt-voice-input.md)) — grill before either.

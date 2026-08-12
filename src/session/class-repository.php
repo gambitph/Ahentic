@@ -1025,6 +1025,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 					'post_title' => $clean,
 				)
 			);
+			update_post_meta( $session_id, self::META_AUTO_TITLE, '0' );
 		}
 
 		/**

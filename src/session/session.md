@@ -142,7 +142,9 @@ CamelCase fields for the sidebar, including:
 `id`, `title`, `autoTitle`, `status`, `mode`, `messages`, `hasMore`, `trace`, `traceCount`, `progress`, `plan`, `pendingTool`, `artifacts`, `tokensIn` / `tokensOut` / `tokensUsed`, `contextUsage` (soft 200k budget fill + buckets), `stepCount`, `lastError`, `lastErrorCode`, `summaryStatus`, timestamps.
 
 `autoTitle` mirrors `_ahentic_auto_title`: `true` while the server (and sidebar chrome) may still replace the default title from the first message / control-block title.
-Sidebar tabs persist the same flag in `localStorage` and must not treat a literal `"New Agent"` string as the default-title signal.
+After `maybe_set_auto_title` succeeds, meta is set to `0` so later messages do not keep renaming.
+Sidebar tabs are keyed by session **id**; chrome `localStorage` stores `autoTitle` beside each tab so locale-translated default titles are never used as identity.
+Missing `autoTitle` in old chrome blobs defaults to `true` until REST hydrates the real flag.
 
 ### Context usage (`contextUsage`)
 

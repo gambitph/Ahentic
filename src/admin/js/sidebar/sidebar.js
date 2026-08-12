@@ -1131,7 +1131,11 @@ export default function Sidebar() {
 			if ( ! tabAllowsAutoTitle( tab ) ) {
 				return tab
 			}
-			return { ...tab, title: truncateTitle( text ) }
+			return {
+				...tab,
+				title: truncateTitle( text ),
+				autoTitle: false,
+			}
 		} ) )
 		// Floor freshness so a raced poll (same user turn, still idle) cannot
 		// clobber busy chrome before postMessage / the worker advances.

@@ -975,6 +975,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				return true;
 			}
 
+			// Keep msgids aligned with GENERIC_PROGRESS_LABELS in sidebar-live-status.js.
 			$generic = array(
 				__( 'Planning next steps…', 'ahentic' ),
 				__( 'Reviewing results…', 'ahentic' ),
@@ -982,6 +983,8 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				__( 'Finishing…', 'ahentic' ),
 				__( 'Thinking…', 'ahentic' ),
 				__( 'Retrying…', 'ahentic' ),
+				__( 'Ahentic is thinking…', 'ahentic' ),
+				__( 'Waiting for your approval…', 'ahentic' ),
 			);
 
 			return in_array( $label, $generic, true );

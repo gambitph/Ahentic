@@ -5,13 +5,17 @@
 import { __, sprintf } from '@wordpress/i18n'
 import { progressLabelForAbility } from './progress-label'
 
-/** Generic phase placeholders — prefer real debugger step summaries instead. */
+/**
+ * Generic phase placeholders - prefer real debugger step summaries instead.
+ * Keep msgids aligned with Ahentic_Think_Debug::is_generic_progress_label().
+ */
 const GENERIC_PROGRESS_LABELS = new Set( [
 	__( 'Planning next steps…', 'ahentic' ),
 	__( 'Reviewing results…', 'ahentic' ),
 	__( 'Starting…', 'ahentic' ),
 	__( 'Finishing…', 'ahentic' ),
 	__( 'Thinking…', 'ahentic' ),
+	__( 'Retrying…', 'ahentic' ),
 	__( 'Ahentic is thinking…', 'ahentic' ),
 	// HITL wait label must not stick as live status after Allow/Skip.
 	__( 'Waiting for your approval…', 'ahentic' ),
