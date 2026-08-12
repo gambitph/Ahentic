@@ -140,7 +140,7 @@ export default function Toolbar( {
 					<CircleHelp size={ 14 } strokeWidth={ 1.75 } />
 				</a>
 				<span className="ahentic-toolbar__brand">
-					AHENTIC
+					AHENTIC (BETA)
 				</span>
 			</div>
 			<div className="ahentic-toolbar__right">
