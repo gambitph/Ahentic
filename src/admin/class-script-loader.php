@@ -162,7 +162,7 @@ if ( ! class_exists( 'Ahentic_Script_Loader' ) ) {
 			);
 
 			$settings_url = admin_url( 'options-general.php?page=' . ( class_exists( 'Ahentic_Admin' ) ? Ahentic_Admin::SETTINGS_SLUG : 'ahentic' ) );
-			$docs_url     = 'https://ahentic.com/docs';
+			$docs_url     = 'https://docs.wpahentic.com';
 			$ai_status    = class_exists( 'Ahentic_REST' )
 				? Ahentic_REST::build_status_payload()
 				: array(

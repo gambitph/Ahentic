@@ -360,7 +360,7 @@ export default function TabContent( {
 
 	if ( ! messages.length ) {
 		const prompts = getSuggestedPrompts()
-		const docsUrl = window.ahentic?.docsUrl || 'https://ahentic.com/docs'
+		const docsUrl = window.ahentic?.docsUrl || 'https://docs.wpahentic.com'
 
 		return (
 			<div className="ahentic-content ahentic-content--empty">

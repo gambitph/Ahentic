@@ -61,7 +61,7 @@ export default function Toolbar( {
 	isMobile = false,
 } ) {
 	const settingsUrl = window.ahentic?.settingsUrl || ''
-	const docsUrl = window.ahentic?.docsUrl || 'https://ahentic.com/docs'
+	const docsUrl = window.ahentic?.docsUrl || 'https://docs.wpahentic.com'
 	const [ menuOpen, setMenuOpen ] = useState( false )
 	const menuRef = useRef( null )
 

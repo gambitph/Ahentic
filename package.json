@@ -26,6 +26,8 @@
 		"test:e2e": "playwright test",
 		"test:debug": "playwright test --ui",
 		"test": "npm run test:php && npm run test:e2e",
+		"docs:build": "npm --prefix docs-site run build",
+		"docs:test": "npm --prefix docs-site test",
 		"prepare": "husky"
 	},
 	"browserslist": [
