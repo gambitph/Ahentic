@@ -9,7 +9,7 @@ We draft an anonymized **Run feedback report** on-site (AI summary + decluttered
 That replaces Cloudflare Turnstile: free Turnstile widgets cannot authorize arbitrary customer WordPress hostnames (`110200`).
 After mint, the site stores a stateless **site token** (`SERVER_SECRET` HMAC on the Worker only); silent refresh when a token remains; reports use a valid site token.
 No identity DB.
-Debug packs target remote debugging under GitHub’s 65,536-character body limit.
+Debug packs are scrubbed on-site, capped (2 MiB), and filed by intake as a **GitHub issue file attachment** (not inlined into the 65,536-character issue body).
 
 **Abuse (intake):** new issue creates are rate-limited per client IP (**1/minute** default, best-effort in-isolate).
 Duplicate comments are not gated by that bucket.

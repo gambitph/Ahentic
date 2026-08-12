@@ -60,6 +60,43 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		const USER_NOTE_MAX_LENGTH = 1000;
 
 		/**
+		 * Max length for the anonymized conversation list posted as prompt_excerpt.
+		 *
+		 * @var int
+		 */
+		const PROMPT_EXCERPT_MAX_LENGTH = 8000;
+
+		/**
+		 * Max bytes for the Run feedback debug pack sent to intake.
+		 *
+		 * Under GitHub’s 25 MB attachment limit; leaves headroom under intake’s POST body cap.
+		 *
+		 * @var int
+		 */
+		const DEBUG_PACK_MAX_BYTES = 2097152; // 2 MiB
+
+		/**
+		 * Ahentic replies longer than this are summarized extractively in the conversation list.
+		 *
+		 * @var int
+		 */
+		const ASSISTANT_REPLY_SUMMARIZE_AFTER = 500;
+
+		/**
+		 * Max chars kept for a summarized Ahentic reply.
+		 *
+		 * @var int
+		 */
+		const ASSISTANT_REPLY_SUMMARY_MAX = 320;
+
+		/**
+		 * Max chars kept for a single user turn in the conversation list.
+		 *
+		 * @var int
+		 */
+		const USER_TURN_MAX_LENGTH = 1000;
+
+		/**
 		 * Refresh when this many seconds remain before expiry (14 days).
 		 *
 		 * @var int
@@ -217,7 +254,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			$response = wp_remote_post(
 				$url,
 				array(
-					'timeout' => 45,
+					'timeout' => 60,
 					'headers' => array(
 						'Content-Type' => 'application/json',
 						'Accept'       => 'application/json',
@@ -369,6 +406,9 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		/**
 		 * Build a decluttered debug pack string from diagnostics (does not mutate stored trace).
 		 *
+		 * Soft-capped at DEBUG_PACK_MAX_BYTES (prefer tail). Intake files the pack as a
+		 * GitHub attachment rather than pasting it into the issue body.
+		 *
 		 * @param array $diagnostics From Ahentic_Session_Repository::to_diagnostics().
 		 * @return string
 		 */
@@ -421,10 +461,11 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				$json = '{}';
 			}
 
-			// Prefer tail of the run when over a soft export budget (~48k chars leaves room for GitHub framing).
-			$max = 48000;
+			// Soft intake/export cap (full pack is filed as a GitHub attachment by intake).
+			$max = self::DEBUG_PACK_MAX_BYTES;
 			if ( strlen( $json ) > $max ) {
-				$json = "…[truncated for GitHub]\n" . substr( $json, -$max );
+				$mark = "…[truncated for intake pack cap]\n";
+				$json = $mark . substr( $json, -( $max - strlen( $mark ) ) );
 			}
 
 			return $json;
@@ -576,11 +617,12 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		/**
 		 * Draft AI summary for a report. Fails visibly when AI is unavailable.
 		 *
-		 * @param array  $diagnostics Diagnostics bundle.
-		 * @param string $prompt_excerpt Anonymized user prompt excerpt.
+		 * @param array  $diagnostics    Diagnostics bundle.
+		 * @param string $prompt_excerpt Anonymized conversation list (user + Ahentic turns).
+		 * @param string $user_note      Optional admin note (highest signal for what went wrong).
 		 * @return array|\WP_Error { title, summary } or error.
 		 */
-		public static function draft_summary( array $diagnostics, $prompt_excerpt = '' ) {
+		public static function draft_summary( array $diagnostics, $prompt_excerpt = '', $user_note = '' ) {
 			if ( ! class_exists( 'Ahentic_AI' ) ) {
 				return new WP_Error(
 					'ahentic_feedback_ai_unavailable',
@@ -589,23 +631,8 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				);
 			}
 
-			$state      = isset( $diagnostics['state'] ) && is_array( $diagnostics['state'] ) ? $diagnostics['state'] : array();
-			$session    = isset( $diagnostics['session'] ) && is_array( $diagnostics['session'] ) ? $diagnostics['session'] : array();
-			$last_error = isset( $session['lastError'] ) ? (string) $session['lastError'] : '';
-			$goal       = isset( $state['activeGoal'] ) ? (string) $state['activeGoal'] : '';
-
-			$system = 'You write short anonymized bug-report summaries for Ahentic maintainers. '
-				. 'No site URLs, emails, or personal names. Reply with JSON only: '
-				. '{"title":"≤80 chars","summary":"≤600 chars"}';
-
-			$user = "Draft a Run feedback report title and summary.\n"
-				. 'Status: ' . ( isset( $session['status'] ) ? $session['status'] : '' ) . "\n"
-				. 'Job resumable: ' . ( ! empty( $state['jobResumable'] ) ? 'yes' : 'no' ) . "\n"
-				. 'Last error: ' . self::scrub_text( $last_error ) . "\n"
-				. 'Goal: ' . self::scrub_text( $goal ) . "\n"
-				. 'Prompt excerpt: ' . self::scrub_text( (string) $prompt_excerpt ) . "\n";
-
-			$result = Ahentic_AI::complete_chat( $system, array(), $user );
+			$prompts = self::build_draft_summary_prompts( $diagnostics, $prompt_excerpt, $user_note );
+			$result  = Ahentic_AI::complete_chat( $prompts['system'], array(), $prompts['user'] );
 			if ( is_wp_error( $result ) ) {
 				return new WP_Error(
 					'ahentic_feedback_ai_unavailable',
@@ -636,6 +663,57 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			}
 
 			return $parsed;
+		}
+
+		/**
+		 * Build system + user prompts for Run feedback title/summary drafting.
+		 *
+		 * @param array  $diagnostics    Diagnostics bundle.
+		 * @param string $prompt_excerpt Anonymized conversation list.
+		 * @param string $user_note      Optional admin note.
+		 * @return array{system:string,user:string}
+		 */
+		public static function build_draft_summary_prompts( array $diagnostics, $prompt_excerpt = '', $user_note = '' ) {
+			$state      = isset( $diagnostics['state'] ) && is_array( $diagnostics['state'] ) ? $diagnostics['state'] : array();
+			$session    = isset( $diagnostics['session'] ) && is_array( $diagnostics['session'] ) ? $diagnostics['session'] : array();
+			$last_error = isset( $session['lastError'] ) ? (string) $session['lastError'] : '';
+			$goal       = isset( $state['activeGoal'] ) ? (string) $state['activeGoal'] : '';
+			$abilities  = self::abilities_from_trace( isset( $diagnostics['trace'] ) ? $diagnostics['trace'] : array() );
+
+			$note = (string) $user_note;
+			if ( function_exists( 'wp_strip_all_tags' ) ) {
+				$note = wp_strip_all_tags( $note );
+			} else {
+				$note = strip_tags( $note );
+			}
+			$note = trim( self::scrub_text( $note ) );
+			if ( strlen( $note ) > self::USER_NOTE_MAX_LENGTH ) {
+				$note = substr( $note, 0, self::USER_NOTE_MAX_LENGTH );
+			}
+
+			$system = 'You write anonymized GitHub issue titles and summaries for Ahentic Run feedback. '
+				. 'Other reporters will search titles to find duplicates — generalize the failure mode. '
+				. "Infer (1) the user's intent and (2) the actual product issue from the signals below. "
+				. 'When the user note conflicts with session status trivia (idle/busy, resumable, empty goal fragments), trust the user note. '
+				. 'Title: ≤80 chars; name the general bug class (e.g. false missing-ability notice after success), not a one-off scenario, country, or quoted goal text. '
+				. 'Avoid titles that only restate idle/no result/status. '
+				. 'Summary: ≤600 chars; 1–3 sentences covering intent, expected vs actual, and the misleading behavior if any. '
+				. 'No site URLs, emails, or personal names. Reply with JSON only: '
+				. '{"title":"…","summary":"…"}';
+
+			$user  = "Draft a Run feedback report title and summary.\n";
+			$user .= 'User note (highest signal when present): ' . ( '' !== $note ? $note : '(none)' ) . "\n";
+			$user .= 'Conversation:\n' . self::scrub_text( (string) $prompt_excerpt ) . "\n";
+			$user .= 'Active goal (may be partial/stale): ' . self::scrub_text( $goal ) . "\n";
+			$user .= 'Last error: ' . self::scrub_text( $last_error ) . "\n";
+			$user .= 'Abilities used: ' . ( ! empty( $abilities ) ? implode( ', ', $abilities ) : '(none)' ) . "\n";
+			$user .= 'Session status (context only, not the bug): ' . ( isset( $session['status'] ) ? $session['status'] : '' ) . "\n";
+			$user .= 'Job resumable (context only): ' . ( ! empty( $state['jobResumable'] ) ? 'yes' : 'no' ) . "\n";
+
+			return array(
+				'system' => $system,
+				'user'   => $user,
+			);
 		}
 
 		/**
@@ -730,7 +808,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		 *     Optional overrides.
 		 *     @type string     $title
 		 *     @type string     $summary
-		 *     @type string     $prompt_excerpt
+		 *     @type string     $prompt_excerpt Optional override for the conversation list.
 		 *     @type string     $user_note
 		 *     @type int|null   $duplicate_of
 		 * }
@@ -753,13 +831,14 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 
 			$prompt_excerpt = isset( $args['prompt_excerpt'] ) ? (string) $args['prompt_excerpt'] : '';
 			if ( '' === $prompt_excerpt ) {
-				$prompt_excerpt = self::latest_user_prompt_excerpt( $session_id );
+				$prompt_excerpt = self::conversation_excerpt( $session_id );
 			}
 
-			$title   = isset( $args['title'] ) ? (string) $args['title'] : '';
-			$summary = isset( $args['summary'] ) ? (string) $args['summary'] : '';
+			$title     = isset( $args['title'] ) ? (string) $args['title'] : '';
+			$summary   = isset( $args['summary'] ) ? (string) $args['summary'] : '';
+			$user_note = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
 			if ( '' === $title || '' === $summary ) {
-				$drafted = self::draft_summary( $diagnostics, $prompt_excerpt );
+				$drafted = self::draft_summary( $diagnostics, $prompt_excerpt, $user_note );
 				if ( is_wp_error( $drafted ) ) {
 					return $drafted;
 				}
@@ -771,8 +850,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				}
 			}
 
-			$user_note = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
-			$summary   = self::append_user_note_to_summary( $summary, $user_note );
+			$summary = self::append_user_note_to_summary( $summary, $user_note );
 
 			$debug_pack = self::build_debug_pack( $diagnostics );
 			$token      = self::ensure_valid_token();
@@ -793,7 +871,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				'title'               => substr( self::scrub_text( $title ), 0, 200 ),
 				'summary'             => substr( self::scrub_text( $summary ), 0, 4000 ),
 				'debug_pack'          => $debug_pack,
-				'prompt_excerpt'      => substr( self::scrub_text( $prompt_excerpt ), 0, 2000 ),
+				'prompt_excerpt'      => substr( self::scrub_text( $prompt_excerpt ), 0, self::PROMPT_EXCERPT_MAX_LENGTH ),
 				'duplicate_of'        => is_int( $duplicate_of ) ? $duplicate_of : null,
 				'ahentic_version'     => defined( 'AHENTIC_VERSION' ) ? AHENTIC_VERSION : '',
 				'wp_version'          => isset( $env['wp'] ) ? (string) $env['wp'] : get_bloginfo( 'version' ),
@@ -820,23 +898,145 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Latest user message excerpt for the report.
+		 * Scrubbed conversation list for the report (all user + Ahentic turns).
 		 *
 		 * @param int $session_id Session ID.
-		 * @return string Scrubbed excerpt.
+		 * @return string Numbered list, or empty when no chat turns exist.
 		 */
-		private static function latest_user_prompt_excerpt( $session_id ) {
+		private static function conversation_excerpt( $session_id ) {
 			$entries = Ahentic_Session_Repository::get_entries( $session_id );
 			if ( ! is_array( $entries ) ) {
 				return '';
 			}
-			for ( $i = count( $entries ) - 1; $i >= 0; $i-- ) {
-				if ( isset( $entries[ $i ]['role'] ) && 'user' === $entries[ $i ]['role'] ) {
-					$content = isset( $entries[ $i ]['content'] ) ? (string) $entries[ $i ]['content'] : '';
-					return substr( self::scrub_text( $content ), 0, 2000 );
+			return self::format_conversation_excerpt( $entries );
+		}
+
+		/**
+		 * Format session entries into a scrubbed numbered conversation list.
+		 *
+		 * Includes user prompts and Ahentic replies (skips tool/event and
+		 * thought-process / intermediate assistant rows). Long Ahentic replies
+		 * are summarized extractively. Prefer recent turns when over budget.
+		 *
+		 * @param array $entries Session entries from the repository.
+		 * @return string
+		 */
+		public static function format_conversation_excerpt( array $entries ) {
+			$turns = array();
+			foreach ( $entries as $entry ) {
+				if ( ! is_array( $entry ) ) {
+					continue;
+				}
+				$role = isset( $entry['role'] ) ? (string) $entry['role'] : '';
+				if ( 'user' !== $role && 'assistant' !== $role ) {
+					continue;
+				}
+				$meta = isset( $entry['meta'] ) && is_array( $entry['meta'] ) ? $entry['meta'] : array();
+				if ( ! empty( $meta['thought_process'] ) || ! empty( $meta['intermediate'] ) ) {
+					continue;
+				}
+				$content = isset( $entry['content'] ) ? trim( (string) $entry['content'] ) : '';
+				if ( '' === $content ) {
+					continue;
+				}
+				$content = self::scrub_text( $content );
+				if ( 'assistant' === $role ) {
+					$content = self::summarize_assistant_reply_for_feedback( $content );
+				} else {
+					$content = self::excerpt_text( $content, self::USER_TURN_MAX_LENGTH );
+				}
+				if ( '' === $content ) {
+					continue;
+				}
+				$label   = ( 'user' === $role ) ? 'User' : 'Ahentic';
+				$turns[] = $label . ': ' . $content;
+			}
+
+			if ( empty( $turns ) ) {
+				return '';
+			}
+
+			$selected = $turns;
+			while ( true ) {
+				$formatted = self::number_conversation_lines( $selected );
+				if ( strlen( $formatted ) <= self::PROMPT_EXCERPT_MAX_LENGTH || count( $selected ) <= 1 ) {
+					if ( strlen( $formatted ) > self::PROMPT_EXCERPT_MAX_LENGTH ) {
+						return substr( $formatted, 0, self::PROMPT_EXCERPT_MAX_LENGTH );
+					}
+					return $formatted;
+				}
+				array_shift( $selected );
+			}
+		}
+
+		/**
+		 * Number conversation lines as a list.
+		 *
+		 * @param string[] $lines Labelled turns (e.g. "User: …").
+		 * @return string
+		 */
+		private static function number_conversation_lines( array $lines ) {
+			$out = array();
+			$n   = 1;
+			foreach ( $lines as $line ) {
+				$out[] = $n . '. ' . $line;
+				++$n;
+			}
+			return implode( "\n", $out );
+		}
+
+		/**
+		 * Summarize a long Ahentic reply for the conversation list.
+		 *
+		 * Uses leading sentence(s) when possible; otherwise a word-boundary excerpt.
+		 *
+		 * @param string $content Already-scrubbed reply text.
+		 * @return string
+		 */
+		private static function summarize_assistant_reply_for_feedback( $content ) {
+			$content = trim( (string) $content );
+			if ( strlen( $content ) <= self::ASSISTANT_REPLY_SUMMARIZE_AFTER ) {
+				return $content;
+			}
+
+			$max = self::ASSISTANT_REPLY_SUMMARY_MAX;
+			if ( preg_match( '/^(.+?[.!?])(?:\s+|$)/us', $content, $m ) ) {
+				$summary = trim( $m[1] );
+				$rest    = ltrim( substr( $content, strlen( $m[0] ) ) );
+				if ( strlen( $summary ) < ( $max - 40 ) && '' !== $rest
+					&& preg_match( '/^(.+?[.!?])(?:\s+|$)/us', $rest, $m2 ) ) {
+					$candidate = $summary . ' ' . trim( $m2[1] );
+					if ( strlen( $candidate ) <= $max ) {
+						$summary = $candidate;
+					}
+				}
+				if ( strlen( $summary ) <= $max ) {
+					return $summary . '…';
 				}
 			}
-			return '';
+
+			return self::excerpt_text( $content, $max );
+		}
+
+		/**
+		 * Truncate text at a word boundary with an ellipsis.
+		 *
+		 * @param string $text Text.
+		 * @param int    $max  Max length including ellipsis.
+		 * @return string
+		 */
+		private static function excerpt_text( $text, $max ) {
+			$text = (string) $text;
+			$max  = (int) $max;
+			if ( $max <= 1 || strlen( $text ) <= $max ) {
+				return $text;
+			}
+			$slice = substr( $text, 0, $max - 1 );
+			// Prefer breaking on whitespace so we do not clip mid-word.
+			if ( preg_match( '/^(.+\S)\s+\S*$/s', $slice, $m ) && strlen( $m[1] ) >= (int) ( $max * 0.5 ) ) {
+				$slice = $m[1];
+			}
+			return rtrim( $slice ) . '…';
 		}
 
 		/**
