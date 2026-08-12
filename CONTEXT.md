@@ -149,8 +149,8 @@ Anonymized JSON posted to intake (title, summary, debug pack, versions) with no 
 _Avoid_: GitHub issue body (the filed artifact), support ticket
 
 **Run feedback debug pack**:
-Decluttered, scrubbed export derived from session diagnostics for remote debugging (stored Debugger trace is not rewritten).
-_Avoid_: raw `to_diagnostics()` dump, full prompt bodies
+Decluttered, scrubbed export derived from session diagnostics for remote debugging (stored Debugger trace is not rewritten). Filed via intake as a GitHub file attachment (capped), not pasted into the issue body.
+_Avoid_: raw `to_diagnostics()` dump, full prompt bodies, inlined 65k issue body dump
 
 **Run feedback intake**:
 Ahentic-operated Cloudflare Worker at `feedback.wpahentic.com` that mints site tokens and files reports into `gambitph/Ahentic` (`run-feedback` label).
