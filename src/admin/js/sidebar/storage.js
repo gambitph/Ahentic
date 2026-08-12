@@ -34,14 +34,14 @@ import {
 
 /**
  * @typedef {Object} SidebarPersistedState
- * @property {boolean}                                                 open        Whether the sidebar is open.
- * @property {number}                                                  width       Docked sidebar width in pixels.
- * @property {string}                                                  theme       Theme id (e.g. dark).
- * @property {string}                                                  mode        Composer mode (agent|ask).
- * @property {string}                                                  placement   Dock / float placement.
- * @property {FloatingRect|null}                                       floatRect   Last floating geometry.
+ * @property {boolean}                                                                      open        Whether the sidebar is open.
+ * @property {number}                                                                       width       Docked sidebar width in pixels.
+ * @property {string}                                                                       theme       Theme id (e.g. dark).
+ * @property {string}                                                                       mode        Composer mode (agent|ask).
+ * @property {string}                                                                       placement   Dock / float placement.
+ * @property {FloatingRect|null}                                                            floatRect   Last floating geometry.
  * @property {Array<{ id: string, title: string, createdAt: number, autoTitle?: boolean }>} tabs        Open tabs.
- * @property {string}                                                  activeTabId Active tab id.
+ * @property {string}                                                                       activeTabId Active tab id.
  */
 
 /**

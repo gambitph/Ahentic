@@ -48,7 +48,7 @@ Do not call AI vendors from the sidebar. Talk to WordPress REST (`ahentic/v1`) a
 
 | Data | Where |
 | --- | --- |
-| Open/closed, width, theme, mode, placement, float rect, open tab ids | Browser `localStorage` (`ahentic.sidebar.v1` via `storage.js`) |
+| Open/closed, width, theme, mode, placement, float rect, open tabs (id / title / `autoTitle`) | Browser `localStorage` (`ahentic.sidebar.v1` via `storage.js`) |
 | Active-runner claim per session (multi-window) | Browser `localStorage` (`ahentic.session-runner.v1` via `session-runner-lock.js`) — **not** the chrome blob |
 | Messages, tool results, status, plan, pending tool, artifacts | `ahentic-session` CPT (server) |
 
@@ -114,6 +114,9 @@ Live status shows “Keep this tab visible while this runs” under the awaiting
 - **Placement:** docked left/right pushes page content (`--ahentic-sidebar-inset`); floating overlays.
 - **Floating recovery:** on open (admin bar or shortcut), if floating geometry spills outside the viewport or size is below min, nudge into `FLOATING_GAP` bounds and restore default width / placement height (`recoverFloatingRectOnOpen`). Closing does not move the panel.
 - **Modes:** Agent vs Ask (Ask = readonly tools server-side).
+- **Tab titles:** Default label is translated `New Agent` (`defaultAgentTitle()` / session repository).
+  Whether a tab may still auto-rename is `autoTitle` from the session REST payload (and chrome storage), not string equality against the default title.
+  See [session.md](../../../session/session.md).
 - **Send / Stop:** right-most circle control — ArrowUp Send when idle (disabled if empty/locked); Stop replaces it while a run is active (`canStop`). Never both.
 - **Composer attach / mic:** markup kept in `composer.js` but **visually hidden** (`hidden` + `.ahentic-composer__affordance--deferred`). Attach = free v3 ([future-prompt-file-attachments.md](../../../../pro__premium_only/docs/future-prompt-file-attachments.md)); voice = Premium v3 ([future-prompt-voice-input.md](../../../../pro__premium_only/docs/future-prompt-voice-input.md)) — grill before either.
 - **Context usage ring:** `context-usage.js` in composer footer (left of Send/Stop). Fill % vs 200k soft budget + technical buckets; see [Sidebar PRD](../../../../pro__premium_only/docs/prd/sidebar.md).

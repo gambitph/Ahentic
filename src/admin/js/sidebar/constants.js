@@ -231,7 +231,7 @@ export function createSessionTitleFromTab( tab ) {
 /**
  * Build a chrome tab from a session REST payload.
  *
- * @param {Object}                                              session
+ * @param {Object}                                                                       session
  * @param {{ createdAt?: number, title?: string, status?: string, autoTitle?: boolean }} [fallback]
  * @return {{ id: string, title: string, createdAt: number, status: string, autoTitle: boolean }} Tab.
  */
