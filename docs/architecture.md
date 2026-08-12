@@ -17,6 +17,7 @@ Ahentic is a **website developer** workspace in WordPress (Ask + Agent under tha
 - Primary UI: **React sidebar** on wp-admin and the front-end (default `manage_options`)
 - Primary runtime: **PHP orchestrator** over **session CPT** state
 - Tools: **WordPress Abilities** (server PHP and browser JS)
+- Public Help: **`docs.wpahentic.com`** (static Cloudflare Pages from [`docs-site/`](../docs-site/); see that README for hosting)
 
 Users do not call model vendors from the browser. The sidebar talks to Ahentic REST; the orchestrator talks to the WordPress AI Client / php-ai-client.
 

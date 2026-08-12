@@ -157,6 +157,17 @@ Free builds should stay Plugin Check clean. Do not ship `pro__premium_only/` in 
 
 ---
 
+## End-user docs site (`docs.wpahentic.com`)
+
+Beginner Help lives in [`docs-site/`](../docs-site/) and deploys to Cloudflare Pages (`ahentic-docs`), Git-connected to this repo.
+
+Edit `docs-site/getting-started.md`, then `npm run docs:test` locally.
+Pushes to `main` build and publish automatically.
+
+Hosting table, build settings, and constraints (static Pages only): [`docs-site/README.md`](../docs-site/README.md).
+
+---
+
 ## Project conventions (short)
 
 - **JS only** in the sidebar (no new `.ts`/`.tsx` sources).
@@ -173,3 +184,4 @@ Free builds should stay Plugin Check clean. Do not ship `pro__premium_only/` in 
 3. [control-block.md](../src/orchestrator/control-block.md)
 4. [abilities.md](../src/abilities/abilities.md)
 5. [session.md](../src/session/session.md)
+6. [docs-site/README.md](../docs-site/README.md) (public Help hosting)

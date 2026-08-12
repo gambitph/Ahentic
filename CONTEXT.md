@@ -156,6 +156,10 @@ _Avoid_: raw `to_diagnostics()` dump, full prompt bodies, inlined 65k issue body
 Ahentic-operated Cloudflare Worker at `feedback.wpahentic.com` that mints site tokens and files reports into `gambitph/Ahentic` (`run-feedback` label).
 _Avoid_: plugin-embedded GitHub bot, site OAuth to GitHub
 
+**End-user docs site**:
+Public beginner Help at `docs.wpahentic.com` (Cloudflare Pages project `ahentic-docs`, source `docs-site/` in the free repo, Git deploy from `main`).
+_Avoid_: `docs/` agent/ADR tree, marketing site `/docs`, feedback intake Worker
+
 **Mint proof**:
 Shared HMAC formula (`MINT_KEY`) the Ahentic client and intake both compute on fresh opt-in; client attestation, not a captcha.
 _Avoid_: Turnstile token, API key, license key, site token
