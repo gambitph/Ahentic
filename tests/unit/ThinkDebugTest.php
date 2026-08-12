@@ -347,4 +347,53 @@ class ThinkDebugTest extends TestCase {
 		$this->assertTrue( Ahentic_Think_Debug::should_use_slim_debug_retry( 3 ) );
 		$this->assertFalse( Ahentic_Think_Debug::should_use_slim_debug_retry( 0 ) );
 	}
+
+	/**
+	 * Idle finish after a successful reply must not surface a request card queued
+	 * earlier for a phantom / recovered ability (e.g. set-option → update-option).
+	 */
+	public function test_capability_requests_for_finish_drops_on_successful_reply() {
+		$queued = array(
+			array(
+				'ability' => 'ahentic/set-option',
+				'goal'    => 'set the site timezone',
+			),
+		);
+		$this->assertSame(
+			array(),
+			Ahentic_Think_Debug::capability_requests_for_finish(
+				$queued,
+				array( 'next' => 'reply' )
+			)
+		);
+	}
+
+	/**
+	 * Real missing-ability finishes (next or soft ability_needed) keep the card.
+	 */
+	public function test_capability_requests_for_finish_keeps_when_still_missing() {
+		$queued = array(
+			array(
+				'ability' => 'ahentic/teleport-posts',
+				'goal'    => 'move posts',
+			),
+		);
+		$this->assertSame(
+			$queued,
+			Ahentic_Think_Debug::capability_requests_for_finish(
+				$queued,
+				array( 'next' => 'missing_ability' )
+			)
+		);
+		$this->assertSame(
+			$queued,
+			Ahentic_Think_Debug::capability_requests_for_finish(
+				$queued,
+				array(
+					'next'           => 'reply',
+					'ability_needed' => 'ahentic/teleport-posts',
+				)
+			)
+		);
+	}
 }

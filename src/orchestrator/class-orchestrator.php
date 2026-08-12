@@ -747,6 +747,9 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		/**
 		 * Normalize tools_planned to [ ['name'=>…, 'input'=>[]], … ].
 		 *
+		 * Remaps known phantom ability names (e.g. set-option → update-option) so
+		 * pack-gated writes are not misclassified as missing abilities.
+		 *
 		 * @param mixed $planned Raw from model.
 		 * @return array<int, array{name: string, input: array}>
 		 */
@@ -759,7 +762,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			foreach ( $planned as $item ) {
 				if ( is_string( $item ) && '' !== $item ) {
 					$out[] = array(
-						'name'  => $item,
+						'name'  => self::canonical_tool_ability_name( $item ),
 						'input' => array(),
 					);
 					continue;
@@ -778,6 +781,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				if ( '' === $name ) {
 					continue;
 				}
+				$name  = self::canonical_tool_ability_name( $name );
 				$input = array();
 				if ( isset( $item['input'] ) && is_array( $item['input'] ) ) {
 					$input = $item['input'];
@@ -801,6 +805,22 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			}
 
 			return $out;
+		}
+
+		/**
+		 * Map model-invented ability names to registered equivalents.
+		 *
+		 * @param string $name Raw ability name from tools_planned.
+		 * @return string
+		 */
+		private static function canonical_tool_ability_name( $name ) {
+			$name = (string) $name;
+			if ( 'ahentic/set-option' === strtolower( $name ) ) {
+				return class_exists( 'Ahentic_Abilities_Settings' )
+					? Ahentic_Abilities_Settings::UPDATE_OPTION
+					: 'ahentic/update-option';
+			}
+			return $name;
 		}
 
 		/**
@@ -1054,10 +1074,13 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 			);
 
 			$requests = Ahentic_Session_Repository::consume_capability_requests( $session_id );
-			if ( ! empty( $requests ) ) {
-				$meta['capability_requests'] = array_values( $requests );
+			$attach   = class_exists( 'Ahentic_Think_Debug' )
+				? Ahentic_Think_Debug::capability_requests_for_finish( $requests, $debug )
+				: array();
+			if ( ! empty( $attach ) ) {
+				$meta['capability_requests'] = $attach;
 				// Convenience: first request for simple UIs.
-				$meta['capability_request'] = $requests[0];
+				$meta['capability_request'] = $attach[0];
 			}
 
 			$actions = self::suggested_actions_for_session( $session_id );
@@ -1097,7 +1120,7 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 				'ask_user' === $next ? 'Run idle (waiting on user)' : 'Run idle (final reply)',
 				array(
 					'reason'                   => 'ask_user' === $next ? 'ask_user' : 'final_reply',
-					'capability_request_count' => count( $requests ),
+					'capability_request_count' => count( $attach ),
 					'action_count'             => count( $actions ),
 				)
 			);

@@ -4,7 +4,8 @@
  *
  * Deep module: run a think until a usable control block appears.
  * Primary interface: run_think(), apply_live_progress(), finalize_result_text(),
- * should_finish_without_tools(), publish_thought_process(), queue_missing_ability().
+ * should_finish_without_tools(), publish_thought_process(), queue_missing_ability(),
+ * capability_requests_for_finish().
  * The Orchestrator must call these — do not reimplement debug retry at call sites.
  */
 
@@ -18,11 +19,12 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 	 * Think/debug module: run a think until a usable control block appears.
 	 *
 	 * Primary interface: run_think(), apply_live_progress(), finalize_result_text(),
-	 * should_finish_without_tools(), publish_thought_process(), queue_missing_ability().
+	 * should_finish_without_tools(), publish_thought_process(), queue_missing_ability(),
+	 * capability_requests_for_finish().
 	 * Pure helpers (is_usable, signals_missing_ability, normalize_ability_name,
 	 * progress_label_from_debug, disposition_for_debug, classify_missing_ability_claim,
 	 * missing_ability_action, rewrite_debug_to_use_tools, finish_available_missing_without_plan,
-	 * resolve_thought_process_for_chat)
+	 * capability_requests_for_finish, resolve_thought_process_for_chat)
 	 * are part of the test surface; trace_debug / progress_label_from_debug are also
 	 * used from Orchestrator::run_llm_phase.
 	 */
@@ -341,6 +343,28 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				return true;
 			}
 			return false;
+		}
+
+		/**
+		 * Capability requests to attach on the idle assistant message.
+		 *
+		 * Mid-loop unavailable tools may queue a request before reconsider recovers
+		 * via another ability. Only surface the card when the finish still signals
+		 * a missing-ability gap, not after a successful reply.
+		 *
+		 * @param array $requests Queued capability request rows (already consumed).
+		 * @param mixed $debug    Finish debug block.
+		 * @return array<int, array>
+		 */
+		public static function capability_requests_for_finish( array $requests, $debug ) {
+			if ( empty( $requests ) ) {
+				return array();
+			}
+			$debug = is_array( $debug ) ? $debug : array();
+			if ( ! self::signals_missing_ability( $debug ) ) {
+				return array();
+			}
+			return array_values( $requests );
 		}
 
 		/**
