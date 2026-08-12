@@ -15,6 +15,7 @@ import {
 	DEFAULT_PLACEMENT,
 	MODES,
 	createTab,
+	defaultAgentTitle,
 	MIN_WIDTH,
 	MAX_WIDTH,
 	normalizePlacement,
@@ -33,14 +34,14 @@ import {
 
 /**
  * @typedef {Object} SidebarPersistedState
- * @property {boolean}                                                 open        Whether the sidebar is open.
- * @property {number}                                                  width       Docked sidebar width in pixels.
- * @property {string}                                                  theme       Theme id (e.g. dark).
- * @property {string}                                                  mode        Composer mode (agent|ask).
- * @property {string}                                                  placement   Dock / float placement.
- * @property {FloatingRect|null}                                       floatRect   Last floating geometry.
- * @property {Array<{ id: string, title: string, createdAt: number }>} tabs        Open tabs.
- * @property {string}                                                  activeTabId Active tab id.
+ * @property {boolean}                                                                      open        Whether the sidebar is open.
+ * @property {number}                                                                       width       Docked sidebar width in pixels.
+ * @property {string}                                                                       theme       Theme id (e.g. dark).
+ * @property {string}                                                                       mode        Composer mode (agent|ask).
+ * @property {string}                                                                       placement   Dock / float placement.
+ * @property {FloatingRect|null}                                                            floatRect   Last floating geometry.
+ * @property {Array<{ id: string, title: string, createdAt: number, autoTitle?: boolean }>} tabs        Open tabs.
+ * @property {string}                                                                       activeTabId Active tab id.
  */
 
 /**
@@ -104,11 +105,18 @@ export function loadPersistedState() {
 
 		const parsed = JSON.parse( raw )
 		const tabs = Array.isArray( parsed.tabs ) && parsed.tabs.length
-			? parsed.tabs.map( tab => ( {
-				id: String( tab.id ),
-				title: String( tab.title || 'New Agent' ),
-				createdAt: Number( tab.createdAt ) || Date.now(),
-			} ) )
+			? parsed.tabs.map( tab => {
+				const id = String( tab.id )
+				const autoTitle = typeof tab.autoTitle === 'boolean'
+					? tab.autoTitle
+					: ! /^\d+$/.test( id )
+				return {
+					id,
+					title: String( tab.title || defaultAgentTitle() ),
+					createdAt: Number( tab.createdAt ) || Date.now(),
+					autoTitle,
+				}
+			} )
 			: defaults.tabs
 
 		const activeTabId = tabs.some( tab => tab.id === parsed.activeTabId )

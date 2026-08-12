@@ -7,20 +7,20 @@ import { progressLabelForAbility } from './progress-label'
 
 /** Generic phase placeholders — prefer real debugger step summaries instead. */
 const GENERIC_PROGRESS_LABELS = new Set( [
-	'Planning next steps…',
-	'Reviewing results…',
-	'Starting…',
-	'Finishing…',
-	'Thinking…',
-	'Ahentic is thinking…',
+	__( 'Planning next steps…', 'ahentic' ),
+	__( 'Reviewing results…', 'ahentic' ),
+	__( 'Starting…', 'ahentic' ),
+	__( 'Finishing…', 'ahentic' ),
+	__( 'Thinking…', 'ahentic' ),
+	__( 'Ahentic is thinking…', 'ahentic' ),
 	// HITL wait label must not stick as live status after Allow/Skip.
-	'Waiting for your approval…',
+	__( 'Waiting for your approval…', 'ahentic' ),
 ] )
 
 /** Debugger-only llm_thinking summaries — never surface in the live-status row. */
 const HIDDEN_LIVE_STATUS_LABELS = new Set( [
-	'Model thinking',
-	'Thinking block not provided by model',
+	__( 'Model thinking', 'ahentic' ),
+	__( 'Thinking block not provided by model', 'ahentic' ),
 ] )
 
 /**
@@ -132,5 +132,5 @@ export function resolveLiveStatusLabel( progressLabel, trace, isBusy, pendingToo
 	) {
 		return label
 	}
-	return 'Planning next steps…'
+	return __( 'Planning next steps…', 'ahentic' )
 }

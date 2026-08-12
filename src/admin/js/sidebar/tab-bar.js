@@ -5,6 +5,7 @@
 import {
 	useEffect, useRef, useState,
 } from '@wordpress/element'
+import { __, sprintf } from '@wordpress/i18n'
 import classnames from 'classnames'
 import {
 	MessageSquare, Plus, MoreHorizontal, X,
@@ -51,7 +52,11 @@ export default function TabBar( {
 
 	return (
 		<div className="ahentic-tabbar">
-			<div className="ahentic-tabbar__scroll" role="tablist" aria-label="Agent conversations">
+			<div
+				className="ahentic-tabbar__scroll"
+				role="tablist"
+				aria-label={ __( 'Agent conversations', 'ahentic' ) }
+			>
 				{ tabs.map( tab => (
 					<div
 						key={ tab.id }
@@ -81,8 +86,12 @@ export default function TabBar( {
 						<button
 							type="button"
 							className="ahentic-tab__close"
-							aria-label={ `Close ${ tab.title }` }
-							title="Close tab"
+							aria-label={ sprintf(
+								/* translators: %s: tab title */
+								__( 'Close %s', 'ahentic' ),
+								tab.title
+							) }
+							title={ __( 'Close tab', 'ahentic' ) }
 							onClick={ event => {
 								event.stopPropagation()
 								onClose( tab.id )
@@ -99,8 +108,8 @@ export default function TabBar( {
 					type="button"
 					className="ahentic-icon-btn"
 					onClick={ onNew }
-					aria-label="New agent"
-					title="New agent"
+					aria-label={ __( 'New agent', 'ahentic' ) }
+					title={ __( 'New agent', 'ahentic' ) }
 				>
 					<Plus size={ 14 } strokeWidth={ 1.75 } />
 				</button>
@@ -110,9 +119,9 @@ export default function TabBar( {
 						type="button"
 						className="ahentic-icon-btn"
 						onClick={ () => setMenuOpen( value => ! value ) }
-						aria-label="Tab actions"
+						aria-label={ __( 'Tab actions', 'ahentic' ) }
 						aria-expanded={ menuOpen }
-						title="More"
+						title={ __( 'More', 'ahentic' ) }
 					>
 						<MoreHorizontal size={ 14 } strokeWidth={ 1.75 } />
 					</button>
@@ -129,7 +138,9 @@ export default function TabBar( {
 									onToggleDebug?.()
 								} }
 							>
-								{ debugOpen ? 'Hide debugger' : 'Debugger' }
+								{ debugOpen
+									? __( 'Hide debugger', 'ahentic' )
+									: __( 'Debugger', 'ahentic' ) }
 							</button>
 							<button
 								type="button"
@@ -140,7 +151,7 @@ export default function TabBar( {
 									onClearAll()
 								} }
 							>
-								Clear all
+								{ __( 'Clear all', 'ahentic' ) }
 							</button>
 						</div>
 					) }

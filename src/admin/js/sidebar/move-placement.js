@@ -4,6 +4,8 @@
 
 /* eslint-disable jsdoc/require-returns-description, jsdoc/check-line-alignment -- Compact helpers. */
 
+import { __ } from '@wordpress/i18n'
+
 /**
  * @param {Object} input Ability input.
  * @param {string[]} keys Candidate keys.
@@ -64,7 +66,7 @@ export function resolveMovePlacement( input = {}, deps ) {
 		return {
 			ok: false,
 			error: 'conflicting_relative_refs',
-			message: 'Provide before_ref or after_ref, not both.',
+			message: __( 'Provide before_ref or after_ref, not both.', 'ahentic' ),
 		}
 	}
 
@@ -72,7 +74,7 @@ export function resolveMovePlacement( input = {}, deps ) {
 		return {
 			ok: false,
 			error: 'mixed_move_targeting',
-			message: 'Use either index (with optional root_ref) or before_ref/after_ref — not both.',
+			message: __( 'Use either index (with optional root_ref) or before_ref/after_ref — not both.', 'ahentic' ),
 		}
 	}
 
@@ -80,7 +82,7 @@ export function resolveMovePlacement( input = {}, deps ) {
 		return {
 			ok: false,
 			error: 'mixed_move_targeting',
-			message: 'before_ref/after_ref imply the parent of the anchor; do not also pass root_ref.',
+			message: __( 'before_ref/after_ref imply the parent of the anchor; do not also pass root_ref.', 'ahentic' ),
 		}
 	}
 
@@ -88,7 +90,7 @@ export function resolveMovePlacement( input = {}, deps ) {
 		return {
 			ok: false,
 			error: 'missing_move_target',
-			message: 'Provide index, before_ref, or after_ref.',
+			message: __( 'Provide index, before_ref, or after_ref.', 'ahentic' ),
 		}
 	}
 
@@ -99,7 +101,7 @@ export function resolveMovePlacement( input = {}, deps ) {
 			return {
 				ok: false,
 				error: 'missing_refs',
-				message: 'One or more block refs were not found.',
+				message: __( 'One or more block refs were not found.', 'ahentic' ),
 				missing: [ token ],
 			}
 		}
@@ -131,7 +133,7 @@ export function resolveMovePlacement( input = {}, deps ) {
 				return {
 					ok: false,
 					error: 'missing_refs',
-					message: 'One or more block refs were not found.',
+					message: __( 'One or more block refs were not found.', 'ahentic' ),
 					missing: [ rootToken ],
 				}
 			}

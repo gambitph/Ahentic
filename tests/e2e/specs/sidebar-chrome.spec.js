@@ -68,6 +68,52 @@ test.describe( 'Sidebar chrome', () => {
 		expect( box.y + box.height ).toBeLessThanOrEqual( viewport.height + 1 )
 	} )
 
+	test( 'renders WordPress-i18n chrome labels in the live sidebar', async ( {
+		ahenticSidebar,
+		page,
+	} ) => {
+		const evidenceDir = process.env.NO_MISTAKES_EVIDENCE_DIR
+		await ahenticSidebar.openWithSession( {
+			mode: 'agent',
+			title: 'New Agent',
+		} )
+
+		await expect( ahenticSidebar.composer ).toBeVisible()
+		await expect( ahenticSidebar.composer ).toHaveAttribute( 'aria-label', 'Ask Ahentic' )
+		await expect(
+			ahenticSidebar.sidebar.getByPlaceholder( 'Plan, Build, / for skills, @ for context' )
+		).toBeVisible()
+		await expect( ahenticSidebar.sidebar.getByRole( 'button', { name: 'Select mode' } ) ).toContainText( 'Agent' )
+		await expect( ahenticSidebar.tabs.first() ).toContainText( 'New Agent' )
+		await expect( ahenticSidebar.sidebar.getByRole( 'button', { name: 'New agent', exact: true } ) ).toBeVisible()
+
+		if ( evidenceDir ) {
+			await ahenticSidebar.sidebar.screenshot( {
+				path: `${ evidenceDir }/sidebar-i18n-chrome-agent.png`,
+			} )
+		}
+
+		await ahenticSidebar.sidebar.getByRole( 'button', { name: 'Select mode' } ).click()
+		await expect( ahenticSidebar.sidebar.getByRole( 'option', { name: 'Agent' } ) ).toBeVisible()
+		await expect( ahenticSidebar.sidebar.getByRole( 'option', { name: 'Ask' } ) ).toBeVisible()
+
+		if ( evidenceDir ) {
+			await page.screenshot( {
+				path: `${ evidenceDir }/sidebar-i18n-chrome-mode-menu.png`,
+				fullPage: false,
+			} )
+		}
+
+		await ahenticSidebar.sidebar.getByRole( 'option', { name: 'Ask' } ).click()
+		await expect( ahenticSidebar.sidebar.getByRole( 'button', { name: 'Select mode' } ) ).toContainText( 'Ask' )
+
+		if ( evidenceDir ) {
+			await ahenticSidebar.sidebar.screenshot( {
+				path: `${ evidenceDir }/sidebar-i18n-chrome-ask.png`,
+			} )
+		}
+	} )
+
 	test( 'Ask mode can be selected in the composer UI', async ( {
 		ahenticSidebar,
 		requestUtils,

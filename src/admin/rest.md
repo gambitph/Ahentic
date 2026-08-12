@@ -31,7 +31,7 @@ Content-Type: application/json
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/sessions` | List current user’s sessions (`?limit=`) |
-| `POST` | `/sessions` | Create session `{ title?, mode?: "agent"\|"ask" }` |
+| `POST` | `/sessions` | Create session `{ title?, mode?: "agent"\|"ask" }` - omit `title` for server default + `autoTitle: true`; custom `title` sets `autoTitle: false` ([session.md](../session/session.md)) |
 
 ### Single session
 
@@ -120,7 +120,7 @@ Requires `status === awaiting_browser`. Mismatched `call_id` → `409`.
 
 | Field | Notes |
 | --- | --- |
-| `id`, `title`, `status`, `mode` | Core identity |
+| `id`, `title`, `autoTitle`, `status`, `mode` | Core identity; `autoTitle` semantics in [session.md](../session/session.md) |
 | `messages` | Recent entries (user/assistant/tool/event) |
 | `hasMore` | Older messages available |
 | `progress` | `{ label, updatedAt }` or null |

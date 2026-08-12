@@ -9,6 +9,10 @@ import {
 	MIN_WIDTH,
 	PLACEMENTS,
 	recoverFloatingRectOnOpen,
+	createTab,
+	createSessionTitleFromTab,
+	tabAllowsAutoTitle,
+	tabFromSession,
 } from './constants'
 
 const VIEW = {
@@ -110,5 +114,45 @@ describe( 'recoverFloatingRectOnOpen', () => {
 		)
 
 		expect( recovered.height ).toBe( 600 )
+	} )
+} )
+
+describe( 'autoTitle tab identity', () => {
+	it( 'marks new local tabs as auto-titled', () => {
+		const tab = createTab()
+		expect( tab.autoTitle ).toBe( true )
+		expect( createSessionTitleFromTab( tab ) ).toBeUndefined()
+	} )
+
+	it( 'sends a custom title only when autoTitle is false', () => {
+		expect( createSessionTitleFromTab( {
+			title: 'New Agent',
+			autoTitle: true,
+		} ) ).toBeUndefined()
+		expect( createSessionTitleFromTab( {
+			title: 'Launch checklist',
+			autoTitle: false,
+		} ) ).toBe( 'Launch checklist' )
+	} )
+
+	it( 'blocks client auto-rename when autoTitle is false', () => {
+		expect( tabAllowsAutoTitle( { autoTitle: true } ) ).toBe( true )
+		expect( tabAllowsAutoTitle( { autoTitle: false } ) ).toBe( false )
+		expect( tabAllowsAutoTitle( { title: 'Anything' } ) ).toBe( true )
+	} )
+
+	it( 'copies autoTitle from the session payload', () => {
+		expect( tabFromSession( {
+			id: 42,
+			title: 'Custom',
+			autoTitle: false,
+			status: 'idle',
+		} ).autoTitle ).toBe( false )
+		expect( tabFromSession( {
+			id: 43,
+			title: 'New Agent',
+			autoTitle: true,
+			status: 'idle',
+		} ).autoTitle ).toBe( true )
 	} )
 } )

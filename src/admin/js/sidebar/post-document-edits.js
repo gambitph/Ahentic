@@ -4,6 +4,8 @@
 
 /* eslint-disable jsdoc/require-returns-description -- Compact helpers. */
 
+import { __, sprintf } from '@wordpress/i18n'
+
 const ALLOWED_KEYS = [ 'title', 'excerpt', 'slug' ]
 
 /**
@@ -26,14 +28,22 @@ export function planPostDocumentEdits( input = {} ) {
 			return {
 				ok: false,
 				error: 'invalid_' + key,
-				message: key + ' cannot be null.',
+				message: sprintf(
+					/* translators: %s: field key */
+					__( '%s cannot be null.', 'ahentic' ),
+					key
+				),
 			}
 		}
 		if ( typeof raw !== 'string' ) {
 			return {
 				ok: false,
 				error: 'invalid_' + key,
-				message: key + ' must be a string.',
+				message: sprintf(
+					/* translators: %s: field key */
+					__( '%s must be a string.', 'ahentic' ),
+					key
+				),
 			}
 		}
 		if ( key === 'excerpt' ) {
@@ -45,7 +55,11 @@ export function planPostDocumentEdits( input = {} ) {
 			return {
 				ok: false,
 				error: 'invalid_' + key,
-				message: key + ' cannot be empty.',
+				message: sprintf(
+					/* translators: %s: field key */
+					__( '%s cannot be empty.', 'ahentic' ),
+					key
+				),
 			}
 		}
 		edits[ key ] = trimmed
@@ -55,7 +69,7 @@ export function planPostDocumentEdits( input = {} ) {
 		return {
 			ok: false,
 			error: 'missing_fields',
-			message: 'Provide at least one of: title, excerpt, slug.',
+			message: __( 'Provide at least one of: title, excerpt, slug.', 'ahentic' ),
 		}
 	}
 

@@ -9,7 +9,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element'
-import { __ } from '@wordpress/i18n'
+import { __, sprintf } from '@wordpress/i18n'
 import classnames from 'classnames'
 import Toolbar from './toolbar'
 import TabBar from './tab-bar'
@@ -23,6 +23,9 @@ import {
 	isFloatingPlacement,
 	getDefaultFloatingRect,
 	recoverFloatingRectOnOpen,
+	tabAllowsAutoTitle,
+	createSessionTitleFromTab,
+	tabFromSession,
 } from './constants'
 import {
 	loadPersistedState,
@@ -407,7 +410,8 @@ export default function Sidebar() {
 			return
 		}
 
-		const tabTitle = tabsRef.current.find( tab => tab.id === tabId )?.title || 'New Agent'
+		const tab = tabsRef.current.find( item => item.id === tabId )
+		const tabTitle = createSessionTitleFromTab( tab )
 
 		const run = ( async () => {
 			try {
@@ -431,18 +435,17 @@ export default function Sidebar() {
 				try {
 					const session = await createSession( {
 						mode,
-						title: tabTitle,
+						...( tabTitle ? { title: tabTitle } : {} ),
 					} )
 					const id = String( session.id )
-					setTabs( current => current.map( tab => (
-						tab.id === tabId
-							? {
-								id,
-								title: session.title || tab.title || 'New Agent',
-								createdAt: tab.createdAt || Date.now(),
-								status: session.status || 'idle',
-							}
-							: tab
+					setTabs( current => current.map( item => (
+						item.id === tabId
+							? tabFromSession( session, {
+								createdAt: item.createdAt || Date.now(),
+								title: item.title,
+								autoTitle: item.autoTitle,
+							} )
+							: item
 					) ) )
 					setActiveTabId( current => ( current === tabId ? id : current ) )
 					setSessionsById( sessions => remapSessionRecord(
@@ -504,9 +507,10 @@ export default function Sidebar() {
 				const previousId = tab.id
 				promotingTabsRef.current.add( previousId )
 				try {
+					const customTitle = createSessionTitleFromTab( tab )
 					const session = await createSession( {
 						mode,
-						title: tab.title && tab.title !== 'New Agent' ? tab.title : undefined,
+						...( customTitle ? { title: customTitle } : {} ),
 					} )
 					const id = String( session.id )
 					setTabs( current => {
@@ -515,12 +519,11 @@ export default function Sidebar() {
 						}
 						return current.map( item => (
 							item.id === previousId
-								? {
-									id,
-									title: session.title || item.title || 'New Agent',
+								? tabFromSession( session, {
 									createdAt: item.createdAt || Date.now(),
-									status: session.status || 'idle',
-								}
+									title: item.title,
+									autoTitle: item.autoTitle,
+								} )
 								: item
 						) )
 					} )
@@ -920,13 +923,8 @@ export default function Sidebar() {
 	const addTab = useCallback( async () => {
 		try {
 			const session = await createSession( { mode } )
-			const id = String( session.id )
-			const tab = {
-				id,
-				title: session.title || 'New Agent',
-				createdAt: Date.now(),
-				status: session.status || 'idle',
-			}
+			const tab = tabFromSession( session )
+			const id = tab.id
 			setTabs( current => [ ...current, tab ] )
 			setSessionsById( sessions => patchSessionRecord( sessions, id, {
 				messages: mapEntriesToMessages( session.messages ),
@@ -940,7 +938,7 @@ export default function Sidebar() {
 			openSidebar()
 		} catch ( error ) {
 			// eslint-disable-next-line no-alert
-			window.alert( error.message || 'Could not create a new session.' )
+			window.alert( error.message || __( 'Could not create a new session.', 'ahentic' ) )
 		}
 	}, [ mode, markHydrated, openSidebar ] )
 
@@ -959,12 +957,7 @@ export default function Sidebar() {
 				}
 				pendingLocalRef.current = {}
 				setHydratedVersion( version => version + 1 )
-				setTabs( [ {
-					id: nextId,
-					title: session.title || 'New Agent',
-					createdAt: Date.now(),
-					status: session.status || 'idle',
-				} ] )
+				setTabs( [ tabFromSession( session ) ] )
 				setActiveTabId( nextId )
 				setSessionsById( {
 					[ nextId ]: {
@@ -976,7 +969,7 @@ export default function Sidebar() {
 				} )
 			} catch ( error ) {
 				// eslint-disable-next-line no-alert
-				window.alert( error.message || 'Could not start a new session.' )
+				window.alert( error.message || __( 'Could not start a new session.', 'ahentic' ) )
 			}
 			return
 		}
@@ -1014,12 +1007,7 @@ export default function Sidebar() {
 			}
 			pendingLocalRef.current = {}
 			setHydratedVersion( version => version + 1 )
-			setTabs( [ {
-				id,
-				title: session.title || 'New Agent',
-				createdAt: Date.now(),
-				status: 'idle',
-			} ] )
+			setTabs( [ tabFromSession( session ) ] )
 			setActiveTabId( id )
 			setSessionsById( {
 				[ id ]: {
@@ -1031,7 +1019,7 @@ export default function Sidebar() {
 			} )
 		} catch ( error ) {
 			// eslint-disable-next-line no-alert
-			window.alert( error.message || 'Could not reset sessions.' )
+			window.alert( error.message || __( 'Could not reset sessions.', 'ahentic' ) )
 		}
 	}, [ mode ] )
 
@@ -1066,16 +1054,20 @@ export default function Sidebar() {
 
 		if ( ! isSessionId( sessionId ) ) {
 			try {
-				const session = await createSession( { mode } )
+				const priorTab = tabsRef.current.find( tab => tab.id === sessionId )
+				const customTitle = createSessionTitleFromTab( priorTab )
+				const session = await createSession( {
+					mode,
+					...( customTitle ? { title: customTitle } : {} ),
+				} )
 				sessionId = String( session.id )
 				setTabs( current => current.map( tab => (
 					tab.id === activeTabId
-						? {
-							id: sessionId,
-							title: session.title || tab.title,
+						? tabFromSession( session, {
 							createdAt: tab.createdAt,
-							status: 'idle',
-						}
+							title: tab.title,
+							autoTitle: tab.autoTitle,
+						} )
 						: tab
 				) ) )
 				setActiveTabId( sessionId )
@@ -1088,7 +1080,7 @@ export default function Sidebar() {
 						{
 							id: `err_${ Date.now() }`,
 							role: 'assistant',
-							content: error.message || 'Could not create a session.',
+							content: error.message || __( 'Could not create a session.', 'ahentic' ),
 						},
 					],
 				} ) ) )
@@ -1122,7 +1114,7 @@ export default function Sidebar() {
 			messages: [ ...record.messages, optimisticUser ],
 			status: 'running',
 			progress: {
-				label: 'Planning next steps…',
+				label: __( 'Planning next steps…', 'ahentic' ),
 				updatedAt: '',
 				heartbeatAt: '',
 				seenAt: Date.now(),
@@ -1136,7 +1128,7 @@ export default function Sidebar() {
 			if ( tab.id !== sessionId ) {
 				return tab
 			}
-			if ( tab.title && tab.title !== 'New Agent' ) {
+			if ( ! tabAllowsAutoTitle( tab ) ) {
 				return tab
 			}
 			return { ...tab, title: truncateTitle( text ) }
@@ -1417,8 +1409,12 @@ export default function Sidebar() {
 					type="button"
 					className="ahentic-launcher"
 					onClick={ openSidebar }
-					aria-label="Open Ahentic sidebar"
-					title={ `Open Ahentic (${ shortcutLabel })` }
+					aria-label={ __( 'Open Ahentic sidebar', 'ahentic' ) }
+					title={ sprintf(
+						/* translators: %s: keyboard shortcut */
+						__( 'Open Ahentic (%s)', 'ahentic' ),
+						shortcutLabel
+					) }
 				>
 					<AhenticLogo size={ 18 } />
 				</button>
@@ -1428,7 +1424,7 @@ export default function Sidebar() {
 				<button
 					type="button"
 					className="ahentic-backdrop"
-					aria-label="Close Ahentic sidebar"
+					aria-label={ __( 'Close Ahentic sidebar', 'ahentic' ) }
 					onClick={ closeSidebar }
 				/>
 			) }
@@ -1442,7 +1438,7 @@ export default function Sidebar() {
 					'is-placement-floating-small': ! isMobile && placement === PLACEMENTS.FLOATING_SMALL,
 				} ) }
 				style={ panelStyle }
-				aria-label="Ahentic AI sidebar"
+				aria-label={ __( 'Ahentic AI sidebar', 'ahentic' ) }
 				aria-hidden={ ! open }
 			>
 				{ ! isMobile && ! floating && (
@@ -1455,7 +1451,7 @@ export default function Sidebar() {
 						aria-valuemin={ MIN_WIDTH }
 						aria-valuemax={ MAX_WIDTH }
 						aria-valuenow={ width }
-						aria-label="Resize Ahentic sidebar"
+						aria-label={ __( 'Resize Ahentic sidebar', 'ahentic' ) }
 					/>
 				) }
 

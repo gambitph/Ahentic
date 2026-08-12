@@ -98,8 +98,10 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				return new WP_Error( 'ahentic_unauthenticated', __( 'You must be logged in.', 'ahentic' ), array( 'status' => 401 ) );
 			}
 
-			$mode  = ( isset( $args['mode'] ) && 'ask' === $args['mode'] ) ? 'ask' : 'agent';
-			$title = isset( $args['title'] ) ? sanitize_text_field( $args['title'] ) : __( 'New Agent', 'ahentic' );
+			$mode             = ( isset( $args['mode'] ) && 'ask' === $args['mode'] ) ? 'ask' : 'agent';
+			$custom_title     = isset( $args['title'] ) ? sanitize_text_field( (string) $args['title'] ) : '';
+			$has_custom_title = '' !== $custom_title;
+			$title            = $has_custom_title ? $custom_title : __( 'New Agent', 'ahentic' );
 
 			$post_id = wp_insert_post(
 				array(
@@ -125,7 +127,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			update_post_meta( $post_id, self::META_TOKENS_USED, 0 );
 			update_post_meta( $post_id, self::META_ENTRIES, wp_slash( wp_json_encode( array() ) ) );
 			update_post_meta( $post_id, self::META_TRACE, wp_slash( wp_json_encode( array() ) ) );
-			update_post_meta( $post_id, self::META_AUTO_TITLE, '1' );
+			update_post_meta( $post_id, self::META_AUTO_TITLE, $has_custom_title ? '0' : '1' );
 			update_post_meta( $post_id, self::META_SUMMARY_STATUS, '' );
 			update_post_meta( $post_id, self::META_HITL_SESSION, wp_slash( wp_json_encode( array() ) ) );
 
@@ -401,6 +403,7 @@ if ( ! class_exists( 'Ahentic_Session_Repository' ) ) {
 			$payload = array(
 				'id'           => (int) $session_id,
 				'title'        => $post->post_title,
+				'autoTitle'    => '1' === (string) get_post_meta( $session_id, self::META_AUTO_TITLE, true ),
 				'status'       => $status,
 				'mode'         => self::get_mode( $session_id ),
 				'excerpt'      => $post->post_excerpt,

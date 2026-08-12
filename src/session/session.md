@@ -60,7 +60,7 @@ Constants: `Ahentic_Session_Repository::STATUS_*`.
 | `_ahentic_hitl_session_allows` | Per-session HITL allow-list |
 | `_ahentic_capability_requests` | Missing-ability request queue |
 | `_ahentic_last_error` | Last error message |
-| `_ahentic_auto_title` | Whether title was auto-set from first message |
+| `_ahentic_auto_title` | Whether the title may still be auto-renamed (`1` / `0`). Starts `1` when create omits `title` (server default `New Agent`); starts `0` when create supplies a custom title. Cleared to `0` after `maybe_set_auto_title` runs. Exposed on REST as `autoTitle`. Do not infer this from the title string (locale / i18n). |
 | `_ahentic_content_work` | Long-form / article intent (budgets + verify) |
 | `_ahentic_active_goal` | Pinned user goal (skips resume-only chat lines) |
 | `_ahentic_job_resumable` | Continue can resume this job after error / honest partial — ritual owned by Job Resume (`begin_new_goal` / `begin_resume`) |
@@ -139,7 +139,10 @@ Large staged payloads (drafts, block trees) live in `_ahentic_artifacts`. Pointe
 
 CamelCase fields for the sidebar, including:
 
-`id`, `title`, `status`, `mode`, `messages`, `hasMore`, `trace`, `traceCount`, `progress`, `plan`, `pendingTool`, `artifacts`, `tokensIn` / `tokensOut` / `tokensUsed`, `contextUsage` (soft 200k budget fill + buckets), `stepCount`, `lastError`, `lastErrorCode`, `summaryStatus`, timestamps.
+`id`, `title`, `autoTitle`, `status`, `mode`, `messages`, `hasMore`, `trace`, `traceCount`, `progress`, `plan`, `pendingTool`, `artifacts`, `tokensIn` / `tokensOut` / `tokensUsed`, `contextUsage` (soft 200k budget fill + buckets), `stepCount`, `lastError`, `lastErrorCode`, `summaryStatus`, timestamps.
+
+`autoTitle` mirrors `_ahentic_auto_title`: `true` while the server (and sidebar chrome) may still replace the default title from the first message / control-block title.
+Sidebar tabs persist the same flag in `localStorage` and must not treat a literal `"New Agent"` string as the default-title signal.
 
 ### Context usage (`contextUsage`)
 

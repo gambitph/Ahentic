@@ -897,7 +897,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 				// Match the live status string so debugger + sidebar show the same step text.
 				$summary = self::progress_label_from_debug( $debug, '' );
 				if ( '' === $summary ) {
-					$summary = 'Model thinking';
+					$summary = __( 'Model thinking', 'ahentic' );
 				}
 
 				$data = array(
@@ -923,7 +923,7 @@ if ( ! class_exists( 'Ahentic_Think_Debug' ) ) {
 			Ahentic_Session_Repository::append_trace(
 				$session_id,
 				'llm_thinking',
-				'Thinking block not provided by model',
+				__( 'Thinking block not provided by model', 'ahentic' ),
 				array(
 					'intention'     => '',
 					'thinking'      => '',

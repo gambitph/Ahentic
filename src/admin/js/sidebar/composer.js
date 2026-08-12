@@ -66,7 +66,7 @@ export default function Composer( {
 	disabledHint = '',
 	connectorsUrl = '',
 	blockedCtaLabel = '',
-	placeholder = 'Plan, Build, / for skills, @ for context',
+	placeholder = __( 'Plan, Build, / for skills, @ for context', 'ahentic' ),
 	error = '',
 	errorCode = '',
 	settingsUrl = '',
@@ -170,7 +170,7 @@ export default function Composer( {
 					rows={ 1 }
 					value={ value }
 					placeholder={ placeholder }
-					aria-label="Ask Ahentic"
+					aria-label={ __( 'Ask Ahentic', 'ahentic' ) }
 					disabled={ typingLocked }
 					onChange={ event => {
 						setValue( event.target.value )
@@ -195,11 +195,11 @@ export default function Composer( {
 								onClick={ () => setModeOpen( open => ! open ) }
 								aria-haspopup="listbox"
 								aria-expanded={ modeOpen }
-								aria-label="Select mode"
-								title="Mode"
+								aria-label={ __( 'Select mode', 'ahentic' ) }
+								title={ __( 'Mode', 'ahentic' ) }
 								disabled={ typingLocked }
 							>
-								<span>{ mode === MODES.ASK ? 'Ask' : 'Agent' }</span>
+								<span>{ mode === MODES.ASK ? __( 'Ask', 'ahentic' ) : __( 'Agent', 'ahentic' ) }</span>
 								<ChevronDown size={ 12 } strokeWidth={ 2 } />
 							</button>
 							{ modeOpen && (
@@ -214,7 +214,7 @@ export default function Composer( {
 											setModeOpen( false )
 										} }
 									>
-										Agent
+										{ __( 'Agent', 'ahentic' ) }
 									</button>
 									<button
 										type="button"
@@ -226,7 +226,7 @@ export default function Composer( {
 											setModeOpen( false )
 										} }
 									>
-										Ask
+										{ __( 'Ask', 'ahentic' ) }
 									</button>
 								</div>
 							) }
@@ -238,8 +238,8 @@ export default function Composer( {
 						<button
 							type="button"
 							className="ahentic-icon-btn ahentic-composer__affordance--deferred"
-							aria-label="Attach file"
-							title="Attach"
+							aria-label={ __( 'Attach file', 'ahentic' ) }
+							title={ __( 'Attach', 'ahentic' ) }
 							disabled
 							hidden
 						>
@@ -248,8 +248,8 @@ export default function Composer( {
 						<button
 							type="button"
 							className="ahentic-icon-btn ahentic-composer__affordance--deferred"
-							aria-label="Voice input"
-							title="Voice"
+							aria-label={ __( 'Voice input', 'ahentic' ) }
+							title={ __( 'Voice', 'ahentic' ) }
 							disabled
 							hidden
 						>
@@ -298,7 +298,7 @@ export default function Composer( {
 				<span>
 					{ canStop
 						? __( 'Stop ends the current run so you can send again', 'ahentic' )
-						: 'Enter to send · Shift+Enter for newline' }
+						: __( 'Enter to send · Shift+Enter for newline', 'ahentic' ) }
 				</span>
 				<span aria-hidden="true">{ shortcutLabel }</span>
 			</div>
