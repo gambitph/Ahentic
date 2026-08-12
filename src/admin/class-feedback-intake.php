@@ -901,7 +901,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		 * Scrubbed conversation list for the report (all user + Ahentic turns).
 		 *
 		 * @param int $session_id Session ID.
-		 * @return string Numbered list, or empty when no chat turns exist.
+		 * @return string Markdown table, or empty when no chat turns exist.
 		 */
 		private static function conversation_excerpt( $session_id ) {
 			$entries = Ahentic_Session_Repository::get_entries( $session_id );
@@ -912,11 +912,12 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Format session entries into a scrubbed numbered conversation list.
+		 * Format session entries into a scrubbed markdown conversation table.
 		 *
-		 * Includes user prompts and Ahentic replies (skips tool/event and
-		 * thought-process / intermediate assistant rows). Long Ahentic replies
-		 * are summarized extractively. Prefer recent turns when over budget.
+		 * Columns: entity | prompt/reply. Includes user prompts and Ahentic
+		 * replies (skips tool/event and thought-process / intermediate assistant
+		 * rows). Long Ahentic replies are summarized extractively. Prefer recent
+		 * turns when over budget.
 		 *
 		 * @param array $entries Session entries from the repository.
 		 * @return string
@@ -948,8 +949,10 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				if ( '' === $content ) {
 					continue;
 				}
-				$label   = ( 'user' === $role ) ? 'User' : 'Ahentic';
-				$turns[] = $label . ': ' . $content;
+				$turns[] = array(
+					'entity'  => ( 'user' === $role ) ? 'User' : 'Ahentic',
+					'content' => $content,
+				);
 			}
 
 			if ( empty( $turns ) ) {
@@ -958,7 +961,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 
 			$selected = $turns;
 			while ( true ) {
-				$formatted = self::number_conversation_lines( $selected );
+				$formatted = self::table_conversation_turns( $selected );
 				if ( strlen( $formatted ) <= self::PROMPT_EXCERPT_MAX_LENGTH || count( $selected ) <= 1 ) {
 					if ( strlen( $formatted ) > self::PROMPT_EXCERPT_MAX_LENGTH ) {
 						return substr( $formatted, 0, self::PROMPT_EXCERPT_MAX_LENGTH );
@@ -970,19 +973,35 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Number conversation lines as a list.
+		 * Render conversation turns as a two-column markdown table.
 		 *
-		 * @param string[] $lines Labelled turns (e.g. "User: …").
+		 * @param array[] $turns Rows with entity + content keys.
 		 * @return string
 		 */
-		private static function number_conversation_lines( array $lines ) {
-			$out = array();
-			$n   = 1;
-			foreach ( $lines as $line ) {
-				$out[] = $n . '. ' . $line;
-				++$n;
+		private static function table_conversation_turns( array $turns ) {
+			$out   = array();
+			$out[] = '| entity | prompt/reply |';
+			$out[] = '| --- | --- |';
+			foreach ( $turns as $turn ) {
+				$entity  = self::escape_markdown_table_cell( (string) $turn['entity'] );
+				$content = self::escape_markdown_table_cell( (string) $turn['content'] );
+				$out[]   = '| ' . $entity . ' | ' . $content . ' |';
 			}
 			return implode( "\n", $out );
+		}
+
+		/**
+		 * Keep markdown table cells on one line without breaking column pipes.
+		 *
+		 * @param string $text Cell text (already scrubbed).
+		 * @return string
+		 */
+		private static function escape_markdown_table_cell( $text ) {
+			$text = preg_replace( '/\s+/u', ' ', trim( (string) $text ) );
+			if ( ! is_string( $text ) ) {
+				$text = '';
+			}
+			return str_replace( '|', '\\|', $text );
 		}
 
 		/**

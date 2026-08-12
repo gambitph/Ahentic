@@ -174,10 +174,35 @@ class FeedbackIntakeTest extends PHPUnit\Framework\TestCase {
 		);
 
 		$this->assertSame(
-			"1. User: Edit the homepage hero.\n"
-			. "2. Ahentic: Updated the hero copy.\n"
-			. "3. User: Also fix the CTA.\n"
-			. '4. Ahentic: Done — CTA now says Get started.',
+			"| entity | prompt/reply |\n"
+			. "| --- | --- |\n"
+			. "| User | Edit the homepage hero. |\n"
+			. "| Ahentic | Updated the hero copy. |\n"
+			. "| User | Also fix the CTA. |\n"
+			. '| Ahentic | Done — CTA now says Get started. |',
+			$out
+		);
+	}
+
+	public function test_format_conversation_excerpt_escapes_pipes_in_cells() {
+		$out = Ahentic_Feedback_Intake::format_conversation_excerpt(
+			array(
+				array(
+					'role'    => 'user',
+					'content' => 'Use A | B for the title',
+				),
+				array(
+					'role'    => 'assistant',
+					'content' => "Line one\nLine two",
+				),
+			)
+		);
+
+		$this->assertSame(
+			"| entity | prompt/reply |\n"
+			. "| --- | --- |\n"
+			. "| User | Use A \\| B for the title |\n"
+			. '| Ahentic | Line one Line two |',
 			$out
 		);
 	}
@@ -201,14 +226,20 @@ class FeedbackIntakeTest extends PHPUnit\Framework\TestCase {
 			)
 		);
 
-		$this->assertStringStartsWith( '1. User: Email [EMAIL] about [URL]', $out );
-		$this->assertStringContainsString( '2. Ahentic: First sentence answers the ask. Second sentence adds detail.…', $out );
+		$this->assertStringContainsString( '| User | Email [EMAIL] about [URL] |', $out );
+		$this->assertStringContainsString(
+			'| Ahentic | First sentence answers the ask. Second sentence adds detail.… |',
+			$out
+		);
 		$this->assertStringNotContainsString( 'admin@example.com', $out );
 		$this->assertStringNotContainsString( 'More filler about the site change.', $out );
-		$ahentic_line = substr( $out, strpos( $out, '2. Ahentic: ' ) + strlen( '2. Ahentic: ' ) );
+		$prefix       = '| Ahentic | ';
+		$ahentic_pos  = strpos( $out, $prefix );
+		$ahentic_cell = substr( $out, $ahentic_pos + strlen( $prefix ) );
+		$ahentic_cell = rtrim( $ahentic_cell, " |\n" );
 		$this->assertLessThanOrEqual(
 			Ahentic_Feedback_Intake::ASSISTANT_REPLY_SUMMARY_MAX + 1,
-			strlen( $ahentic_line )
+			strlen( $ahentic_cell )
 		);
 	}
 
@@ -230,7 +261,7 @@ class FeedbackIntakeTest extends PHPUnit\Framework\TestCase {
 					),
 				),
 			),
-			"1. User: Set timezone to Manila.\n2. Ahentic: Updated timezone.",
+			"| entity | prompt/reply |\n| --- | --- |\n| User | Set timezone to Manila. |\n| Ahentic | Updated timezone. |",
 			'Timezone change succeeded but it still asked for a missing ability'
 		);
 
