@@ -1,0 +1,19 @@
+{
+	"name": "ahentic-docs-site",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"description": "End-user docs for docs.wpahentic.com (Cloudflare Pages).",
+	"scripts": {
+		"build": "node build.mjs",
+		"test": "node build.mjs && node test-build.mjs"
+	},
+	"engines": {
+		"node": ">=18"
+	},
+	"devDependencies": {
+		"marked": "^15.0.12",
+		"sass": "^1.102.0",
+		"sprucecss": "^2.3.5"
+	}
+}
