@@ -113,7 +113,7 @@ Content routing: editor open for post P → browser; else server — [Content & 
 | --- | --- |
 | Open/closed, width, theme, mode, placement, open tab ids | Browser `localStorage` (`ahentic.sidebar.v1`) |
 | Messages, tool results, status, plan, pending tool, page context, artifacts, trace, token spend, contextUsage | `ahentic-session` CPT post meta |
-| Site knowledge | Option `ahentic_site_knowledge` — [PRD](../pro__premium_only/docs/prd/site-knowledge.md) |
+| Site knowledge | Option `ahentic_site_knowledge` — [PRD](../pro__premium_only/docs/prd/site-knowledge.md) · [stub](./prd/site-knowledge.md) · [ADR-0009](./adr/0009-site-knowledge-is-an-interpretive-brief.md) |
 
 ---
 

@@ -137,8 +137,8 @@ Temporary, non-interactive UI showing the model’s current thought process whil
 _Avoid_: durable assistant message, chain-of-thought log (as the product name)
 
 **Site knowledge**:
-The durable site profile and facts Ahentic builds (with consent) and injects as a brief into later runs.
-_Avoid_: memory (alone), embeddings store, RAG index
+The durable interpretive brief of this WordPress install (purpose, visitors, brand voice, conventions, constraints, confirmed notes) Ahentic builds with consent and injects into later runs.
+_Avoid_: memory (alone), embeddings store, RAG index, plugin/setup dump
 
 **Run feedback**:
 Yes/No chrome after an unsure idle run in the sidebar (not an Ability); Yes dismisses, No starts the draft/file path.
@@ -175,5 +175,5 @@ The Directory-safe interactive product: sidebar agent with human present, full A
 _Avoid_: lite, basic tier (as the technical name)
 
 **Premium**:
-Leverage on top of free: Agents, scale/bulk, snippet automation, unattended policies, knowledge edit UI — loaded from `pro__premium_only/`.
+Leverage on top of free: Agents, scale/bulk, snippet automation, unattended policies, site knowledge markdown edit UI — loaded from `pro__premium_only/`.
 _Avoid_: pro features sprinkled in free tree
