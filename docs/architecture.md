@@ -142,6 +142,7 @@ Content routing: editor open for post P → browser; else server — [Content & 
 | New server tool | [abilities CONTRACT](../src/abilities/CONTRACT.md) + [server-abilities.md](../src/abilities/server-abilities.md) |
 | New editor/browser tool | [client-abilities.md](../src/abilities/client-abilities.md) |
 | Change agent routing / caps | [orchestrator CONTRACT](../src/orchestrator/CONTRACT.md) · [Agent runtime PRD](../pro__premium_only/docs/prd/agent-runtime.md) |
+| User skills (`SKILL.md`, not shipped) | [Future: Skills](../pro__premium_only/docs/future-skills.md) |
 | Stage large content | [artifacts.md](../src/session/artifacts.md) |
 | New REST surface | [admin CONTRACT](../src/admin/CONTRACT.md) + sidebar `api.js` |
 | Local debugging | [development.md](./development.md) |
