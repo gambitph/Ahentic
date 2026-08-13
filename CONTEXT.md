@@ -80,6 +80,14 @@ _Avoid_: todo list (UI-only), outline, **Plan mode** (the session mode that prod
 A named WordPress Abilities API unit (schema + permission + execute) that the agent may call as a tool.
 _Avoid_: tool (as the registration unit), action, skill
 
+**Playbook**:
+A first-party WordPress operator recipe Ahentic ships, loaded via `ahentic/get-wordpress-guidance` and tied to Ahentic abilities.
+_Avoid_: skill, agent-skill, SOP, runbook
+
+**Skill**:
+*(Future / free v2–v3)* A user-owned Agent Skills `SKILL.md` instruction document the site admin imports or authors. Teaches how to do a class of work using existing abilities. Does not run code.
+_Avoid_: ability, playbook, tool, Cursor skill package (the folder with `scripts/`)
+
 **Ahentic-registered ability**:
 An ability Ahentic owns end-to-end: registered under `ahentic/…` or `ahentic-browser/…` and wired into Ahentic’s agent catalog (mode filters, HITL, browser flag, Tool runner).
 _Avoid_: first-party ability (vague), wrapped ability
