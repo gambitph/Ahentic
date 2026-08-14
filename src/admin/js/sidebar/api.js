@@ -287,10 +287,30 @@ export function refreshFeedbackSiteToken() {
 }
 
 /**
- * File a Run feedback report for a session via the PHP proxy.
+ * Draft title/summary/hypothesis for a session via the PHP AI path.
  *
  * @param {number|string} id
- * @param {Object}        [body] Optional title/summary/duplicate_of overrides.
+ * @param {Object}        [body] user_note, page_context, editor_snapshot, observations.
+ * @return {Promise<{ title: string, summary: string, hypothesis: string }>} Draft fields.
+ */
+export function draftRunFeedbackReport( id, body = {} ) {
+	return apiRequest( '/feedback/draft', {
+		method: 'POST',
+		body: JSON.stringify( {
+			/* eslint-disable-next-line camelcase -- session_id matches PHP REST args. */
+			session_id: Number( id ),
+			...body,
+		} ),
+	} )
+}
+
+/**
+ * File a Run feedback report for a session via the PHP proxy.
+ *
+ * Does not draft. Pass title/summary from draftRunFeedbackReport when available.
+ *
+ * @param {number|string} id
+ * @param {Object}        [body] title/summary/hypothesis/user_note/snapshot overrides.
  * @return {Promise<{ action: string, number: number, html_url: string }>} Intake result.
  */
 export function fileRunFeedbackReport( id, body = {} ) {

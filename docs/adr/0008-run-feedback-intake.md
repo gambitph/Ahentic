@@ -1,7 +1,8 @@
 # Run feedback files via Ahentic intake, not the site’s GitHub identity
 
 Typical admins will not connect GitHub (OAuth/PAT) or finish a prefilled `issues/new` flow.
-We draft an anonymized **Run feedback report** on-site (AI summary + decluttered **Run feedback debug pack**), search public `run-feedback` issues on the client, and POST to **Run feedback intake** at **`feedback.wpahentic.com`**.
+We draft an anonymized **Run feedback report** on-site from the sidebar (one LLM pass for title + summary + hypothesis, plus a decluttered **Run feedback debug pack**), search public `run-feedback` issues on the client, and POST to **Run feedback intake** at **`feedback.wpahentic.com`**.
+The file route (`POST /ahentic/v1/feedback/reports`) does not call a model; `POST /ahentic/v1/feedback/draft` is the think step.
 
 **Hosting (locked):** domain **`wpahentic.com`** via Cloudflare Registrar; intake is a **Cloudflare Worker**; code in a **separate private repo** (not the Premium plugin build).
 

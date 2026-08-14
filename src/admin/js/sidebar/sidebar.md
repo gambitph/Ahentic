@@ -38,7 +38,8 @@ Do not call AI vendors from the sidebar. Talk to WordPress REST (`ahentic/v1`) a
 | `block-ref-registry.js` | Opaque `b1` ↔ `clientId` map (tab memory) |
 | `page-context.js` / `visible-page.js` | Page identity / visible UI snapshots |
 | `hitl-approval-card.js` | Allow / Deny |
-| `run-feedback-bar.js` | Unsure-idle Yes/No → intake report |
+| `run-feedback-bar.js` | Unsure-idle Yes/No → draft then intake report |
+| `run-feedback-snapshot.js` | Live page / compact editor slice on No |
 | `plan-card.js` | Multi-step plan checklist |
 | `debugger-panel.js` | Trace / debug |
 

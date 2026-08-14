@@ -153,11 +153,11 @@ Yes/No chrome after an unsure idle run in the sidebar (not an Ability); Yes dism
 _Avoid_: bug report form (alone), thumbs, NPS, HITL Allow/Skip
 
 **Run feedback report**:
-Anonymized JSON posted to intake (title, summary, debug pack, versions) with no site URL or admin identity.
+Anonymized JSON posted to intake (title, summary, optional hypothesis, debug pack, versions) with no site URL or admin identity.
 _Avoid_: GitHub issue body (the filed artifact), support ticket
 
 **Run feedback debug pack**:
-Decluttered, scrubbed export derived from session diagnostics for remote debugging (stored Debugger trace is not rewritten). Filed via intake as a GitHub file attachment (capped), not pasted into the issue body.
+Decluttered, scrubbed export derived from session diagnostics plus the live page/editor snapshot for remote debugging (stored Debugger trace is not rewritten). Filed via intake as a GitHub file attachment (capped), not pasted into the issue body.
 _Avoid_: raw `to_diagnostics()` dump, full prompt bodies, inlined 65k issue body dump
 
 **Run feedback intake**:

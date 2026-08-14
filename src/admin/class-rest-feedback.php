@@ -67,34 +67,83 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 
 			register_rest_route(
 				'ahentic/v1',
+				'/feedback/draft',
+				array(
+					'methods'             => 'POST',
+					'callback'            => array( __CLASS__, 'post_draft' ),
+					'permission_callback' => array( __CLASS__, 'can_manage' ),
+					'args'                => array(
+						'session_id'      => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+						'user_note'       => array(
+							'required' => false,
+							'type'     => 'string',
+						),
+						'page_context'    => array(
+							'required' => false,
+							'type'     => 'object',
+						),
+						'editor_snapshot' => array(
+							'required' => false,
+							'type'     => 'object',
+						),
+						'observations'    => array(
+							'required' => false,
+							'type'     => 'array',
+						),
+					),
+				)
+			);
+
+			register_rest_route(
+				'ahentic/v1',
 				'/feedback/reports',
 				array(
 					'methods'             => 'POST',
 					'callback'            => array( __CLASS__, 'post_report' ),
 					'permission_callback' => array( __CLASS__, 'can_manage' ),
 					'args'                => array(
-						'session_id'     => array(
+						'session_id'      => array(
 							'required'          => true,
 							'type'              => 'integer',
 							'sanitize_callback' => 'absint',
 						),
-						'title'          => array(
+						'title'           => array(
 							'required' => false,
 							'type'     => 'string',
 						),
-						'summary'        => array(
+						'summary'         => array(
 							'required' => false,
 							'type'     => 'string',
 						),
-						'user_note'      => array(
+						'hypothesis'      => array(
 							'required' => false,
 							'type'     => 'string',
 						),
-						'prompt_excerpt' => array(
+						'user_note'       => array(
 							'required' => false,
 							'type'     => 'string',
 						),
-						'duplicate_of'   => array(
+						'prompt_excerpt'  => array(
+							'required' => false,
+							'type'     => 'string',
+						),
+						'page_context'    => array(
+							'required' => false,
+							'type'     => 'object',
+						),
+						'editor_snapshot' => array(
+							'required' => false,
+							'type'     => 'object',
+						),
+						'observations'    => array(
+							'required' => false,
+							'type'     => 'array',
+						),
+						'duplicate_of'    => array(
 							'required' => false,
 						),
 					),
@@ -139,6 +188,39 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 		}
 
 		/**
+		 * POST /feedback/draft — LLM title/summary/hypothesis. Does not file.
+		 *
+		 * @param \WP_REST_Request $request Request.
+		 * @return \WP_REST_Response|\WP_Error
+		 */
+		public static function post_draft( $request ) {
+			$session_id = (int) $request->get_param( 'session_id' );
+			$owned      = self::require_owned_session( $session_id );
+			if ( is_wp_error( $owned ) ) {
+				return $owned;
+			}
+
+			$args      = self::client_snapshot_args( $request );
+			$user_note = $request->get_param( 'user_note' );
+			if ( is_string( $user_note ) && '' !== trim( $user_note ) ) {
+				$args['user_note'] = $user_note;
+			}
+
+			$result = Ahentic_Feedback_Intake::draft_report( $session_id, $args );
+			if ( is_wp_error( $result ) ) {
+				return self::error_response( $result );
+			}
+
+			return rest_ensure_response(
+				array(
+					'title'      => isset( $result['title'] ) ? (string) $result['title'] : '',
+					'summary'    => isset( $result['summary'] ) ? (string) $result['summary'] : '',
+					'hypothesis' => isset( $result['hypothesis'] ) ? (string) $result['hypothesis'] : '',
+				)
+			);
+		}
+
+		/**
 		 * POST /feedback/reports
 		 *
 		 * @param \WP_REST_Request $request Request.
@@ -146,19 +228,12 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 		 */
 		public static function post_report( $request ) {
 			$session_id = (int) $request->get_param( 'session_id' );
-			$post       = Ahentic_Session_Repository::get_post( $session_id );
-			if ( is_wp_error( $post ) ) {
-				return $post;
-			}
-			if ( ! Ahentic_Session_Repository::current_user_owns( $session_id ) ) {
-				return new WP_Error(
-					'ahentic_forbidden',
-					__( 'You cannot access this session.', 'ahentic' ),
-					array( 'status' => 403 )
-				);
+			$owned      = self::require_owned_session( $session_id );
+			if ( is_wp_error( $owned ) ) {
+				return $owned;
 			}
 
-			$args  = array();
+			$args  = self::client_snapshot_args( $request );
 			$title = $request->get_param( 'title' );
 			if ( is_string( $title ) && '' !== trim( $title ) ) {
 				$args['title'] = $title;
@@ -166,6 +241,10 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 			$summary = $request->get_param( 'summary' );
 			if ( is_string( $summary ) && '' !== trim( $summary ) ) {
 				$args['summary'] = $summary;
+			}
+			$hypothesis = $request->get_param( 'hypothesis' );
+			if ( is_string( $hypothesis ) && '' !== trim( $hypothesis ) ) {
+				$args['hypothesis'] = $hypothesis;
 			}
 			$user_note = $request->get_param( 'user_note' );
 			if ( is_string( $user_note ) && '' !== trim( $user_note ) ) {
@@ -192,6 +271,50 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 					'html_url' => isset( $result['html_url'] ) ? $result['html_url'] : '',
 				)
 			);
+		}
+
+		/**
+		 * Require the current user owns this session.
+		 *
+		 * @param int $session_id Session ID.
+		 * @return true|\WP_Error
+		 */
+		private static function require_owned_session( $session_id ) {
+			$post = Ahentic_Session_Repository::get_post( $session_id );
+			if ( is_wp_error( $post ) ) {
+				return $post;
+			}
+			if ( ! Ahentic_Session_Repository::current_user_owns( $session_id ) ) {
+				return new WP_Error(
+					'ahentic_forbidden',
+					__( 'You cannot access this session.', 'ahentic' ),
+					array( 'status' => 403 )
+				);
+			}
+			return true;
+		}
+
+		/**
+		 * Page / editor snapshot args from a REST request.
+		 *
+		 * @param \WP_REST_Request $request Request.
+		 * @return array
+		 */
+		private static function client_snapshot_args( $request ) {
+			$args = array();
+			$page = $request->get_param( 'page_context' );
+			if ( is_array( $page ) ) {
+				$args['page_context'] = $page;
+			}
+			$snap = $request->get_param( 'editor_snapshot' );
+			if ( is_array( $snap ) ) {
+				$args['editor_snapshot'] = $snap;
+			}
+			$obs = $request->get_param( 'observations' );
+			if ( is_array( $obs ) ) {
+				$args['observations'] = $obs;
+			}
+			return $args;
 		}
 
 		/**

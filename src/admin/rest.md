@@ -4,7 +4,7 @@ Session and run-control endpoints used by the sidebar. All routes require a logg
 
 > **Contract:** [CONTRACT.md](./CONTRACT.md) · **Sidebar should:** [Sidebar PRD](../../pro__premium_only/docs/prd/sidebar.md)
 
-**Code:** `class-rest-sessions.php`, `class-rest.php`  
+**Code:** `class-rest-sessions.php`, `class-rest.php`, `class-rest-feedback.php`  
 **Client:** `src/admin/js/sidebar/api.js`  
 **Localized:** `window.ahentic.restUrl` + `window.ahentic.restNonce` (from `Ahentic_Script_Loader`)
 
@@ -201,7 +201,8 @@ Fresh mint uses a **mint proof** (shared HMAC formula); no Turnstile site key in
 | `GET` | `/feedback` | Status: `consented`, `hasToken`, `expiresAt`, `intakeBase` |
 | `POST` | `/feedback/site-tokens` | Fresh mint with mint proof → stores token; returns status |
 | `POST` | `/feedback/site-tokens/refresh` | Silent refresh (no mint proof) |
-| `POST` | `/feedback/reports` | `{ session_id, title?, summary?, duplicate_of? }` → debug pack + AI summary → intake |
+| `POST` | `/feedback/draft` | `{ session_id, user_note?, page_context?, editor_snapshot?, observations? }` → `{ title, summary, hypothesis }` (LLM; does not file) |
+| `POST` | `/feedback/reports` | `{ session_id, title?, summary?, hypothesis?, user_note?, page_context?, editor_snapshot?, observations?, duplicate_of? }` → debug pack → intake (no LLM) |
 
 Intake may return `429` / `rate_limited` (including **1 new issue per client IP per minute**). Clients should surface that and prefer `duplicate_of` when search finds a match.
 

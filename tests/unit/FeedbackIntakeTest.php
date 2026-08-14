@@ -293,4 +293,124 @@ class FeedbackIntakeTest extends PHPUnit\Framework\TestCase {
 		$this->assertStringContainsString( '[EMAIL]', $prompts['user'] );
 		$this->assertStringNotContainsString( 'me@example.com', $prompts['user'] );
 	}
+
+	public function test_build_draft_summary_prompts_include_page_blocks_and_hypothesis() {
+		$prompts = Ahentic_Feedback_Intake::build_draft_summary_prompts(
+			array(
+				'session' => array( 'status' => 'idle' ),
+				'state'   => array(),
+				'trace'   => array(),
+			),
+			"| entity | prompt/reply |\n| --- | --- |\n| User | Change the hero heading. |",
+			'Heading never changed',
+			array(
+				'page_context'    => array(
+					'pathname'        => '/wp-admin/post.php',
+					'url'             => 'https://should-not-leak.example/wp-admin/post.php',
+					'is_block_editor' => true,
+					'post_type'       => 'page',
+					'blocks_count'    => 4,
+					'is_dirty'        => true,
+				),
+				'editor_snapshot' => array(
+					'available' => true,
+					'blocks'    => array(
+						'count' => 1,
+						'blocks' => array(
+							array(
+								'name'    => 'core/heading',
+								'preview' => 'Welcome ping me@example.com',
+							),
+						),
+					),
+				),
+				'observations'    => array(
+					array(
+						'code'   => 'block_editor_open',
+						'detail' => 'post_type=page blocks_count=4 dirty',
+					),
+				),
+			)
+		);
+
+		$this->assertStringContainsString( '"hypothesis"', $prompts['system'] );
+		$this->assertStringContainsString( 'unconfirmed', $prompts['system'] );
+		$this->assertStringContainsString( '/wp-admin/post.php', $prompts['user'] );
+		$this->assertStringContainsString( 'core/heading', $prompts['user'] );
+		$this->assertStringContainsString( 'block_editor_open', $prompts['user'] );
+		$this->assertStringNotContainsString( 'should-not-leak.example', $prompts['user'] );
+		$this->assertStringNotContainsString( 'me@example.com', $prompts['user'] );
+		$this->assertStringContainsString( '[EMAIL]', $prompts['user'] );
+	}
+
+	public function test_decode_draft_payload_reads_hypothesis() {
+		$parsed = Ahentic_Feedback_Intake::decode_draft_payload(
+			'{"title":"Wrong page edited","summary":"User asked to change the hero.","hypothesis":"set-blocks targeted a different document."}'
+		);
+		$this->assertSame( 'Wrong page edited', $parsed['title'] );
+		$this->assertSame( 'User asked to change the hero.', $parsed['summary'] );
+		$this->assertSame( 'set-blocks targeted a different document.', $parsed['hypothesis'] );
+	}
+
+	public function test_decode_draft_payload_hypothesis_optional() {
+		$parsed = Ahentic_Feedback_Intake::decode_draft_payload(
+			'{"title":"Unsure Ahentic run","summary":"The run finished idle."}'
+		);
+		$this->assertSame( 'Unsure Ahentic run', $parsed['title'] );
+		$this->assertSame( '', $parsed['hypothesis'] );
+	}
+
+	public function test_append_hypothesis_to_summary_labels_unconfirmed() {
+		$out = Ahentic_Feedback_Intake::append_hypothesis_to_summary(
+			'User wanted a hero change.',
+			'Agent wrote via update-post while the block editor was open.'
+		);
+		$this->assertSame(
+			"User wanted a hero change.\n\nHypothesis (unconfirmed): Agent wrote via update-post while the block editor was open.",
+			$out
+		);
+	}
+
+	public function test_build_debug_pack_includes_page_snapshot_and_hypothesis() {
+		$pack = Ahentic_Feedback_Intake::build_debug_pack(
+			array(
+				'exportedAt'      => '2026-01-01T00:00:00+00:00',
+				'environment'     => array( 'plugin' => '0.1.0' ),
+				'session'         => array( 'status' => 'idle' ),
+				'state'           => array(),
+				'trace'           => array(),
+				'page'            => array(
+					'pathname'        => '/wp-admin/post.php',
+					'url'             => 'https://should-not-leak.example/wp-admin/post.php',
+					'is_block_editor' => true,
+					'post_type'       => 'page',
+				),
+				'editor_snapshot' => array(
+					'available' => true,
+					'blocks'    => array(
+						'blocks' => array(
+							array(
+								'name'    => 'core/heading',
+								'preview' => 'Hello me@example.com',
+							),
+						),
+					),
+				),
+				'observations'    => array(
+					array(
+						'code'   => 'block_editor_open',
+						'detail' => 'post_type=page',
+					),
+				),
+				'hypothesis'      => 'Wrote the wrong heading.',
+			)
+		);
+
+		$this->assertStringContainsString( '/wp-admin/post.php', $pack );
+		$this->assertStringContainsString( 'core/heading', $pack );
+		$this->assertStringContainsString( 'Wrote the wrong heading.', $pack );
+		$this->assertStringContainsString( 'block_editor_open', $pack );
+		$this->assertStringNotContainsString( 'should-not-leak.example', $pack );
+		$this->assertStringNotContainsString( 'me@example.com', $pack );
+	}
 }

@@ -74,13 +74,6 @@ test.describe( 'Run feedback intake proxy (REST)', () => {
 		expect( minted ).not.toHaveProperty( 'site_token' )
 		expect( minted ).not.toHaveProperty( 'turnstileSiteKey' )
 
-		await seedAiResponses( requestUtils, [
-			JSON.stringify( {
-				title: 'E2E unsure run',
-				summary: 'The run failed while gathering posts for the article.',
-			} ),
-		] )
-
 		const filed = await requestUtils.rest( {
 			path: '/ahentic/v1/feedback/reports',
 			method: 'POST',
@@ -94,6 +87,64 @@ test.describe( 'Run feedback intake proxy (REST)', () => {
 			action: 'created',
 			number: 4242,
 			html_url: expect.stringContaining( 'github.com/gambitph/Ahentic/issues/4242' ),
+		} )
+	} )
+
+	test( 'POST /feedback/draft returns title summary and hypothesis', async ( {
+		requestUtils,
+	} ) => {
+		const { sessionId } = await startRun( requestUtils, {
+			aiReplies: [
+				mockUseTools(
+					'Looking at recent posts…',
+					[ { name: 'ahentic/get-site-snapshot', input: {} } ],
+					{ plan: ARTICLE_PLAN }
+				),
+				mockAiError(),
+			],
+			content: 'write a long article based on my previous posts',
+		} )
+
+		await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'idle' && Boolean( s.jobResumable )
+		)
+
+		await seedAiResponses( requestUtils, [
+			JSON.stringify( {
+				title: 'E2E drafted run',
+				summary: 'The run failed while gathering posts for the article.',
+				hypothesis: 'get-site-snapshot succeeded but the follow-up write never ran.',
+			} ),
+		] )
+
+		const drafted = await requestUtils.rest( {
+			path: '/ahentic/v1/feedback/draft',
+			method: 'POST',
+			data: {
+				session_id: Number( sessionId ),
+				user_note: 'It edited the wrong page.',
+				page_context: {
+					pathname: '/wp-admin/post.php',
+					is_block_editor: true,
+					post_type: 'page',
+					blocks_count: 3,
+					is_dirty: true,
+				},
+				observations: [
+					{
+						code: 'block_editor_open',
+						detail: 'post_type=page blocks_count=3 dirty',
+					},
+				],
+			},
+		} )
+
+		expect( drafted ).toMatchObject( {
+			title: 'E2E drafted run',
+			summary: 'The run failed while gathering posts for the article.',
+			hypothesis: 'get-site-snapshot succeeded but the follow-up write never ran.',
 		} )
 	} )
 } )

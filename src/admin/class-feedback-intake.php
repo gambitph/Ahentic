@@ -60,6 +60,20 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		const USER_NOTE_MAX_LENGTH = 1000;
 
 		/**
+		 * Max length for an unconfirmed hypothesis on a draft / report.
+		 *
+		 * @var int
+		 */
+		const HYPOTHESIS_MAX_LENGTH = 1200;
+
+		/**
+		 * Max JSON chars of editor snapshot injected into the draft prompt.
+		 *
+		 * @var int
+		 */
+		const EDITOR_SNAPSHOT_PROMPT_MAX = 4000;
+
+		/**
 		 * Max length for the anonymized conversation list posted as prompt_excerpt.
 		 *
 		 * @var int
@@ -451,6 +465,32 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				'events'      => $events,
 			);
 
+			$page = isset( $diagnostics['page'] ) && is_array( $diagnostics['page'] )
+				? self::slim_page_context_for_feedback( $diagnostics['page'] )
+				: array();
+			if ( ! empty( $page ) ) {
+				$pack['page'] = $page;
+			}
+
+			$snap = isset( $diagnostics['editor_snapshot'] ) && is_array( $diagnostics['editor_snapshot'] )
+				? self::scrub_assoc( $diagnostics['editor_snapshot'] )
+				: array();
+			if ( ! empty( $snap ) ) {
+				$pack['editor_snapshot'] = $snap;
+			}
+
+			$observations = isset( $diagnostics['observations'] ) && is_array( $diagnostics['observations'] )
+				? self::scrub_assoc( $diagnostics['observations'] )
+				: array();
+			if ( ! empty( $observations ) ) {
+				$pack['observations'] = $observations;
+			}
+
+			$hypothesis = isset( $diagnostics['hypothesis'] ) ? self::scrub_text( (string) $diagnostics['hypothesis'] ) : '';
+			if ( '' !== $hypothesis ) {
+				$pack['hypothesis'] = substr( $hypothesis, 0, self::HYPOTHESIS_MAX_LENGTH );
+			}
+
 			if ( function_exists( 'wp_json_encode' ) ) {
 				$json = wp_json_encode( $pack, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 			} else {
@@ -584,6 +624,40 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
+		 * Page identity safe to file (no site URL or document title).
+		 *
+		 * @param array $ctx Raw page context from the sidebar or session.
+		 * @return array Slim, scrubbed fields.
+		 */
+		public static function slim_page_context_for_feedback( $ctx ) {
+			if ( ! is_array( $ctx ) ) {
+				return array();
+			}
+
+			$out = array();
+			foreach ( array( 'isAdmin', 'is_block_editor', 'is_dirty', 'is_new' ) as $key ) {
+				if ( array_key_exists( $key, $ctx ) ) {
+					$out[ $key ] = ! empty( $ctx[ $key ] );
+				}
+			}
+			foreach ( array( 'pathname', 'search', 'post_type', 'editor_title', 'status' ) as $key ) {
+				if ( isset( $ctx[ $key ] ) && ( is_string( $ctx[ $key ] ) || is_numeric( $ctx[ $key ] ) ) ) {
+					$out[ $key ] = self::scrub_text( (string) $ctx[ $key ] );
+				}
+			}
+			if ( array_key_exists( 'post_id', $ctx ) ) {
+				$out['post_id'] = ( null === $ctx['post_id'] || '' === $ctx['post_id'] )
+					? null
+					: (int) $ctx['post_id'];
+			}
+			if ( isset( $ctx['blocks_count'] ) ) {
+				$out['blocks_count'] = max( 0, (int) $ctx['blocks_count'] );
+			}
+
+			return $out;
+		}
+
+		/**
 		 * Append an optional user note to an AI (or override) summary.
 		 *
 		 * @param string $summary   Existing summary.
@@ -615,14 +689,61 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
+		 * Append an unconfirmed hypothesis after the summary (and user note).
+		 *
+		 * @param string $summary    Existing summary.
+		 * @param string $hypothesis Draft hypothesis (may be empty).
+		 * @return string Summary, possibly with a labeled hypothesis block.
+		 */
+		public static function append_hypothesis_to_summary( $summary, $hypothesis ) {
+			$summary    = (string) $summary;
+			$hypothesis = (string) $hypothesis;
+			if ( function_exists( 'wp_strip_all_tags' ) ) {
+				$hypothesis = wp_strip_all_tags( $hypothesis );
+			} else {
+				$hypothesis = strip_tags( $hypothesis );
+			}
+			$hypothesis = trim( $hypothesis );
+			if ( '' === $hypothesis ) {
+				return $summary;
+			}
+			$hypothesis = self::scrub_text( $hypothesis );
+			$hypothesis = substr( $hypothesis, 0, self::HYPOTHESIS_MAX_LENGTH );
+			if ( '' === $hypothesis ) {
+				return $summary;
+			}
+			$block = 'Hypothesis (unconfirmed): ' . $hypothesis;
+			if ( '' === trim( $summary ) ) {
+				return $block;
+			}
+			return rtrim( $summary ) . "\n\n" . $block;
+		}
+
+		/**
+		 * Static title/summary when the client did not draft (no LLM on file).
+		 *
+		 * @return array{title:string,summary:string,hypothesis:string}
+		 */
+		public static function fallback_draft_fields() {
+			return array(
+				'title'      => __( 'Unsure Ahentic run', 'ahentic' ),
+				'summary'    => __( 'The reporter was not satisfied with this run. See the debug pack and conversation.', 'ahentic' ),
+				'hypothesis' => '',
+			);
+		}
+
+		/**
 		 * Draft AI summary for a report. Fails visibly when AI is unavailable.
 		 *
-		 * @param array  $diagnostics    Diagnostics bundle.
-		 * @param string $prompt_excerpt Anonymized conversation list (user + Ahentic turns).
-		 * @param string $user_note      Optional admin note (highest signal for what went wrong).
-		 * @return array|\WP_Error { title, summary } or error.
+		 * Called from the draft REST route (sidebar), not from file_report.
+		 *
+		 * @param array  $diagnostics     Diagnostics bundle.
+		 * @param string $prompt_excerpt  Anonymized conversation list (user + Ahentic turns).
+		 * @param string $user_note       Optional admin note (highest signal for what went wrong).
+		 * @param array  $client_context  Live page / editor snapshot / observations.
+		 * @return array|\WP_Error { title, summary, hypothesis } or error.
 		 */
-		public static function draft_summary( array $diagnostics, $prompt_excerpt = '', $user_note = '' ) {
+		public static function draft_summary( array $diagnostics, $prompt_excerpt = '', $user_note = '', array $client_context = array() ) {
 			if ( ! class_exists( 'Ahentic_AI' ) ) {
 				return new WP_Error(
 					'ahentic_feedback_ai_unavailable',
@@ -631,7 +752,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				);
 			}
 
-			$prompts = self::build_draft_summary_prompts( $diagnostics, $prompt_excerpt, $user_note );
+			$prompts = self::build_draft_summary_prompts( $diagnostics, $prompt_excerpt, $user_note, $client_context );
 			$result  = Ahentic_AI::complete_chat( $prompts['system'], array(), $prompts['user'] );
 			if ( is_wp_error( $result ) ) {
 				return new WP_Error(
@@ -648,17 +769,18 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				$text = $result;
 			}
 
-			$parsed = self::parse_summary_json( $text );
+			$parsed = self::decode_draft_payload( $text );
 			if ( is_wp_error( $parsed ) ) {
 				// Soft fallback when the model returns prose — still fail if empty.
 				$title   = __( 'Unsure Ahentic run', 'ahentic' );
-				$summary = trim( self::scrub_text( wp_strip_all_tags( $text ) ) );
+				$summary = trim( self::scrub_text( function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $text ) : strip_tags( $text ) ) );
 				if ( '' === $summary ) {
 					return $parsed;
 				}
 				return array(
-					'title'   => $title,
-					'summary' => substr( $summary, 0, 4000 ),
+					'title'      => $title,
+					'summary'    => substr( $summary, 0, 4000 ),
+					'hypothesis' => '',
 				);
 			}
 
@@ -666,14 +788,15 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Build system + user prompts for Run feedback title/summary drafting.
+		 * Build system + user prompts for Run feedback title/summary/hypothesis drafting.
 		 *
-		 * @param array  $diagnostics    Diagnostics bundle.
-		 * @param string $prompt_excerpt Anonymized conversation list.
-		 * @param string $user_note      Optional admin note.
+		 * @param array  $diagnostics     Diagnostics bundle.
+		 * @param string $prompt_excerpt  Anonymized conversation list.
+		 * @param string $user_note       Optional admin note.
+		 * @param array  $client_context  Live page / editor snapshot / observations.
 		 * @return array{system:string,user:string}
 		 */
-		public static function build_draft_summary_prompts( array $diagnostics, $prompt_excerpt = '', $user_note = '' ) {
+		public static function build_draft_summary_prompts( array $diagnostics, $prompt_excerpt = '', $user_note = '', array $client_context = array() ) {
 			$state      = isset( $diagnostics['state'] ) && is_array( $diagnostics['state'] ) ? $diagnostics['state'] : array();
 			$session    = isset( $diagnostics['session'] ) && is_array( $diagnostics['session'] ) ? $diagnostics['session'] : array();
 			$last_error = isset( $session['lastError'] ) ? (string) $session['lastError'] : '';
@@ -698,10 +821,12 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				. 'Title: ≤80 chars; name the general bug class (e.g. false missing-ability notice after success), not a one-off scenario, country, or quoted goal text. '
 				. 'Avoid titles that only restate idle/no result/status. '
 				. 'Summary: ≤600 chars; 1–3 sentences covering intent, expected vs actual, and the misleading behavior if any. '
+				. 'Hypothesis: ≤400 chars; one unconfirmed guess from live page, editor snapshot, and observations. '
+				. 'Do not put the hypothesis into the title (titles are used for duplicate search). '
 				. 'No site URLs, emails, or personal names. Reply with JSON only: '
-				. '{"title":"…","summary":"…"}';
+				. '{"title":"…","summary":"…","hypothesis":"…"}';
 
-			$user  = "Draft a Run feedback report title and summary.\n";
+			$user  = "Draft a Run feedback report title, summary, and hypothesis.\n";
 			$user .= 'User note (highest signal when present): ' . ( '' !== $note ? $note : '(none)' ) . "\n";
 			$user .= 'Conversation:\n' . self::scrub_text( (string) $prompt_excerpt ) . "\n";
 			$user .= 'Active goal (may be partial/stale): ' . self::scrub_text( $goal ) . "\n";
@@ -710,6 +835,11 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			$user .= 'Session status (context only, not the bug): ' . ( isset( $session['status'] ) ? $session['status'] : '' ) . "\n";
 			$user .= 'Job resumable (context only): ' . ( ! empty( $state['jobResumable'] ) ? 'yes' : 'no' ) . "\n";
 
+			$ctx_note = self::format_client_context_for_prompt( $client_context );
+			if ( '' !== $ctx_note ) {
+				$user .= $ctx_note . "\n";
+			}
+
 			return array(
 				'system' => $system,
 				'user'   => $user,
@@ -717,19 +847,97 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Parse model JSON into title + summary.
+		 * Format live page / editor / observation signals for the draft prompt.
+		 *
+		 * @param array $client_context Client snapshot.
+		 * @return string
+		 */
+		public static function format_client_context_for_prompt( array $client_context ) {
+			$lines = array();
+
+			$page = isset( $client_context['page_context'] ) && is_array( $client_context['page_context'] )
+				? self::slim_page_context_for_feedback( $client_context['page_context'] )
+				: array();
+			if ( ! empty( $page ) ) {
+				$lines[] = 'Live page: ' . self::json_encode_capped( $page, 800 );
+			}
+
+			$session_page = isset( $client_context['session_page_context'] ) && is_array( $client_context['session_page_context'] )
+				? self::slim_page_context_for_feedback( $client_context['session_page_context'] )
+				: array();
+			if ( ! empty( $session_page ) ) {
+				$lines[] = 'Session page (agent routing): ' . self::json_encode_capped( $session_page, 800 );
+			}
+
+			$observations = isset( $client_context['observations'] ) && is_array( $client_context['observations'] )
+				? $client_context['observations']
+				: array();
+			$bits         = array();
+			foreach ( $observations as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$code   = isset( $row['code'] ) ? self::scrub_text( (string) $row['code'] ) : '';
+				$detail = isset( $row['detail'] ) ? self::scrub_text( (string) $row['detail'] ) : '';
+				if ( '' === $code && '' === $detail ) {
+					continue;
+				}
+				$bits[] = '' !== $code ? ( $code . ': ' . $detail ) : $detail;
+			}
+			if ( ! empty( $bits ) ) {
+				$lines[] = 'Observations: ' . implode( '; ', $bits );
+			}
+
+			$snap = isset( $client_context['editor_snapshot'] ) && is_array( $client_context['editor_snapshot'] )
+				? self::scrub_assoc( $client_context['editor_snapshot'] )
+				: array();
+			if ( ! empty( $snap ) ) {
+				$lines[] = 'Editor snapshot: ' . self::json_encode_capped( $snap, self::EDITOR_SNAPSHOT_PROMPT_MAX );
+			}
+
+			return implode( "\n", $lines );
+		}
+
+		/**
+		 * JSON-encode an array and cap length.
+		 *
+		 * @param array $data Data.
+		 * @param int   $max  Max chars.
+		 * @return string
+		 */
+		private static function json_encode_capped( array $data, $max ) {
+			if ( function_exists( 'wp_json_encode' ) ) {
+				$json = wp_json_encode( $data, JSON_UNESCAPED_SLASHES );
+			} else {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- unit bootstrap may lack wp_json_encode.
+				$json = json_encode( $data, JSON_UNESCAPED_SLASHES );
+			}
+			if ( ! is_string( $json ) ) {
+				return '{}';
+			}
+			$max = (int) $max;
+			if ( $max > 0 && strlen( $json ) > $max ) {
+				return substr( $json, 0, $max - 1 ) . '…';
+			}
+			return $json;
+		}
+
+		/**
+		 * Parse model JSON into title + summary + optional hypothesis.
 		 *
 		 * @param string $text Model text.
-		 * @return array|\WP_Error
+		 * @return array|\WP_Error { title, summary, hypothesis }
 		 */
-		private static function parse_summary_json( $text ) {
+		public static function decode_draft_payload( $text ) {
 			$text = trim( (string) $text );
 			if ( preg_match( '/\{.*\}/s', $text, $m ) ) {
 				$data = json_decode( $m[0], true );
 				if ( is_array( $data ) && ! empty( $data['title'] ) && ! empty( $data['summary'] ) ) {
+					$hypothesis = isset( $data['hypothesis'] ) ? (string) $data['hypothesis'] : '';
 					return array(
-						'title'   => substr( self::scrub_text( (string) $data['title'] ), 0, 200 ),
-						'summary' => substr( self::scrub_text( (string) $data['summary'] ), 0, 4000 ),
+						'title'      => substr( self::scrub_text( (string) $data['title'] ), 0, 200 ),
+						'summary'    => substr( self::scrub_text( (string) $data['summary'] ), 0, 4000 ),
+						'hypothesis' => substr( self::scrub_text( $hypothesis ), 0, self::HYPOTHESIS_MAX_LENGTH ),
 					);
 				}
 			}
@@ -801,15 +1009,75 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * File a report for a session (builds pack + summary, ensures token, POSTs).
+		 * Draft title/summary/hypothesis for a session (LLM). Does not file.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $args {
+		 *     Client snapshot.
+		 *     @type string $user_note
+		 *     @type array  $page_context
+		 *     @type array  $editor_snapshot
+		 *     @type array  $observations
+		 * }
+		 * @return array|\WP_Error { title, summary, hypothesis }
+		 */
+		public static function draft_report( $session_id, array $args = array() ) {
+			$session_id = (int) $session_id;
+			if ( $session_id <= 0 || ! class_exists( 'Ahentic_Session_Repository' ) ) {
+				return new WP_Error(
+					'ahentic_feedback_bad_session',
+					__( 'Invalid session for Run feedback.', 'ahentic' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$diagnostics = Ahentic_Session_Repository::to_diagnostics( $session_id );
+			if ( is_wp_error( $diagnostics ) ) {
+				return $diagnostics;
+			}
+
+			$client_context = array(
+				'page_context'    => isset( $args['page_context'] ) && is_array( $args['page_context'] )
+					? $args['page_context']
+					: array(),
+				'editor_snapshot' => isset( $args['editor_snapshot'] ) && is_array( $args['editor_snapshot'] )
+					? $args['editor_snapshot']
+					: array(),
+				'observations'    => isset( $args['observations'] ) && is_array( $args['observations'] )
+					? $args['observations']
+					: array(),
+			);
+
+			$stored = Ahentic_Session_Repository::get_page_context( $session_id );
+			if ( is_array( $stored ) && ! empty( $stored ) ) {
+				$client_context['session_page_context'] = $stored;
+			}
+
+			$user_note = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
+			return self::draft_summary(
+				$diagnostics,
+				self::conversation_excerpt( $session_id ),
+				$user_note,
+				$client_context
+			);
+		}
+
+		/**
+		 * File a report for a session (builds pack, ensures token, POSTs).
+		 *
+		 * Does not call the model. The sidebar drafts title/summary/hypothesis first.
 		 *
 		 * @param int   $session_id Session ID.
 		 * @param array $args {
 		 *     Optional overrides.
 		 *     @type string     $title
 		 *     @type string     $summary
+		 *     @type string     $hypothesis
 		 *     @type string     $prompt_excerpt Optional override for the conversation list.
 		 *     @type string     $user_note
+		 *     @type array      $page_context
+		 *     @type array      $editor_snapshot
+		 *     @type array      $observations
 		 *     @type int|null   $duplicate_of
 		 * }
 		 * @return array|\WP_Error Intake response { action, number, html_url }.
@@ -834,23 +1102,39 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				$prompt_excerpt = self::conversation_excerpt( $session_id );
 			}
 
-			$title     = isset( $args['title'] ) ? (string) $args['title'] : '';
-			$summary   = isset( $args['summary'] ) ? (string) $args['summary'] : '';
-			$user_note = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
+			$title      = isset( $args['title'] ) ? (string) $args['title'] : '';
+			$summary    = isset( $args['summary'] ) ? (string) $args['summary'] : '';
+			$hypothesis = isset( $args['hypothesis'] ) ? (string) $args['hypothesis'] : '';
+			$user_note  = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
 			if ( '' === $title || '' === $summary ) {
-				$drafted = self::draft_summary( $diagnostics, $prompt_excerpt, $user_note );
-				if ( is_wp_error( $drafted ) ) {
-					return $drafted;
-				}
+				$fallback = self::fallback_draft_fields();
 				if ( '' === $title ) {
-					$title = $drafted['title'];
+					$title = $fallback['title'];
 				}
 				if ( '' === $summary ) {
-					$summary = $drafted['summary'];
+					$summary = $fallback['summary'];
 				}
 			}
 
 			$summary = self::append_user_note_to_summary( $summary, $user_note );
+			$summary = self::append_hypothesis_to_summary( $summary, $hypothesis );
+
+			$page = isset( $args['page_context'] ) && is_array( $args['page_context'] )
+				? self::slim_page_context_for_feedback( $args['page_context'] )
+				: array();
+			if ( empty( $page ) ) {
+				$page = self::slim_page_context_for_feedback(
+					Ahentic_Session_Repository::get_page_context( $session_id )
+				);
+			}
+			$diagnostics['page']            = $page;
+			$diagnostics['editor_snapshot'] = isset( $args['editor_snapshot'] ) && is_array( $args['editor_snapshot'] )
+				? $args['editor_snapshot']
+				: array();
+			$diagnostics['observations']    = isset( $args['observations'] ) && is_array( $args['observations'] )
+				? $args['observations']
+				: array();
+			$diagnostics['hypothesis']      = substr( self::scrub_text( $hypothesis ), 0, self::HYPOTHESIS_MAX_LENGTH );
 
 			$debug_pack = self::build_debug_pack( $diagnostics );
 			$token      = self::ensure_valid_token();

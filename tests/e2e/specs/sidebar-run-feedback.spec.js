@@ -98,12 +98,13 @@ test.describe( 'Sidebar run feedback', () => {
 		} )
 		await expect( ahenticSidebar.runFeedback ).toBeVisible( { timeout: 15_000 } )
 
-		// Summary draft for file_report — seed after the chat turn so the orchestrator
+		// Draft for /feedback/draft — seed after the chat turn so the orchestrator
 		// cannot consume it as a second model reply.
 		await ahenticSidebar.seedAiResponses( [
 			JSON.stringify( {
 				title: 'E2E run feedback',
 				summary: 'The run finished with a short reply.',
+				hypothesis: 'The reply did not match the asked edit.',
 			} ),
 		] )
 		await ahenticSidebar.runFeedback.getByRole( 'button', { name: 'No' } ).click()

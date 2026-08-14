@@ -2,13 +2,17 @@
  * Run feedback Yes/No chrome after a prompt settles to idle.
  */
 
+/* eslint-disable camelcase -- Feedback REST body matches PHP snake_case. */
+
 import { useCallback, useState } from '@wordpress/element'
 import { __ } from '@wordpress/i18n'
 import {
+	draftRunFeedbackReport,
 	fileRunFeedbackReport,
 	getFeedbackStatus,
 	mintFeedbackSiteToken,
 } from './api'
+import { collectRunFeedbackSnapshot } from './run-feedback-snapshot'
 
 /**
  * Whether Run feedback Yes/No should show for this session snapshot.
@@ -98,11 +102,28 @@ export default function RunFeedbackBar( {
 		try {
 			await ensureFeedbackOptIn()
 			const note = String( userNote || '' ).trim()
-			const filed = await fileRunFeedbackReport(
-				sessionId,
-				/* eslint-disable-next-line camelcase -- user_note matches PHP REST args. */
-				note ? { user_note: note } : {}
-			)
+			const snapshot = collectRunFeedbackSnapshot()
+			const payload = {
+				...snapshot,
+			}
+			if ( note ) {
+				payload.user_note = note
+			}
+			try {
+				const drafted = await draftRunFeedbackReport( sessionId, payload )
+				if ( drafted?.title ) {
+					payload.title = drafted.title
+				}
+				if ( drafted?.summary ) {
+					payload.summary = drafted.summary
+				}
+				if ( drafted?.hypothesis ) {
+					payload.hypothesis = drafted.hypothesis
+				}
+			} catch {
+				// File still succeeds with a static title; snapshot stays on the pack.
+			}
+			const filed = await fileRunFeedbackReport( sessionId, payload )
 			setResultUrl( filed?.html_url || '' )
 			setPhase( 'done' )
 		} catch ( err ) {
