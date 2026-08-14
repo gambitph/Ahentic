@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Ahentic - AI Workspace
  * Plugin URI: https://wpahentic.com
- * Description: An intelligent AI agent that understands your WordPress site and works alongside you to build, edit, troubleshoot, and manage it.
+ * Description: An AI workspace in WordPress. Ahentic is your very own AI agent inside your site and uses your own API key.
  * Author: Gambit Technologies, Inc
  * Author URI: http://gambit.ph
  * License: GPLv2 or later
