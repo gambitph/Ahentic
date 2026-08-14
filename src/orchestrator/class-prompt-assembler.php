@@ -1132,6 +1132,7 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'place with ahentic-browser/update-block-attributes (existing cover/image/media-text), '
 						. 'ahentic-browser/insert-blocks, or ahentic/set-featured-image / ahentic-browser/set-featured-image. '
 						. 'Changing a hero/banner/header/cover already on the page: compact get-blocks first; patch that block\'s url/id/alt '
+						. '(update-block-attributes remaps guessed keys onto the live block) '
 						. '- do not default to set-featured-image. Generate only when they need a new image. '
 						. 'Featured/thumbnail/social card only when they said those words or inspect shows the theme renders featured_media. '
 						. 'Insert a new core/image only when they asked to add one and inspect found no existing visual to change. '

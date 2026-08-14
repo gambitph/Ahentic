@@ -43,7 +43,7 @@
     "Pick aspect_ratio from the principles (default 16:9 for post images).",
     "Call ahentic/generate-image only when they need a new image, with that aspect_ratio and framing baked into the prompt (once).",
     "ahentic/upload-media with {\"from_memory\":\"<artifact_key>\"} (HITL) once if it should enter the library.",
-    "Place once on the surface inspect found: update-block-attributes on the cover/image/media-text ref; set-featured-image only if that is the display surface; insert-blocks only when they asked to add an image and there was no existing visual. Never from_memory on insert-blocks for image artifacts."
+    "Place once on the surface inspect found: update-block-attributes on the cover/image/media-text (or third-party media) ref - the tool remaps url/id/alt onto the live keys; set-featured-image only if that is the display surface; insert-blocks only when they asked to add an image and there was no existing visual. Never from_memory on insert-blocks for image artifacts."
   ],
   "anti_patterns": [
     "Treating hero, banner, or cover as featured image without inspecting the canvas.",
