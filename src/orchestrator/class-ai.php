@@ -17,6 +17,15 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		const MAX_OUTPUT_TOKENS = 8000;
 		/** Max output when staging / long-form content (PRD). */
 		const MAX_OUTPUT_TOKENS_CONTENT = 16000;
+		/**
+		 * HTTP ceiling for provider calls (list-models + generate).
+		 *
+		 * Same value for chat and image: a timeout is a max wait, not a pause.
+		 * Builder RequestOptions cover generate; complete_chat() also raises
+		 * http_request_timeout so a slow list-models is not mapped to
+		 * "No models found that support text_generation".
+		 */
+		const REQUEST_TIMEOUT_SECONDS = 120.0;
 
 		/**
 		 * Session currently wrapping an LLM call (for curl progress heartbeats).
@@ -75,6 +84,7 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			}
 
 			self::begin_llm_heartbeat( $session_id );
+			$http_timeout_cb = self::install_http_timeout_ceiling();
 			try {
 				// Always prefer Core helpers when present — never mix with a Composer SDK copy.
 				if ( function_exists( 'wp_ai_client_prompt' ) ) {
@@ -91,6 +101,7 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 					array( 'status' => 503 )
 				);
 			} finally {
+				self::remove_http_timeout_ceiling( $http_timeout_cb );
 				self::end_llm_heartbeat( $session_id );
 			}
 		}
@@ -210,22 +221,73 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		}
 
 		/**
+		 * Raise WP HTTP timeout for list-models + generate during complete_chat().
+		 *
+		 * Builder RequestOptions only bind after a model is chosen; list-models
+		 * uses HttpTransporter::send() with no options. This filter covers that hop.
+		 *
+		 * @return callable|null Filter callback to remove, or null if add_filter is unavailable.
+		 */
+		private static function install_http_timeout_ceiling() {
+			if ( ! function_exists( 'add_filter' ) ) {
+				return null;
+			}
+			$callback = static function ( $timeout ) {
+				return max( (float) $timeout, self::REQUEST_TIMEOUT_SECONDS );
+			};
+			add_filter( 'http_request_timeout', $callback );
+			return $callback;
+		}
+
+		/**
+		 * Undo install_http_timeout_ceiling().
+		 *
+		 * @param callable|null $callback From install_http_timeout_ceiling().
+		 */
+		private static function remove_http_timeout_ceiling( $callback ) {
+			if ( null === $callback || ! function_exists( 'remove_filter' ) ) {
+				return;
+			}
+			remove_filter( 'http_request_timeout', $callback );
+		}
+
+		/**
+		 * Whether the builder can generate images with its current options.
+		 *
 		 * @param object $builder Prompt builder.
 		 * @return bool|null True/false when probeable, null if method missing.
 		 */
 		private static function builder_supports_image_generation( $builder ) {
+			return self::builder_support_flag(
+				$builder,
+				'is_supported_for_image_generation',
+				'isSupportedForImageGeneration',
+				false
+			);
+		}
+
+		/**
+		 * Probe a Core/SDK builder support method (snake_case then camelCase).
+		 *
+		 * @param object    $builder      Prompt builder.
+		 * @param string    $snake_method Core snake_case method.
+		 * @param string    $camel_method SDK camelCase method.
+		 * @param bool|null $on_throw     Value when the probe throws.
+		 * @return bool|null True/false when probeable, null if method missing.
+		 */
+		private static function builder_support_flag( $builder, $snake_method, $camel_method, $on_throw = false ) {
 			if ( ! is_object( $builder ) ) {
 				return null;
 			}
 			try {
-				if ( is_callable( array( $builder, 'is_supported_for_image_generation' ) ) ) {
-					return (bool) $builder->is_supported_for_image_generation();
+				if ( is_callable( array( $builder, $snake_method ) ) ) {
+					return (bool) call_user_func( array( $builder, $snake_method ) );
 				}
-				if ( is_callable( array( $builder, 'isSupportedForImageGeneration' ) ) ) {
-					return (bool) $builder->isSupportedForImageGeneration();
+				if ( is_callable( array( $builder, $camel_method ) ) ) {
+					return (bool) call_user_func( array( $builder, $camel_method ) );
 				}
 			} catch ( Throwable $e ) {
-				return false;
+				return $on_throw;
 			}
 			return null;
 		}
@@ -298,6 +360,49 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 		}
 
 		/**
+		 * Apply the shared request timeout to a Core / SDK prompt builder.
+		 *
+		 * @param object $builder    Prompt builder.
+		 * @param bool   $snake_case Core snake_case API.
+		 * @return object
+		 */
+		private static function apply_request_timeout( $builder, $snake_case = true ) {
+			if ( ! is_object( $builder ) ) {
+				return $builder;
+			}
+			if ( ! class_exists( '\WordPress\AiClient\Providers\Http\DTO\RequestOptions' ) ) {
+				return $builder;
+			}
+			$options = \WordPress\AiClient\Providers\Http\DTO\RequestOptions::fromArray(
+				array(
+					\WordPress\AiClient\Providers\Http\DTO\RequestOptions::KEY_TIMEOUT => self::REQUEST_TIMEOUT_SECONDS,
+				)
+			);
+			if ( $snake_case && is_callable( array( $builder, 'using_request_options' ) ) ) {
+				return $builder->using_request_options( $options );
+			}
+			if ( method_exists( $builder, 'usingRequestOptions' ) ) {
+				return $builder->usingRequestOptions( $options );
+			}
+			return $builder;
+		}
+
+		/**
+		 * Whether the builder's current options have a text-generation candidate.
+		 *
+		 * @param object $builder Prompt builder.
+		 * @return bool|null True/false when probeable, null if method missing or threw.
+		 */
+		private static function builder_supports_text_generation( $builder ) {
+			return self::builder_support_flag(
+				$builder,
+				'is_supported_for_text_generation',
+				'isSupportedForTextGeneration',
+				null
+			);
+		}
+
+		/**
 		 * @param string $prompt Prompt text.
 		 * @param bool   $snake_case Core path.
 		 * @return object|\WP_Error
@@ -308,16 +413,7 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 				if ( ! is_object( $builder ) ) {
 					return new WP_Error( 'ahentic_ai_api', __( 'Unexpected AI client API shape.', 'ahentic' ) );
 				}
-				if ( class_exists( '\WordPress\AiClient\Providers\Http\DTO\RequestOptions' ) ) {
-					$builder = $builder->using_request_options(
-						\WordPress\AiClient\Providers\Http\DTO\RequestOptions::fromArray(
-							array(
-								\WordPress\AiClient\Providers\Http\DTO\RequestOptions::KEY_TIMEOUT => 120.0,
-							)
-						)
-					);
-				}
-				return $builder;
+				return self::apply_request_timeout( $builder, true );
 			}
 			return \WordPress\AiClient\AiClient::prompt( $prompt );
 		}
@@ -625,38 +721,43 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			if ( class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				$prompt_text = Ahentic_Prompt_Assembler::ensure_utf8( $prompt_text );
 			}
-			$max_tokens  = self::resolve_max_output_tokens( $options );
+			$max_tokens = self::resolve_max_output_tokens( $options );
 
 			try {
-				$builder = wp_ai_client_prompt( $prompt_text );
+				$make_builder = static function () use ( $prompt_text, $system ) {
+					$builder = wp_ai_client_prompt( $prompt_text );
+					if ( ! is_object( $builder ) ) {
+						return $builder;
+					}
+					$builder = self::apply_request_timeout( $builder, true );
+					return $builder->using_system_instruction( (string) $system );
+				};
+
+				$builder = $make_builder();
 				if ( ! is_object( $builder ) ) {
 					return new WP_Error( 'ahentic_ai_api', __( 'Unexpected AI client API shape.', 'ahentic' ) );
 				}
 
-				$builder = $builder->using_system_instruction( (string) $system );
-				if ( $max_tokens > 0 ) {
-					$builder = $builder->using_max_tokens( $max_tokens );
-				}
-
-				$result = $builder->generate_text_result();
-
 				/*
 				 * Core maps “no candidate models for these options” to prompt_invalid_argument
 				 * with a misleading “doesn't support text_generation” message (see php-ai-client
-				 * model selection). Retry without max_tokens — some connectors advertise
-				 * text_generation but not maxTokens, and image-gen turns can refresh metadata.
+				 * model selection). Probe before generate: some connectors advertise
+				 * text_generation but not maxTokens. Do not pay a second generate_text_result().
 				 */
-				if (
-					is_wp_error( $result )
-					&& in_array( $result->get_error_code(), array( 'prompt_invalid_argument', 'prompt_builder_error' ), true )
-					&& $max_tokens > 0
-				) {
-					$retry = wp_ai_client_prompt( $prompt_text );
-					if ( is_object( $retry ) ) {
-						$retry  = $retry->using_system_instruction( (string) $system );
-						$result = $retry->generate_text_result();
+				if ( $max_tokens > 0 ) {
+					$with_max  = $builder->using_max_tokens( $max_tokens );
+					$supported = self::builder_supports_text_generation( $with_max );
+					if ( false !== $supported ) {
+						$builder = $with_max;
+					} else {
+						$fresh = $make_builder();
+						if ( is_object( $fresh ) ) {
+							$builder = $fresh;
+						}
 					}
 				}
+
+				$result = $builder->generate_text_result();
 
 				if ( is_wp_error( $result ) ) {
 					return $result;

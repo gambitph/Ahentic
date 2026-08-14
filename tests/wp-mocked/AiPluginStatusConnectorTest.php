@@ -20,41 +20,6 @@ use Brain\Monkey\Functions;
 require_once __DIR__ . '/WP_Mocked_TestCase.php';
 
 /**
- * Test double returned from wp_ai_client_prompt().
- */
-class Ahentic_Test_Prompt_Builder {
-	/** @var bool|\Throwable|callable */
-	public static $supported = true;
-
-	/** @var int */
-	public static $probe_calls = 0;
-
-	/**
-	 * @return bool
-	 */
-	public function is_supported_for_text_generation() {
-		self::$probe_calls++;
-		if ( is_callable( self::$supported ) ) {
-			return (bool) call_user_func( self::$supported );
-		}
-		if ( self::$supported instanceof \Throwable ) {
-			throw self::$supported;
-		}
-		return (bool) self::$supported;
-	}
-}
-
-if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
-	/**
-	 * @param string $prompt Prompt text.
-	 * @return Ahentic_Test_Prompt_Builder
-	 */
-	function wp_ai_client_prompt( $prompt ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter
-		return new Ahentic_Test_Prompt_Builder();
-	}
-}
-
-/**
  * Pins status → hasConnector mapping for probe true / false / unknown + cache.
  */
 class AiPluginStatusConnectorTest extends WP_Mocked_TestCase {
@@ -71,9 +36,8 @@ class AiPluginStatusConnectorTest extends WP_Mocked_TestCase {
 	 */
 	protected function setUp(): void {
 		parent::setUp();
-		$this->transients                       = array();
-		Ahentic_Test_Prompt_Builder::$supported = true;
-		Ahentic_Test_Prompt_Builder::$probe_calls = 0;
+		$this->transients = array();
+		Ahentic_Test_Prompt_Builder::reset();
 		Functions\stubTranslationFunctions();
 		// class-rest.php calls Ahentic_REST::instance() → add_action on load.
 		Functions\when( 'add_action' )->justReturn( true );

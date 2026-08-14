@@ -21,5 +21,6 @@ define( 'ABSPATH', dirname( __DIR__, 2 ) . '/' );
 
 // Classes Brain Monkey cannot fake (it only intercepts function calls).
 require_once __DIR__ . '/stubs.php';
+require_once __DIR__ . '/ai-prompt-builder-double.php';
 
 require_once dirname( __DIR__, 2 ) . '/src/orchestrator/class-ai.php';

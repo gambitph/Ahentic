@@ -135,6 +135,9 @@ Isolatable work may skip or slim fat main thinks via `Ahentic_Subagent` ([future
 - **Job Resume:** `Ahentic_Job_Resume` owns run-start ritual (`begin_new_goal` / `begin_resume`) and forced-apply-finish decisions. Failures leave Plan + Artifacts + active goal Continuable; forced apply failures during content work return to think instead of `final_reply`.
 - Run lock (`_ahentic_run_lock`) prevents overlapping steps on the same session.
 - **LLM liveness:** while `complete_chat` runs, keepalive ticks + optional WP HTTP curl progress bump `heartbeatAt` (and refresh the run lock). Sidebar polls nudge cron so ticks can fire in other requests.
+- **Chat HTTP ceiling:** Core `complete_chat` uses the same 120s request timeout as image generation.
+  It also raises WordPress `http_request_timeout` for the duration of the call so list-models is covered.
+  If `max_tokens` would empty Core's candidate set, that option is dropped before `generate_text_result()` so a think pays one generate, not two.
 - **Context compaction:** when history is large **or** estimated next-prompt fill ≥ 85% of the soft **200k** budget, older turns become an extractive rolling summary; pinned goal + plan (+ artifact pointers) stay on the user prompt. Fill + technical buckets are exposed as `contextUsage` on session REST for the composer ring ([Sidebar PRD](../../pro__premium_only/docs/prd/sidebar.md)).
 - **Session soft spend pause:** every 200k cumulative `tokensUsed`, `run_one_step` Continuable-pauses (`ahentic_session_token_budget`) before the next think. Continue raises the soft-budget watermark; composer send is locked until Continue or Stop. Distinct from context fill and from the site daily hard limit.
 

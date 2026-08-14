@@ -21,6 +21,17 @@ require_once __DIR__ . '/WP_Mocked_TestCase.php';
 class AiCompleteChatTest extends WP_Mocked_TestCase {
 
 	/**
+	 * @return void
+	 */
+	protected function setUp(): void {
+		parent::setUp();
+		Ahentic_Test_Prompt_Builder::reset();
+		Functions\stubTranslationFunctions();
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'remove_filter' )->justReturn( true );
+	}
+
+	/**
 	 * A non-null `pre_ahentic_ai_complete_chat` result short-circuits
 	 * complete_chat() before it ever reaches a real provider. If the
 	 * short-circuit didn't happen, execution would fall through to
@@ -44,22 +55,80 @@ class AiCompleteChatTest extends WP_Mocked_TestCase {
 	}
 
 	/**
-	 * With no Core `wp_ai_client_prompt()` helper (this bootstrap loads no
-	 * WordPress) but the real `wordpress/php-ai-client` Composer SDK present
-	 * (a hard `require` of this plugin, see composer.json — genuinely
-	 * autoloadable here, deliberately not mocked: Patchwork cannot safely
-	 * redefine `class_exists()`, and honest autoloading is more truthful
-	 * anyway) and no provider actually configured, complete_chat() falls
-	 * through to the Composer SDK path and fails soft with an
-	 * exception-wrapped WP_Error rather than a fatal.
+	 * Core path: a successful generate_text_result() becomes complete_chat() text.
 	 */
-	public function test_falls_through_to_sdk_and_fails_soft_without_a_configured_provider() {
+	public function test_core_complete_chat_returns_generated_text() {
 		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
-		Functions\stubTranslationFunctions();
+
+		$result = Ahentic_AI::complete_chat( 'system prompt', array(), 'hello' );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'core reply', $result['text'] );
+		$this->assertSame( 1, Ahentic_Test_Prompt_Builder::$generate_calls );
+	}
+
+	/**
+	 * Chat generate uses the same 120s RequestOptions ceiling as image generation.
+	 */
+	public function test_core_complete_chat_sets_request_timeout() {
+		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
+
+		Ahentic_AI::complete_chat( 'system prompt', array(), 'hello' );
+
+		$this->assertSame( 120.0, Ahentic_Test_Prompt_Builder::$last_timeout );
+	}
+
+	/**
+	 * List-models uses WP HTTP, not the builder RequestOptions bound after a
+	 * model is chosen. Raise http_request_timeout for the whole complete_chat().
+	 */
+	public function test_core_complete_chat_raises_wp_http_timeout_for_list_models() {
+		$timeout_cb = null;
+		Functions\when( 'add_filter' )->alias(
+			static function ( $tag, $cb ) use ( &$timeout_cb ) {
+				if ( 'http_request_timeout' === $tag ) {
+					$timeout_cb = $cb;
+				}
+				return true;
+			}
+		);
+		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
+
+		Ahentic_AI::complete_chat( 'system prompt', array(), 'hello' );
+
+		$this->assertIsCallable( $timeout_cb );
+		$this->assertSame( 120.0, (float) call_user_func( $timeout_cb, 5 ) );
+	}
+
+	/**
+	 * When max_tokens empties Core's candidate set, drop that option and
+	 * generate once - do not pay a second generate_text_result().
+	 */
+	public function test_core_complete_chat_drops_max_tokens_when_unsupported_and_generates_once() {
+		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
+		Ahentic_Test_Prompt_Builder::$supported_with_max_tokens = false;
+
+		$result = Ahentic_AI::complete_chat( 'system prompt', array(), 'hello' );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'core reply', $result['text'] );
+		$this->assertSame( 1, Ahentic_Test_Prompt_Builder::$generate_calls );
+		$this->assertNull( Ahentic_Test_Prompt_Builder::$last_generate_max_tokens );
+	}
+
+	/**
+	 * Provider/builder WP_Error is returned as-is (fail soft, no fatal).
+	 */
+	public function test_core_complete_chat_returns_generate_wp_error() {
+		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
+		Ahentic_Test_Prompt_Builder::$generate_result = new WP_Error(
+			'prompt_invalid_argument',
+			'No models found that support text_generation for this prompt.'
+		);
 
 		$result = Ahentic_AI::complete_chat( 'system prompt', array(), 'hello' );
 
 		$this->assertInstanceOf( 'WP_Error', $result );
-		$this->assertSame( 'ahentic_ai_exception', $result->get_error_code() );
+		$this->assertSame( 'prompt_invalid_argument', $result->get_error_code() );
 	}
 }
