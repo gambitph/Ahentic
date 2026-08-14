@@ -10,13 +10,15 @@
 Site tokens remain the enrolled-site credential; refresh is silent; reports use a valid site token.
 No Cloudflare Turnstile on customer wp-admin hostnames (free Turnstile cannot authorize arbitrary sites).
 
-**API (summary):** `GET /healthz` · `POST /v1/site-tokens` (mint proof) · `POST /v1/site-tokens/refresh` (silent) · `POST /v1/reports` (create or comment+`+1`; debug pack attached as a GitHub file, not pasted into the issue body).
+**API (summary):** `GET /healthz` · `POST /v1/site-tokens` (mint proof) · `POST /v1/site-tokens/refresh` (silent) · `POST /v1/reports` (`kind: success|failure`; create or comment+`+1`; failure debug pack attached as a GitHub file, not pasted into the issue body).
 
-**Pack:** Client sends a scrubbed `debug_pack` (≤ **2 MiB**). Intake uploads it as an issue attachment and links it from the body.
+**Pack:** Failure reports send a scrubbed `debug_pack` (≤ **2 MiB**).
+Intake uploads it as an issue attachment and links it from the body.
+Success reports omit `debug_pack` and use labels `run-success` plus `playbook:<id>` or `needs-playbook`.
 
 **Rate limits (client-visible):** mint/refresh/report may return `429` / `rate_limited`.
 **New issues** are additionally limited to **1 create per client IP per minute** (default); commenting on a valid duplicate is not gated by that limit.
-Prefer proposing `duplicate_of` when public search finds an open `run-feedback` issue.
+Prefer proposing `duplicate_of` when public search finds an open issue with the matching kind label (`run-feedback` or `run-success`).
 
 This free-repo stub exists so links resolve when Premium is not checked out; do not duplicate full service law here.
 Align with intake `docs/api.md` in `gambitph/ahentic-feedback-intake`.

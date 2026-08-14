@@ -287,11 +287,11 @@ export function refreshFeedbackSiteToken() {
 }
 
 /**
- * Draft title/summary/hypothesis for a session via the PHP AI path.
+ * Draft title/summary (and hypothesis on failure) for a session via the PHP AI path.
  *
  * @param {number|string} id
- * @param {Object}        [body] user_note, page_context, editor_snapshot, observations.
- * @return {Promise<{ title: string, summary: string, hypothesis: string }>} Draft fields.
+ * @param {Object}        [body] kind, user_note, page_context, editor_snapshot, observations.
+ * @return {Promise<{ title: string, summary: string, hypothesis: string, abilities: string[] }>} Draft fields.
  */
 export function draftRunFeedbackReport( id, body = {} ) {
 	return apiRequest( '/feedback/draft', {
@@ -308,9 +308,10 @@ export function draftRunFeedbackReport( id, body = {} ) {
  * File a Run feedback report for a session via the PHP proxy.
  *
  * Does not draft. Pass title/summary from draftRunFeedbackReport when available.
+ * `kind: 'success'` omits the debug pack (intake Yes path). Default is failure.
  *
  * @param {number|string} id
- * @param {Object}        [body] title/summary/hypothesis/user_note/snapshot overrides.
+ * @param {Object}        [body] kind, title/summary/hypothesis/user_note/abilities/playbook_ids/snapshot.
  * @return {Promise<{ action: string, number: number, html_url: string }>} Intake result.
  */
 export function fileRunFeedbackReport( id, body = {} ) {

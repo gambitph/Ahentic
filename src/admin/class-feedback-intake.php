@@ -124,6 +124,21 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		 */
 		const GH_ISSUES_SEARCH = 'https://api.github.com/search/issues';
 
+		/** Report kind: No / debug pack. */
+		const KIND_FAILURE = 'failure';
+
+		/** Report kind: Yes / good-run narrative. */
+		const KIND_SUCCESS = 'success';
+
+		/** GitHub label for failure reports (intake LABEL_FAILURE). */
+		const LABEL_FAILURE = 'run-feedback';
+
+		/** GitHub label for success reports (intake LABEL_SUCCESS). */
+		const LABEL_SUCCESS = 'run-success';
+
+		/** Cap playbook_ids to match intake sanitizePlaybookIds (empty on success → needs-playbook). */
+		const PLAYBOOK_IDS_MAX = 2;
+
 		/**
 		 * Filterable intake base URL (no trailing slash).
 		 *
@@ -722,14 +737,219 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		/**
 		 * Static title/summary when the client did not draft (no LLM on file).
 		 *
+		 * @param string $kind success|failure.
 		 * @return array{title:string,summary:string,hypothesis:string}
 		 */
-		public static function fallback_draft_fields() {
+		public static function fallback_draft_fields( $kind = self::KIND_FAILURE ) {
+			if ( self::KIND_SUCCESS === self::normalize_report_kind( $kind ) ) {
+				return array(
+					'title'      => __( 'Successful Ahentic run', 'ahentic' ),
+					'summary'    => __( 'The reporter marked this run as good. See the conversation.', 'ahentic' ),
+					'hypothesis' => '',
+				);
+			}
 			return array(
 				'title'      => __( 'Unsure Ahentic run', 'ahentic' ),
 				'summary'    => __( 'The reporter was not satisfied with this run. See the debug pack and conversation.', 'ahentic' ),
 				'hypothesis' => '',
 			);
+		}
+
+		/**
+		 * Soft fallback when the model returns prose instead of JSON.
+		 *
+		 * Keeps the scrubbed text as summary and uses the kind's static title.
+		 * Empty prose still fails so the client can file with fallback_draft_fields.
+		 *
+		 * @param string $kind success|failure.
+		 * @param string $text Raw model text.
+		 * @return array|\WP_Error { title, summary, hypothesis, abilities }
+		 */
+		public static function draft_fields_from_prose( $kind, $text ) {
+			$kind    = self::normalize_report_kind( $kind );
+			$summary = (string) $text;
+			if ( function_exists( 'wp_strip_all_tags' ) ) {
+				$summary = wp_strip_all_tags( $summary );
+			} else {
+				$summary = strip_tags( $summary );
+			}
+			$summary = trim( self::scrub_text( $summary ) );
+			if ( '' === $summary ) {
+				return new WP_Error(
+					'ahentic_feedback_bad_summary',
+					__( 'Could not parse an AI summary for Run feedback.', 'ahentic' ),
+					array( 'status' => 502 )
+				);
+			}
+			$fallback = self::fallback_draft_fields( $kind );
+			return array(
+				'title'      => $fallback['title'],
+				'summary'    => substr( $summary, 0, 4000 ),
+				'hypothesis' => '',
+				'abilities'  => array(),
+			);
+		}
+
+		/**
+		 * Normalize report kind to intake values.
+		 *
+		 * @param mixed $kind Raw kind.
+		 * @return string success|failure.
+		 */
+		public static function normalize_report_kind( $kind ) {
+			return self::KIND_SUCCESS === (string) $kind ? self::KIND_SUCCESS : self::KIND_FAILURE;
+		}
+
+		/**
+		 * GitHub label for a report kind.
+		 *
+		 * @param mixed $kind Raw kind.
+		 * @return string
+		 */
+		public static function report_label_for_kind( $kind ) {
+			return self::KIND_SUCCESS === self::normalize_report_kind( $kind )
+				? self::LABEL_SUCCESS
+				: self::LABEL_FAILURE;
+		}
+
+		/**
+		 * GitHub issue search query for duplicate detection.
+		 *
+		 * @param string $query Extra search terms.
+		 * @param string $label run-feedback or run-success.
+		 * @return string
+		 */
+		public static function duplicate_search_query( $query = '', $label = self::LABEL_FAILURE ) {
+			$allowed = array( self::LABEL_FAILURE, self::LABEL_SUCCESS );
+			$label   = (string) $label;
+			if ( ! in_array( $label, $allowed, true ) ) {
+				$label = self::LABEL_FAILURE;
+			}
+
+			$q     = 'repo:gambitph/Ahentic label:' . $label . ' is:open';
+			$query = trim( (string) $query );
+			if ( '' === $query ) {
+				return $q;
+			}
+
+			$extra = preg_replace( '/[^\w\s\-]+/u', ' ', substr( $query, 0, 80 ) );
+			$extra = is_string( $extra ) ? trim( $extra ) : '';
+			if ( '' !== $extra ) {
+				$q .= ' ' . $extra;
+			}
+			return $q;
+		}
+
+		/**
+		 * Sanitize playbook ids for intake (lowercase kebab, cap 2).
+		 *
+		 * @param mixed $raw Raw ids.
+		 * @return string[]
+		 */
+		public static function sanitize_playbook_ids( $raw ) {
+			if ( ! is_array( $raw ) ) {
+				return array();
+			}
+			$seen = array();
+			$out  = array();
+			foreach ( $raw as $item ) {
+				if ( ! is_string( $item ) ) {
+					continue;
+				}
+				$id = strtolower( trim( $item ) );
+				$id = preg_replace( '/[^a-z0-9-]/', '', $id );
+				if ( ! is_string( $id ) || '' === $id || isset( $seen[ $id ] ) ) {
+					continue;
+				}
+				$seen[ $id ] = true;
+				$out[]       = $id;
+				if ( count( $out ) >= self::PLAYBOOK_IDS_MAX ) {
+					break;
+				}
+			}
+			return $out;
+		}
+
+		/**
+		 * Ordered ability lines from a diagnostics trace (name + ok/fail).
+		 *
+		 * @param mixed $trace Trace events.
+		 * @return string
+		 */
+		public static function work_excerpt_from_trace( $trace ) {
+			if ( ! is_array( $trace ) ) {
+				return '';
+			}
+			$lines = array();
+			foreach ( $trace as $event ) {
+				if ( ! is_array( $event ) ) {
+					continue;
+				}
+				$data = isset( $event['data'] ) && is_array( $event['data'] ) ? $event['data'] : array();
+				$name = self::ability_name_from_trace_data( $data );
+				if ( '' === $name ) {
+					continue;
+				}
+				$ok      = ! empty( $data['ok'] );
+				$lines[] = $name . ' ' . ( $ok ? 'ok' : 'fail' );
+			}
+			return implode( "\n", $lines );
+		}
+
+		/**
+		 * Prefer LLM-pruned abilities that still exist on the trace; else the full trace list.
+		 *
+		 * @param mixed    $proposed   Drafted names.
+		 * @param string[] $from_trace Names from the session trace (order preserved).
+		 * @return string[]
+		 */
+		public static function resolve_abilities_mentioned( $proposed, array $from_trace ) {
+			$allowed = array_fill_keys( $from_trace, true );
+			$out     = array();
+			if ( is_array( $proposed ) ) {
+				foreach ( $proposed as $name ) {
+					if ( ! is_string( $name ) || ! isset( $allowed[ $name ] ) ) {
+						continue;
+					}
+					if ( in_array( $name, $out, true ) ) {
+						continue;
+					}
+					$out[] = $name;
+				}
+			}
+			return empty( $out ) ? array_values( $from_trace ) : $out;
+		}
+
+		/**
+		 * Intake POST /v1/reports body without site_token.
+		 *
+		 * Success omits debug_pack (intake ignores/forbids requiring it).
+		 *
+		 * @param array $parts Field bag.
+		 * @return array
+		 */
+		public static function build_intake_report_body( array $parts ) {
+			$kind = self::normalize_report_kind( isset( $parts['kind'] ) ? $parts['kind'] : self::KIND_FAILURE );
+			$body = array(
+				'kind'                => $kind,
+				'title'               => isset( $parts['title'] ) ? (string) $parts['title'] : '',
+				'summary'             => isset( $parts['summary'] ) ? (string) $parts['summary'] : '',
+				'prompt_excerpt'      => isset( $parts['prompt_excerpt'] ) ? (string) $parts['prompt_excerpt'] : '',
+				'duplicate_of'        => array_key_exists( 'duplicate_of', $parts ) && is_int( $parts['duplicate_of'] )
+					? $parts['duplicate_of']
+					: null,
+				'ahentic_version'     => isset( $parts['ahentic_version'] ) ? (string) $parts['ahentic_version'] : '',
+				'wp_version'          => isset( $parts['wp_version'] ) ? (string) $parts['wp_version'] : '',
+				'abilities_mentioned' => isset( $parts['abilities_mentioned'] ) && is_array( $parts['abilities_mentioned'] )
+					? $parts['abilities_mentioned']
+					: array(),
+				'playbook_ids'        => self::sanitize_playbook_ids( isset( $parts['playbook_ids'] ) ? $parts['playbook_ids'] : array() ),
+				'client'              => isset( $parts['client'] ) && is_array( $parts['client'] ) ? $parts['client'] : array(),
+			);
+			if ( self::KIND_SUCCESS !== $kind ) {
+				$body['debug_pack'] = isset( $parts['debug_pack'] ) ? (string) $parts['debug_pack'] : '';
+			}
+			return $body;
 		}
 
 		/**
@@ -741,9 +961,11 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		 * @param string $prompt_excerpt  Anonymized conversation list (user + Ahentic turns).
 		 * @param string $user_note       Optional admin note (highest signal for what went wrong).
 		 * @param array  $client_context  Live page / editor snapshot / observations.
-		 * @return array|\WP_Error { title, summary, hypothesis } or error.
+		 * @param string $kind            success|failure.
+		 * @return array|\WP_Error { title, summary, hypothesis, abilities } or error.
 		 */
-		public static function draft_summary( array $diagnostics, $prompt_excerpt = '', $user_note = '', array $client_context = array() ) {
+		public static function draft_summary( array $diagnostics, $prompt_excerpt = '', $user_note = '', array $client_context = array(), $kind = self::KIND_FAILURE ) {
+			$kind = self::normalize_report_kind( $kind );
 			if ( ! class_exists( 'Ahentic_AI' ) ) {
 				return new WP_Error(
 					'ahentic_feedback_ai_unavailable',
@@ -752,7 +974,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				);
 			}
 
-			$prompts = self::build_draft_summary_prompts( $diagnostics, $prompt_excerpt, $user_note, $client_context );
+			$prompts = self::build_draft_summary_prompts( $diagnostics, $prompt_excerpt, $user_note, $client_context, $kind );
 			$result  = Ahentic_AI::complete_chat( $prompts['system'], array(), $prompts['user'] );
 			if ( is_wp_error( $result ) ) {
 				return new WP_Error(
@@ -771,37 +993,32 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 
 			$parsed = self::decode_draft_payload( $text );
 			if ( is_wp_error( $parsed ) ) {
-				// Soft fallback when the model returns prose — still fail if empty.
-				$title   = __( 'Unsure Ahentic run', 'ahentic' );
-				$summary = trim( self::scrub_text( function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $text ) : strip_tags( $text ) ) );
-				if ( '' === $summary ) {
-					return $parsed;
-				}
-				return array(
-					'title'      => $title,
-					'summary'    => substr( $summary, 0, 4000 ),
-					'hypothesis' => '',
-				);
+				$from_prose = self::draft_fields_from_prose( $kind, $text );
+				return is_wp_error( $from_prose ) ? $parsed : $from_prose;
 			}
 
 			return $parsed;
 		}
 
 		/**
-		 * Build system + user prompts for Run feedback title/summary/hypothesis drafting.
+		 * Build system + user prompts for Run feedback title/summary drafting.
 		 *
 		 * @param array  $diagnostics     Diagnostics bundle.
 		 * @param string $prompt_excerpt  Anonymized conversation list.
 		 * @param string $user_note       Optional admin note.
 		 * @param array  $client_context  Live page / editor snapshot / observations.
+		 * @param string $kind            success|failure.
 		 * @return array{system:string,user:string}
 		 */
-		public static function build_draft_summary_prompts( array $diagnostics, $prompt_excerpt = '', $user_note = '', array $client_context = array() ) {
+		public static function build_draft_summary_prompts( array $diagnostics, $prompt_excerpt = '', $user_note = '', array $client_context = array(), $kind = self::KIND_FAILURE ) {
+			$kind       = self::normalize_report_kind( $kind );
 			$state      = isset( $diagnostics['state'] ) && is_array( $diagnostics['state'] ) ? $diagnostics['state'] : array();
 			$session    = isset( $diagnostics['session'] ) && is_array( $diagnostics['session'] ) ? $diagnostics['session'] : array();
 			$last_error = isset( $session['lastError'] ) ? (string) $session['lastError'] : '';
 			$goal       = isset( $state['activeGoal'] ) ? (string) $state['activeGoal'] : '';
-			$abilities  = self::abilities_from_trace( isset( $diagnostics['trace'] ) ? $diagnostics['trace'] : array() );
+			$trace      = isset( $diagnostics['trace'] ) ? $diagnostics['trace'] : array();
+			$abilities  = self::abilities_from_trace( $trace );
+			$work       = self::work_excerpt_from_trace( $trace );
 
 			$note = (string) $user_note;
 			if ( function_exists( 'wp_strip_all_tags' ) ) {
@@ -814,30 +1031,53 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				$note = substr( $note, 0, self::USER_NOTE_MAX_LENGTH );
 			}
 
-			$system = 'You write anonymized GitHub issue titles and summaries for Ahentic Run feedback. '
-				. 'Other reporters will search titles to find duplicates — generalize the failure mode. '
-				. "Infer (1) the user's intent and (2) the actual product issue from the signals below. "
-				. 'When the user note conflicts with session status trivia (idle/busy, resumable, empty goal fragments), trust the user note. '
-				. 'Title: ≤80 chars; name the general bug class (e.g. false missing-ability notice after success), not a one-off scenario, country, or quoted goal text. '
-				. 'Avoid titles that only restate idle/no result/status. '
-				. 'Summary: ≤600 chars; 1–3 sentences covering intent, expected vs actual, and the misleading behavior if any. '
-				. 'Hypothesis: ≤400 chars; one unconfirmed guess from live page, editor snapshot, and observations. '
-				. 'Do not put the hypothesis into the title (titles are used for duplicate search). '
-				. 'No site URLs, emails, or personal names. Reply with JSON only: '
-				. '{"title":"…","summary":"…","hypothesis":"…"}';
+			if ( self::KIND_SUCCESS === $kind ) {
+				$system = 'You write anonymized GitHub issue titles and summaries for successful Ahentic runs. '
+					. 'The user marked this run as the correct WordPress path - treat it as a good-run specimen, not a bug. '
+					. 'Other reporters will search titles to find the same kind of work - generalize the work class. '
+					. 'Narrate (1) the user goal / intent from the conversation (correct stale goal fragments), '
+					. '(2) the process (what Ahentic did, using the ordered work list), and (3) the result the user marked as good. '
+					. 'Work lists every tool in order. In abilities, drop a name only when you are certain it did not serve this intent/goal. '
+					. 'If there is any uncertainty, keep it. Never invent names. If you cannot prune confidently, repeat the full list. '
+					. 'Title: <=80 chars; name the general work class (e.g. Installed an SEO plugin), not a one-off site, country, or quoted goal text. '
+					. 'Summary: <=800 chars; short narration covering intent, goal, process, and result. '
+					. 'No site URLs, emails, or personal names. Reply with JSON only: '
+					. '{"title":"…","summary":"…","abilities":["ahentic/…"]}';
+			} else {
+				$system = 'You write anonymized GitHub issue titles and summaries for Ahentic Run feedback. '
+					. 'Other reporters will search titles to find duplicates - generalize the failure mode. '
+					. "Infer (1) the user's intent and (2) the actual product issue from the signals below. "
+					. 'When the user note conflicts with session status trivia (idle/busy, resumable, empty goal fragments), trust the user note. '
+					. 'Title: ≤80 chars; name the general bug class (e.g. false missing-ability notice after success), not a one-off scenario, country, or quoted goal text. '
+					. 'Avoid titles that only restate idle/no result/status. '
+					. 'Summary: ≤600 chars; 1–3 sentences covering intent, expected vs actual, and the misleading behavior if any. '
+					. 'Hypothesis: ≤400 chars; one unconfirmed guess from live page, editor snapshot, and observations. '
+					. 'Do not put the hypothesis into the title (titles are used for duplicate search). '
+					. 'No site URLs, emails, or personal names. Reply with JSON only: '
+					. '{"title":"…","summary":"…","hypothesis":"…"}';
+			}
 
-			$user  = "Draft a Run feedback report title, summary, and hypothesis.\n";
+			if ( self::KIND_SUCCESS === $kind ) {
+				$user = "Draft a good-run report title, summary, and abilities list.\n";
+			} else {
+				$user = "Draft a Run feedback report title, summary, and hypothesis.\n";
+			}
 			$user .= 'User note (highest signal when present): ' . ( '' !== $note ? $note : '(none)' ) . "\n";
 			$user .= 'Conversation:\n' . self::scrub_text( (string) $prompt_excerpt ) . "\n";
 			$user .= 'Active goal (may be partial/stale): ' . self::scrub_text( $goal ) . "\n";
-			$user .= 'Last error: ' . self::scrub_text( $last_error ) . "\n";
 			$user .= 'Abilities used: ' . ( ! empty( $abilities ) ? implode( ', ', $abilities ) : '(none)' ) . "\n";
-			$user .= 'Session status (context only, not the bug): ' . ( isset( $session['status'] ) ? $session['status'] : '' ) . "\n";
-			$user .= 'Job resumable (context only): ' . ( ! empty( $state['jobResumable'] ) ? 'yes' : 'no' ) . "\n";
+			$user .= 'Work (ordered abilities, ok/fail):\n' . ( '' !== $work ? $work : '(none)' ) . "\n";
+			if ( self::KIND_SUCCESS !== $kind ) {
+				$user .= 'Last error: ' . self::scrub_text( $last_error ) . "\n";
+				$user .= 'Session status (context only, not the bug): ' . ( isset( $session['status'] ) ? $session['status'] : '' ) . "\n";
+				$user .= 'Job resumable (context only): ' . ( ! empty( $state['jobResumable'] ) ? 'yes' : 'no' ) . "\n";
+			}
 
-			$ctx_note = self::format_client_context_for_prompt( $client_context );
-			if ( '' !== $ctx_note ) {
-				$user .= $ctx_note . "\n";
+			if ( self::KIND_SUCCESS !== $kind ) {
+				$ctx_note = self::format_client_context_for_prompt( $client_context );
+				if ( '' !== $ctx_note ) {
+					$user .= $ctx_note . "\n";
+				}
 			}
 
 			return array(
@@ -934,10 +1174,20 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				$data = json_decode( $m[0], true );
 				if ( is_array( $data ) && ! empty( $data['title'] ) && ! empty( $data['summary'] ) ) {
 					$hypothesis = isset( $data['hypothesis'] ) ? (string) $data['hypothesis'] : '';
+					$abilities  = array();
+					if ( isset( $data['abilities'] ) && is_array( $data['abilities'] ) ) {
+						foreach ( $data['abilities'] as $name ) {
+							if ( ! is_string( $name ) || false === strpos( $name, '/' ) ) {
+								continue;
+							}
+							$abilities[] = $name;
+						}
+					}
 					return array(
 						'title'      => substr( self::scrub_text( (string) $data['title'] ), 0, 200 ),
 						'summary'    => substr( self::scrub_text( (string) $data['summary'] ), 0, 4000 ),
 						'hypothesis' => substr( self::scrub_text( $hypothesis ), 0, self::HYPOTHESIS_MAX_LENGTH ),
+						'abilities'  => $abilities,
 					);
 				}
 			}
@@ -949,17 +1199,14 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Search public GitHub issues labelled run-feedback (best-effort; may return null).
+		 * Search public GitHub issues labelled for this report kind (best-effort; may return null).
 		 *
 		 * @param string $query Extra search terms (already scrubbed).
+		 * @param string $label run-feedback or run-success.
 		 * @return int|null Proposed duplicate issue number or null.
 		 */
-		public static function find_duplicate_issue( $query = '' ) {
-			$q     = 'repo:gambitph/Ahentic label:run-feedback is:open';
-			$query = trim( (string) $query );
-			if ( '' !== $query ) {
-				$q .= ' ' . preg_replace( '/[^\w\s\-]+/u', ' ', substr( $query, 0, 80 ) );
-			}
+		public static function find_duplicate_issue( $query = '', $label = self::LABEL_FAILURE ) {
+			$q = self::duplicate_search_query( $query, $label );
 
 			/**
 			 * Short-circuit duplicate search (tests). Return issue number, null, or WP_Error.
@@ -1009,17 +1256,18 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Draft title/summary/hypothesis for a session (LLM). Does not file.
+		 * Draft title/summary (and hypothesis on failure) for a session (LLM). Does not file.
 		 *
 		 * @param int   $session_id Session ID.
 		 * @param array $args {
 		 *     Client snapshot.
+		 *     @type string $kind            success|failure (default failure).
 		 *     @type string $user_note
 		 *     @type array  $page_context
 		 *     @type array  $editor_snapshot
 		 *     @type array  $observations
 		 * }
-		 * @return array|\WP_Error { title, summary, hypothesis }
+		 * @return array|\WP_Error { title, summary, hypothesis, abilities }
 		 */
 		public static function draft_report( $session_id, array $args = array() ) {
 			$session_id = (int) $session_id;
@@ -1054,11 +1302,13 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			}
 
 			$user_note = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
+			$kind      = self::normalize_report_kind( isset( $args['kind'] ) ? $args['kind'] : self::KIND_FAILURE );
 			return self::draft_summary(
 				$diagnostics,
 				self::conversation_excerpt( $session_id ),
 				$user_note,
-				$client_context
+				$client_context,
+				$kind
 			);
 		}
 
@@ -1070,6 +1320,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		 * @param int   $session_id Session ID.
 		 * @param array $args {
 		 *     Optional overrides.
+		 *     @type string     $kind            success|failure (default failure).
 		 *     @type string     $title
 		 *     @type string     $summary
 		 *     @type string     $hypothesis
@@ -1078,6 +1329,8 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		 *     @type array      $page_context
 		 *     @type array      $editor_snapshot
 		 *     @type array      $observations
+		 *     @type array      $abilities
+		 *     @type array      $playbook_ids
 		 *     @type int|null   $duplicate_of
 		 * }
 		 * @return array|\WP_Error Intake response { action, number, html_url }.
@@ -1106,8 +1359,9 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			$summary    = isset( $args['summary'] ) ? (string) $args['summary'] : '';
 			$hypothesis = isset( $args['hypothesis'] ) ? (string) $args['hypothesis'] : '';
 			$user_note  = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
+			$kind       = self::normalize_report_kind( isset( $args['kind'] ) ? $args['kind'] : self::KIND_FAILURE );
 			if ( '' === $title || '' === $summary ) {
-				$fallback = self::fallback_draft_fields();
+				$fallback = self::fallback_draft_fields( $kind );
 				if ( '' === $title ) {
 					$title = $fallback['title'];
 				}
@@ -1117,54 +1371,68 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			}
 
 			$summary = self::append_user_note_to_summary( $summary, $user_note );
-			$summary = self::append_hypothesis_to_summary( $summary, $hypothesis );
-
-			$page = isset( $args['page_context'] ) && is_array( $args['page_context'] )
-				? self::slim_page_context_for_feedback( $args['page_context'] )
-				: array();
-			if ( empty( $page ) ) {
-				$page = self::slim_page_context_for_feedback(
-					Ahentic_Session_Repository::get_page_context( $session_id )
-				);
+			if ( self::KIND_SUCCESS !== $kind ) {
+				$summary = self::append_hypothesis_to_summary( $summary, $hypothesis );
 			}
-			$diagnostics['page']            = $page;
-			$diagnostics['editor_snapshot'] = isset( $args['editor_snapshot'] ) && is_array( $args['editor_snapshot'] )
-				? $args['editor_snapshot']
-				: array();
-			$diagnostics['observations']    = isset( $args['observations'] ) && is_array( $args['observations'] )
-				? $args['observations']
-				: array();
-			$diagnostics['hypothesis']      = substr( self::scrub_text( $hypothesis ), 0, self::HYPOTHESIS_MAX_LENGTH );
 
-			$debug_pack = self::build_debug_pack( $diagnostics );
-			$token      = self::ensure_valid_token();
+			$debug_pack = '';
+			if ( self::KIND_SUCCESS !== $kind ) {
+				$page = isset( $args['page_context'] ) && is_array( $args['page_context'] )
+					? self::slim_page_context_for_feedback( $args['page_context'] )
+					: array();
+				if ( empty( $page ) ) {
+					$page = self::slim_page_context_for_feedback(
+						Ahentic_Session_Repository::get_page_context( $session_id )
+					);
+				}
+				$diagnostics['page']            = $page;
+				$diagnostics['editor_snapshot'] = isset( $args['editor_snapshot'] ) && is_array( $args['editor_snapshot'] )
+					? $args['editor_snapshot']
+					: array();
+				$diagnostics['observations']    = isset( $args['observations'] ) && is_array( $args['observations'] )
+					? $args['observations']
+					: array();
+				$diagnostics['hypothesis']      = substr( self::scrub_text( $hypothesis ), 0, self::HYPOTHESIS_MAX_LENGTH );
+				$debug_pack                     = self::build_debug_pack( $diagnostics );
+			}
+
+			$token = self::ensure_valid_token();
 			if ( is_wp_error( $token ) ) {
 				return $token;
 			}
 
 			$duplicate_of = array_key_exists( 'duplicate_of', $args ) ? $args['duplicate_of'] : null;
 			if ( null === $duplicate_of ) {
-				$duplicate_of = self::find_duplicate_issue( $title );
+				$duplicate_of = self::find_duplicate_issue( $title, self::report_label_for_kind( $kind ) );
 			}
 
-			$env       = isset( $diagnostics['environment'] ) && is_array( $diagnostics['environment'] ) ? $diagnostics['environment'] : array();
-			$abilities = self::abilities_from_trace( isset( $diagnostics['trace'] ) ? $diagnostics['trace'] : array() );
-
-			$body = array(
-				'site_token'          => $token,
-				'title'               => substr( self::scrub_text( $title ), 0, 200 ),
-				'summary'             => substr( self::scrub_text( $summary ), 0, 4000 ),
-				'debug_pack'          => $debug_pack,
-				'prompt_excerpt'      => substr( self::scrub_text( $prompt_excerpt ), 0, self::PROMPT_EXCERPT_MAX_LENGTH ),
-				'duplicate_of'        => is_int( $duplicate_of ) ? $duplicate_of : null,
-				'ahentic_version'     => defined( 'AHENTIC_VERSION' ) ? AHENTIC_VERSION : '',
-				'wp_version'          => isset( $env['wp'] ) ? (string) $env['wp'] : get_bloginfo( 'version' ),
-				'abilities_mentioned' => $abilities,
-				'client'              => array(
-					'php_version' => isset( $env['php'] ) ? (string) $env['php'] : PHP_VERSION,
-					'ai_client'   => isset( $env['aiClient'] ) ? (string) $env['aiClient'] : '',
-				),
+			$env          = isset( $diagnostics['environment'] ) && is_array( $diagnostics['environment'] ) ? $diagnostics['environment'] : array();
+			$trace_names  = self::abilities_from_trace( isset( $diagnostics['trace'] ) ? $diagnostics['trace'] : array() );
+			$abilities    = self::resolve_abilities_mentioned(
+				isset( $args['abilities'] ) ? $args['abilities'] : array(),
+				$trace_names
 			);
+			$playbook_ids = self::sanitize_playbook_ids( isset( $args['playbook_ids'] ) ? $args['playbook_ids'] : array() );
+
+			$body               = self::build_intake_report_body(
+				array(
+					'kind'                => $kind,
+					'title'               => substr( self::scrub_text( $title ), 0, 200 ),
+					'summary'             => substr( self::scrub_text( $summary ), 0, 4000 ),
+					'debug_pack'          => $debug_pack,
+					'prompt_excerpt'      => substr( self::scrub_text( $prompt_excerpt ), 0, self::PROMPT_EXCERPT_MAX_LENGTH ),
+					'duplicate_of'        => is_int( $duplicate_of ) ? $duplicate_of : null,
+					'ahentic_version'     => defined( 'AHENTIC_VERSION' ) ? AHENTIC_VERSION : '',
+					'wp_version'          => isset( $env['wp'] ) ? (string) $env['wp'] : get_bloginfo( 'version' ),
+					'abilities_mentioned' => $abilities,
+					'playbook_ids'        => $playbook_ids,
+					'client'              => array(
+						'php_version' => isset( $env['php'] ) ? (string) $env['php'] : PHP_VERSION,
+						'ai_client'   => isset( $env['aiClient'] ) ? (string) $env['aiClient'] : '',
+					),
+				)
+			);
+			$body['site_token'] = $token;
 
 			$result = self::request( '/v1/reports', $body );
 			if ( is_wp_error( $result ) ) {
@@ -1358,13 +1626,27 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 					continue;
 				}
 				$data = isset( $event['data'] ) && is_array( $event['data'] ) ? $event['data'] : array();
-				foreach ( array( 'ability', 'name', 'tool' ) as $key ) {
-					if ( ! empty( $data[ $key ] ) && is_string( $data[ $key ] ) && false !== strpos( $data[ $key ], '/' ) ) {
-						$names[ $data[ $key ] ] = true;
-					}
+				$name = self::ability_name_from_trace_data( $data );
+				if ( '' !== $name ) {
+					$names[ $name ] = true;
 				}
 			}
 			return array_keys( $names );
+		}
+
+		/**
+		 * First namespaced ability/tool name on a trace event's data bag.
+		 *
+		 * @param array $data Event data.
+		 * @return string Empty when none.
+		 */
+		private static function ability_name_from_trace_data( array $data ) {
+			foreach ( array( 'ability', 'name', 'tool' ) as $key ) {
+				if ( ! empty( $data[ $key ] ) && is_string( $data[ $key ] ) && false !== strpos( $data[ $key ], '/' ) ) {
+					return $data[ $key ];
+				}
+			}
+			return '';
 		}
 	}
 }

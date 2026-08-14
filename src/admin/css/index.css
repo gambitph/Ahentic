@@ -1732,8 +1732,6 @@ a.ahentic-empty__ai-install:hover {
 	gap: 8px;
 }
 
-.ahentic button.ahentic-run-feedback__yes,
-.ahentic button.ahentic-run-feedback__no,
 .ahentic button.ahentic-run-feedback__dismiss,
 .ahentic button.ahentic-run-feedback__submit {
 	margin: 0;
@@ -1748,6 +1746,20 @@ a.ahentic-empty__ai-install:hover {
 	color: var(--ah-fg);
 }
 
+.ahentic button.ahentic-run-feedback__yes,
+.ahentic button.ahentic-run-feedback__no {
+	margin: 0;
+	padding: 2px 6px;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--ah-muted);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.3;
+	cursor: pointer;
+}
+
 .ahentic button.ahentic-run-feedback__submit {
 	border-color: var(--ah-primary);
 	background: var(--ah-primary);
@@ -1755,12 +1767,19 @@ a.ahentic-empty__ai-install:hover {
 }
 
 .ahentic button.ahentic-run-feedback__yes:hover,
-.ahentic button.ahentic-run-feedback__yes:focus,
+.ahentic button.ahentic-run-feedback__yes:focus-visible,
 .ahentic button.ahentic-run-feedback__no:hover,
-.ahentic button.ahentic-run-feedback__no:focus,
+.ahentic button.ahentic-run-feedback__no:focus-visible,
 .ahentic button.ahentic-run-feedback__dismiss:hover,
 .ahentic button.ahentic-run-feedback__dismiss:focus {
 	background: var(--ah-hover);
+}
+
+.ahentic button.ahentic-run-feedback__yes:focus-visible,
+.ahentic button.ahentic-run-feedback__no:focus-visible {
+	outline: 2px solid var(--ah-primary);
+	outline-offset: 1px;
+	color: var(--ah-fg);
 }
 
 .ahentic button.ahentic-run-feedback__submit:hover,

@@ -31,7 +31,7 @@ test.describe( 'Sidebar run feedback', () => {
 		await waitForSession( requestUtils, session.id, s => s.status === 'idle' )
 
 		await expect( ahenticSidebar.runFeedback ).toBeVisible( { timeout: 15_000 } )
-		await expect( ahenticSidebar.runFeedback ).toContainText( /Did Ahentic do well/i )
+		await expect( ahenticSidebar.runFeedback ).toContainText( /Did this run go well/i )
 		await expect( ahenticSidebar.runFeedback.getByRole( 'button', { name: 'Yes' } ) ).toBeVisible()
 		await expect( ahenticSidebar.runFeedback.getByRole( 'button', { name: 'No' } ) ).toBeVisible()
 	} )
@@ -63,7 +63,7 @@ test.describe( 'Sidebar run feedback', () => {
 		await expect( ahenticSidebar.runFeedback ).toBeVisible( { timeout: 15_000 } )
 	} )
 
-	test( 'Yes dismisses the Run feedback indicator', async ( {
+	test( 'Yes files a mocked good-run report', async ( {
 		ahenticSidebar,
 		requestUtils,
 	} ) => {
@@ -77,8 +77,19 @@ test.describe( 'Sidebar run feedback', () => {
 		await waitForSession( requestUtils, session.id, s => s.status === 'idle' )
 
 		await expect( ahenticSidebar.runFeedback ).toBeVisible( { timeout: 15_000 } )
+
+		await ahenticSidebar.seedAiResponses( [
+			JSON.stringify( {
+				title: 'E2E good run',
+				summary: 'The user asked for a short reply and Ahentic answered.',
+				abilities: [],
+			} ),
+		] )
 		await ahenticSidebar.runFeedback.getByRole( 'button', { name: 'Yes' } ).click()
-		await expect( ahenticSidebar.runFeedback ).toHaveCount( 0 )
+
+		await expect( ahenticSidebar.runFeedback ).toContainText( /Thanks|View on GitHub|filed/i, {
+			timeout: 30_000,
+		} )
 	} )
 
 	test( 'No files a mocked Run feedback report', async ( {

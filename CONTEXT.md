@@ -149,11 +149,11 @@ The durable interpretive brief of this WordPress install (purpose, visitors, bra
 _Avoid_: memory (alone), embeddings store, RAG index, plugin/setup dump
 
 **Run feedback**:
-Yes/No chrome after an unsure idle run in the sidebar (not an Ability); Yes dismisses, No starts the draft/file path.
-_Avoid_: bug report form (alone), thumbs, NPS, HITL Allow/Skip
+Yes/No chrome after an idle run in the sidebar (not an Ability); Yes files a good-run specimen (`kind: success`, no debug pack), No files a failure report with debug pack.
+_Avoid_: bug report form (alone), thumbs, NPS, HITL Allow/Skip, auto-writing playbooks on the customer site
 
 **Run feedback report**:
-Anonymized JSON posted to intake (title, summary, optional hypothesis, debug pack, versions) with no site URL or admin identity.
+Anonymized JSON posted to intake (`kind` success or failure, title, summary, optional hypothesis and debug pack on failure, versions) with no site URL or admin identity.
 _Avoid_: GitHub issue body (the filed artifact), support ticket
 
 **Run feedback debug pack**:
@@ -161,7 +161,7 @@ Decluttered, scrubbed export derived from session diagnostics plus the live page
 _Avoid_: raw `to_diagnostics()` dump, full prompt bodies, inlined 65k issue body dump
 
 **Run feedback intake**:
-Ahentic-operated Cloudflare Worker at `feedback.wpahentic.com` that mints site tokens and files reports into `gambitph/Ahentic` (`run-feedback` label).
+Ahentic-operated Cloudflare Worker at `feedback.wpahentic.com` that mints site tokens and files reports into `gambitph/Ahentic` (`run-feedback` or `run-success` labels).
 _Avoid_: plugin-embedded GitHub bot, site OAuth to GitHub
 
 **End-user docs site**:

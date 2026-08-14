@@ -90,6 +90,79 @@ test.describe( 'Run feedback intake proxy (REST)', () => {
 		} )
 	} )
 
+	test( 'mint + success report files a mocked good-run issue without a debug pack', async ( {
+		requestUtils,
+	} ) => {
+		const { sessionId } = await startRun( requestUtils, {
+			aiReplies: [
+				mockUseTools(
+					'Looking at recent posts…',
+					[ { name: 'ahentic/get-site-snapshot', input: {} } ],
+					{ plan: ARTICLE_PLAN }
+				),
+				mockAiError(),
+			],
+			content: 'write a long article based on my previous posts',
+		} )
+
+		await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'idle' && Boolean( s.jobResumable )
+		)
+
+		await requestUtils.rest( {
+			path: '/ahentic/v1/feedback/site-tokens',
+			method: 'POST',
+			data: {},
+		} )
+
+		await seedAiResponses( requestUtils, [
+			JSON.stringify( {
+				title: 'E2E good run',
+				summary: 'Goal was a long article. Ahentic gathered posts then stalled. User marked the run good.',
+				abilities: [ 'ahentic/get-site-snapshot' ],
+			} ),
+		] )
+
+		const drafted = await requestUtils.rest( {
+			path: '/ahentic/v1/feedback/draft',
+			method: 'POST',
+			data: {
+				session_id: Number( sessionId ),
+				kind: 'success',
+			},
+		} )
+		expect( drafted.title ).toBe( 'E2E good run' )
+		expect( drafted.abilities ).toEqual( [ 'ahentic/get-site-snapshot' ] )
+
+		const filed = await requestUtils.rest( {
+			path: '/ahentic/v1/feedback/reports',
+			method: 'POST',
+			data: {
+				session_id: Number( sessionId ),
+				kind: 'success',
+				title: drafted.title,
+				summary: drafted.summary,
+				abilities: drafted.abilities,
+			},
+		} )
+
+		expect( filed ).toMatchObject( {
+			action: 'created',
+			number: 4242,
+			html_url: expect.stringContaining( 'github.com/gambitph/Ahentic/issues/4242' ),
+		} )
+
+		const last = await requestUtils.rest( {
+			path: '/ahentic-e2e/v1/last-intake-report',
+		} )
+		expect( last.kind ).toBe( 'success' )
+		expect( last ).not.toHaveProperty( 'debug_pack' )
+		expect( last.playbook_ids ).toEqual( [] )
+		expect( last.abilities_mentioned ).toEqual( [ 'ahentic/get-site-snapshot' ] )
+	} )
+
 	test( 'POST /feedback/draft returns title summary and hypothesis', async ( {
 		requestUtils,
 	} ) => {

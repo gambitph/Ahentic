@@ -148,6 +148,19 @@ add_action(
 				'permission_callback' => 'ahentic_e2e_permission_check',
 			)
 		);
+
+		register_rest_route(
+			'ahentic-e2e/v1',
+			'/last-intake-report',
+			array(
+				'methods'             => 'GET',
+				'permission_callback' => 'ahentic_e2e_permission_check',
+				'callback'            => static function () {
+					$last = get_option( 'ahentic_e2e_last_intake_report', array() );
+					return rest_ensure_response( is_array( $last ) ? $last : array() );
+				},
+			)
+		);
 	}
 );
 
@@ -1064,7 +1077,7 @@ add_filter(
 
 add_filter(
 	'pre_ahentic_feedback_intake_request',
-	static function ( $pre, $path ) {
+	static function ( $pre, $path, $body = array() ) {
 		if ( null !== $pre ) {
 			return $pre;
 		}
@@ -1075,6 +1088,9 @@ add_filter(
 			);
 		}
 		if ( '/v1/reports' === $path ) {
+			$safe = is_array( $body ) ? $body : array();
+			unset( $safe['site_token'] );
+			update_option( 'ahentic_e2e_last_intake_report', $safe, false );
 			return array(
 				'action'   => 'created',
 				'number'   => 4242,
@@ -1088,5 +1104,5 @@ add_filter(
 		);
 	},
 	10,
-	2
+	3
 );

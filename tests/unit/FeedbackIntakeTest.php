@@ -413,4 +413,219 @@ class FeedbackIntakeTest extends PHPUnit\Framework\TestCase {
 		$this->assertStringNotContainsString( 'should-not-leak.example', $pack );
 		$this->assertStringNotContainsString( 'me@example.com', $pack );
 	}
+
+	public function test_normalize_report_kind_defaults_to_failure() {
+		$this->assertSame( Ahentic_Feedback_Intake::KIND_SUCCESS, Ahentic_Feedback_Intake::normalize_report_kind( 'success' ) );
+		$this->assertSame( Ahentic_Feedback_Intake::KIND_FAILURE, Ahentic_Feedback_Intake::normalize_report_kind( 'failure' ) );
+		$this->assertSame( Ahentic_Feedback_Intake::KIND_FAILURE, Ahentic_Feedback_Intake::normalize_report_kind( '' ) );
+		$this->assertSame( Ahentic_Feedback_Intake::KIND_FAILURE, Ahentic_Feedback_Intake::normalize_report_kind( 'nope' ) );
+	}
+
+	public function test_duplicate_search_query_uses_kind_label() {
+		$this->assertSame(
+			'repo:gambitph/Ahentic label:run-feedback is:open',
+			Ahentic_Feedback_Intake::duplicate_search_query()
+		);
+		$this->assertSame(
+			'repo:gambitph/Ahentic label:run-success is:open Installed an SEO plugin',
+			Ahentic_Feedback_Intake::duplicate_search_query(
+				'Installed an SEO plugin',
+				Ahentic_Feedback_Intake::LABEL_SUCCESS
+			)
+		);
+	}
+
+	public function test_sanitize_playbook_ids_kebabs_and_caps_at_two() {
+		$this->assertSame(
+			array( 'plugin-hygiene', 'seo-decisioning' ),
+			Ahentic_Feedback_Intake::sanitize_playbook_ids(
+				array( 'Plugin-Hygiene', 'seo-decisioning', 'plugin-hygiene', 'too many', '!!!' )
+			)
+		);
+		$this->assertSame( array(), Ahentic_Feedback_Intake::sanitize_playbook_ids( 'plugin-hygiene' ) );
+	}
+
+	public function test_work_excerpt_from_trace_is_ordered_with_ok_fail() {
+		$excerpt = Ahentic_Feedback_Intake::work_excerpt_from_trace(
+			array(
+				array(
+					'type' => 'tool',
+					'data' => array(
+						'ability' => 'ahentic/list-plugins',
+						'ok'      => true,
+					),
+				),
+				array(
+					'type' => 'heartbeat',
+					'data' => array(),
+				),
+				array(
+					'type' => 'tool',
+					'data' => array(
+						'ability' => 'ahentic/install-plugin',
+						'ok'      => false,
+					),
+				),
+				array(
+					'type' => 'tool',
+					'data' => array(
+						'ability' => 'ahentic/list-plugins',
+						'ok'      => true,
+					),
+				),
+			)
+		);
+		$this->assertSame(
+			"ahentic/list-plugins ok\nahentic/install-plugin fail\nahentic/list-plugins ok",
+			$excerpt
+		);
+	}
+
+	public function test_build_draft_summary_prompts_success_narrates_and_keeps_uncertain_abilities() {
+		$prompts = Ahentic_Feedback_Intake::build_draft_summary_prompts(
+			array(
+				'session' => array(
+					'status'    => 'idle',
+					'lastError' => '',
+				),
+				'state'   => array(
+					'activeGoal'   => 'Install Yoast',
+					'jobResumable' => false,
+				),
+				'trace'   => array(
+					array(
+						'type' => 'tool',
+						'data' => array(
+							'ability' => 'ahentic/list-plugins',
+							'ok'      => true,
+						),
+					),
+					array(
+						'type' => 'tool',
+						'data' => array(
+							'ability' => 'ahentic/install-plugin',
+							'ok'      => true,
+						),
+					),
+				),
+			),
+			"| entity | prompt/reply |\n| --- | --- |\n| User | Add an SEO plugin. |\n| Ahentic | Installed Yoast. |",
+			'',
+			array(),
+			Ahentic_Feedback_Intake::KIND_SUCCESS
+		);
+
+		$this->assertStringContainsString( 'successful Ahentic runs', $prompts['system'] );
+		$this->assertStringContainsString( 'correct WordPress path', $prompts['system'] );
+		$this->assertStringContainsString( 'user goal', $prompts['system'] );
+		$this->assertStringContainsString( 'only when you are certain', $prompts['system'] );
+		$this->assertStringContainsString( 'uncertainty, keep it', $prompts['system'] );
+		$this->assertStringNotContainsString( 'failure mode', $prompts['system'] );
+		$this->assertStringNotContainsString( 'hypothesis', $prompts['system'] );
+		$this->assertStringNotContainsString( 'Last error', $prompts['user'] );
+		$this->assertStringNotContainsString( 'Job resumable', $prompts['user'] );
+		$this->assertStringContainsString( 'Work (ordered abilities', $prompts['user'] );
+		$this->assertStringContainsString( 'ahentic/list-plugins ok', $prompts['user'] );
+		$this->assertStringContainsString( 'ahentic/install-plugin ok', $prompts['user'] );
+		$this->assertStringContainsString( 'Add an SEO plugin', $prompts['user'] );
+	}
+
+	public function test_decode_draft_payload_reads_abilities() {
+		$parsed = Ahentic_Feedback_Intake::decode_draft_payload(
+			'{"title":"Installed an SEO plugin","summary":"User wanted SEO. Ahentic listed plugins then installed Yoast.","abilities":["ahentic/list-plugins","ahentic/install-plugin"]}'
+		);
+		$this->assertSame( 'Installed an SEO plugin', $parsed['title'] );
+		$this->assertSame(
+			array( 'ahentic/list-plugins', 'ahentic/install-plugin' ),
+			$parsed['abilities']
+		);
+	}
+
+	public function test_resolve_abilities_mentioned_keeps_trace_order_and_drops_inventions() {
+		$trace_names = array( 'ahentic/list-plugins', 'ahentic/install-plugin', 'ahentic/get-site-snapshot' );
+		$this->assertSame(
+			array( 'ahentic/list-plugins', 'ahentic/install-plugin' ),
+			Ahentic_Feedback_Intake::resolve_abilities_mentioned(
+				array( 'ahentic/list-plugins', 'ahentic/invented', 'ahentic/install-plugin' ),
+				$trace_names
+			)
+		);
+		$this->assertSame(
+			$trace_names,
+			Ahentic_Feedback_Intake::resolve_abilities_mentioned( array(), $trace_names )
+		);
+	}
+
+	public function test_build_intake_report_body_omits_debug_pack_on_success() {
+		$failure = Ahentic_Feedback_Intake::build_intake_report_body(
+			array(
+				'kind'                => Ahentic_Feedback_Intake::KIND_FAILURE,
+				'title'               => 'Unsure run',
+				'summary'             => 'It failed.',
+				'debug_pack'          => '{"trace":[]}',
+				'prompt_excerpt'      => '| User | hi |',
+				'duplicate_of'        => null,
+				'ahentic_version'     => '0.1.0',
+				'wp_version'          => '7.0',
+				'abilities_mentioned' => array( 'ahentic/get-site-snapshot' ),
+				'playbook_ids'        => array(),
+				'client'              => array( 'php_version' => '8.2' ),
+			)
+		);
+		$this->assertSame( 'failure', $failure['kind'] );
+		$this->assertArrayHasKey( 'debug_pack', $failure );
+		$this->assertSame( array(), $failure['playbook_ids'] );
+
+		$success = Ahentic_Feedback_Intake::build_intake_report_body(
+			array(
+				'kind'                => Ahentic_Feedback_Intake::KIND_SUCCESS,
+				'title'               => 'Installed an SEO plugin',
+				'summary'             => 'Listed plugins then installed Yoast.',
+				'debug_pack'          => '{"trace":[]}',
+				'prompt_excerpt'      => '| User | add yoast |',
+				'duplicate_of'        => 12,
+				'ahentic_version'     => '0.1.0',
+				'wp_version'          => '7.0',
+				'abilities_mentioned' => array( 'ahentic/list-plugins' ),
+				'playbook_ids'        => array( 'plugin-hygiene' ),
+				'client'              => array( 'php_version' => '8.2' ),
+			)
+		);
+		$this->assertSame( 'success', $success['kind'] );
+		$this->assertArrayNotHasKey( 'debug_pack', $success );
+		$this->assertSame( array( 'plugin-hygiene' ), $success['playbook_ids'] );
+		$this->assertSame( 12, $success['duplicate_of'] );
+	}
+
+	public function test_fallback_draft_fields_success_is_good_run_copy() {
+		$fields = Ahentic_Feedback_Intake::fallback_draft_fields( Ahentic_Feedback_Intake::KIND_SUCCESS );
+		$this->assertStringContainsString( 'good', strtolower( $fields['title'] . ' ' . $fields['summary'] ) );
+		$this->assertStringNotContainsString( 'debug pack', strtolower( $fields['summary'] ) );
+	}
+
+	public function test_draft_fields_from_prose_uses_kind_title() {
+		$success = Ahentic_Feedback_Intake::draft_fields_from_prose(
+			Ahentic_Feedback_Intake::KIND_SUCCESS,
+			'Ahentic listed plugins then installed Yoast.'
+		);
+		$this->assertSame(
+			Ahentic_Feedback_Intake::fallback_draft_fields( Ahentic_Feedback_Intake::KIND_SUCCESS )['title'],
+			$success['title']
+		);
+		$this->assertStringContainsString( 'installed Yoast', $success['summary'] );
+		$this->assertSame( array(), $success['abilities'] );
+
+		$failure = Ahentic_Feedback_Intake::draft_fields_from_prose(
+			Ahentic_Feedback_Intake::KIND_FAILURE,
+			'The write never ran after get-site-snapshot.'
+		);
+		$this->assertSame(
+			Ahentic_Feedback_Intake::fallback_draft_fields( Ahentic_Feedback_Intake::KIND_FAILURE )['title'],
+			$failure['title']
+		);
+		$this->assertNotSame( $success['title'], $failure['title'] );
+
+		$empty = Ahentic_Feedback_Intake::draft_fields_from_prose( Ahentic_Feedback_Intake::KIND_SUCCESS, '   ' );
+		$this->assertInstanceOf( WP_Error::class, $empty );
+	}
 }

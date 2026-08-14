@@ -54,9 +54,47 @@ export async function ensureFeedbackOptIn() {
 export const RUN_FEEDBACK_USER_NOTE_MAX = 1000
 
 /**
+ * Map a file/draft error to rate-limit copy when intake returns 429.
+ *
+ * @param {Object} err
+ * @return {string} User-facing error copy.
+ */
+function fileErrorMessage( err ) {
+	const code = err?.code || ''
+	if ( code === 'rate_limited' || err?.status === 429 ) {
+		return __(
+			'Feedback intake is rate-limited (new issues: about 1 per minute). Wait a moment and try again, or file as a duplicate if one already exists.',
+			'ahentic'
+		)
+	}
+	return err?.message || __( 'Could not file Run feedback.', 'ahentic' )
+}
+
+/**
+ * Merge a draft response onto a file payload.
+ *
+ * @param {Object} payload
+ * @param {Object} drafted
+ */
+function applyDraftedFields( payload, drafted ) {
+	if ( drafted?.title ) {
+		payload.title = drafted.title
+	}
+	if ( drafted?.summary ) {
+		payload.summary = drafted.summary
+	}
+	if ( drafted?.hypothesis ) {
+		payload.hypothesis = drafted.hypothesis
+	}
+	if ( Array.isArray( drafted?.abilities ) && drafted.abilities.length ) {
+		payload.abilities = drafted.abilities
+	}
+}
+
+/**
  * @param {Object}        props
  * @param {string|number} props.sessionId
- * @param {Function}      props.onDismiss  Yes / after success dismiss.
+ * @param {Function}      props.onDismiss  After success dismiss.
  * @param {boolean}       [props.disabled]
  */
 export default function RunFeedbackBar( {
@@ -67,19 +105,42 @@ export default function RunFeedbackBar( {
 	const [ resultUrl, setResultUrl ] = useState( '' )
 	const [ busy, setBusy ] = useState( false )
 	const [ userNote, setUserNote ] = useState( '' )
+	const [ filingKind, setFilingKind ] = useState( '' ) // success | failure
 
-	const onYes = useCallback( () => {
+	const onYes = useCallback( async () => {
 		if ( busy || disabled ) {
 			return
 		}
-		onDismiss()
-	}, [ busy, disabled, onDismiss ] )
+		setBusy( true )
+		setError( '' )
+		setFilingKind( 'success' )
+		setPhase( 'working' )
+		try {
+			await ensureFeedbackOptIn()
+			const payload = { kind: 'success' }
+			try {
+				const drafted = await draftRunFeedbackReport( sessionId, { kind: 'success' } )
+				applyDraftedFields( payload, drafted )
+			} catch {
+				// File still succeeds with a static good-run title.
+			}
+			const filed = await fileRunFeedbackReport( sessionId, payload )
+			setResultUrl( filed?.html_url || '' )
+			setPhase( 'done' )
+		} catch ( err ) {
+			setError( fileErrorMessage( err ) )
+			setPhase( 'error' )
+		} finally {
+			setBusy( false )
+		}
+	}, [ busy, disabled, sessionId ] )
 
 	const onNo = useCallback( () => {
 		if ( busy || disabled ) {
 			return
 		}
 		setError( '' )
+		setFilingKind( 'failure' )
 		setPhase( 'note' )
 	}, [ busy, disabled ] )
 
@@ -89,6 +150,7 @@ export default function RunFeedbackBar( {
 		}
 		setUserNote( '' )
 		setError( '' )
+		setFilingKind( '' )
 		setPhase( 'ask' )
 	}, [ busy ] )
 
@@ -98,12 +160,14 @@ export default function RunFeedbackBar( {
 		}
 		setBusy( true )
 		setError( '' )
+		setFilingKind( 'failure' )
 		setPhase( 'working' )
 		try {
 			await ensureFeedbackOptIn()
 			const note = String( userNote || '' ).trim()
 			const snapshot = collectRunFeedbackSnapshot()
 			const payload = {
+				kind: 'failure',
 				...snapshot,
 			}
 			if ( note ) {
@@ -111,15 +175,7 @@ export default function RunFeedbackBar( {
 			}
 			try {
 				const drafted = await draftRunFeedbackReport( sessionId, payload )
-				if ( drafted?.title ) {
-					payload.title = drafted.title
-				}
-				if ( drafted?.summary ) {
-					payload.summary = drafted.summary
-				}
-				if ( drafted?.hypothesis ) {
-					payload.hypothesis = drafted.hypothesis
-				}
+				applyDraftedFields( payload, drafted )
 			} catch {
 				// File still succeeds with a static title; snapshot stays on the pack.
 			}
@@ -127,20 +183,8 @@ export default function RunFeedbackBar( {
 			setResultUrl( filed?.html_url || '' )
 			setPhase( 'done' )
 		} catch ( err ) {
-			const code = err?.code || ''
-			const message = err?.message || __( 'Could not file Run feedback.', 'ahentic' )
-			if ( code === 'rate_limited' || err?.status === 429 ) {
-				setError(
-					__(
-						'Feedback intake is rate-limited (new issues: about 1 per minute). Wait a moment and try again, or file as a duplicate if one already exists.',
-						'ahentic'
-					)
-				)
-				setPhase( 'error' )
-			} else {
-				setError( message )
-				setPhase( 'error' )
-			}
+			setError( fileErrorMessage( err ) )
+			setPhase( 'error' )
 		} finally {
 			setBusy( false )
 		}
@@ -150,7 +194,9 @@ export default function RunFeedbackBar( {
 		return (
 			<div className="ahentic-run-feedback is-done" role="status">
 				<span className="ahentic-run-feedback__text">
-					{ __( 'Thanks! Agent feedback was filed.', 'ahentic' ) }
+					{ filingKind === 'success'
+						? __( 'Thanks! This good run was filed.', 'ahentic' )
+						: __( 'Thanks! Agent feedback was filed.', 'ahentic' ) }
 					{ resultUrl ? (
 						<>
 							{ ' ' }
@@ -176,7 +222,7 @@ export default function RunFeedbackBar( {
 		)
 	}
 
-	if ( phase === 'note' || phase === 'error' ) {
+	if ( phase === 'note' || ( phase === 'error' && filingKind === 'failure' ) ) {
 		return (
 			<div
 				className="ahentic-run-feedback is-note"
@@ -232,10 +278,12 @@ export default function RunFeedbackBar( {
 			{ phase === 'working' ? (
 				<div className="ahentic-run-feedback__copy" role="status">
 					<span className="ahentic-run-feedback__text">
-						{ __(
-							'Thanks! Drafting an anonymous report for the Ahentic team…',
-							'ahentic'
-						) }
+						{ filingKind === 'success'
+							? __( 'Sending this run…', 'ahentic' )
+							: __(
+								'Thanks! Drafting an anonymous report for the Ahentic team…',
+								'ahentic'
+							) }
 					</span>
 					<span className="ahentic-run-feedback__hint">
 						{ __( 'Keep this window open.', 'ahentic' ) }
@@ -243,7 +291,7 @@ export default function RunFeedbackBar( {
 				</div>
 			) : (
 				<span className="ahentic-run-feedback__text">
-					{ __( 'Did Ahentic do well?', 'ahentic' ) }
+					{ __( 'Did this run go well?', 'ahentic' ) }
 				</span>
 			) }
 			{ phase !== 'working' ? (
@@ -265,6 +313,11 @@ export default function RunFeedbackBar( {
 						{ __( 'No', 'ahentic' ) }
 					</button>
 				</div>
+			) : null }
+			{ phase === 'error' && error ? (
+				<span className="ahentic-run-feedback__error" role="alert">
+					{ error }
+				</span>
 			) : null }
 		</div>
 	)

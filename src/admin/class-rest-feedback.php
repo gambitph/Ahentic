@@ -94,6 +94,11 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 							'required' => false,
 							'type'     => 'array',
 						),
+						'kind'            => array(
+							'required' => false,
+							'type'     => 'string',
+							'enum'     => array( 'success', 'failure' ),
+						),
 					),
 				)
 			);
@@ -146,6 +151,19 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 						'duplicate_of'    => array(
 							'required' => false,
 						),
+						'kind'            => array(
+							'required' => false,
+							'type'     => 'string',
+							'enum'     => array( 'success', 'failure' ),
+						),
+						'abilities'       => array(
+							'required' => false,
+							'type'     => 'array',
+						),
+						'playbook_ids'    => array(
+							'required' => false,
+							'type'     => 'array',
+						),
 					),
 				)
 			);
@@ -188,7 +206,7 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 		}
 
 		/**
-		 * POST /feedback/draft — LLM title/summary/hypothesis. Does not file.
+		 * POST /feedback/draft — LLM title/summary (hypothesis on failure). Does not file.
 		 *
 		 * @param \WP_REST_Request $request Request.
 		 * @return \WP_REST_Response|\WP_Error
@@ -205,6 +223,10 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 			if ( is_string( $user_note ) && '' !== trim( $user_note ) ) {
 				$args['user_note'] = $user_note;
 			}
+			$kind = $request->get_param( 'kind' );
+			if ( is_string( $kind ) && '' !== trim( $kind ) ) {
+				$args['kind'] = $kind;
+			}
 
 			$result = Ahentic_Feedback_Intake::draft_report( $session_id, $args );
 			if ( is_wp_error( $result ) ) {
@@ -216,6 +238,9 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 					'title'      => isset( $result['title'] ) ? (string) $result['title'] : '',
 					'summary'    => isset( $result['summary'] ) ? (string) $result['summary'] : '',
 					'hypothesis' => isset( $result['hypothesis'] ) ? (string) $result['hypothesis'] : '',
+					'abilities'  => isset( $result['abilities'] ) && is_array( $result['abilities'] )
+						? $result['abilities']
+						: array(),
 				)
 			);
 		}
@@ -257,6 +282,18 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 			if ( $request->offsetExists( 'duplicate_of' ) ) {
 				$dup                  = $request->get_param( 'duplicate_of' );
 				$args['duplicate_of'] = ( null === $dup || '' === $dup ) ? null : (int) $dup;
+			}
+			$kind = $request->get_param( 'kind' );
+			if ( is_string( $kind ) && '' !== trim( $kind ) ) {
+				$args['kind'] = $kind;
+			}
+			$abilities = $request->get_param( 'abilities' );
+			if ( is_array( $abilities ) ) {
+				$args['abilities'] = $abilities;
+			}
+			$playbook_ids = $request->get_param( 'playbook_ids' );
+			if ( is_array( $playbook_ids ) ) {
+				$args['playbook_ids'] = $playbook_ids;
 			}
 
 			$result = Ahentic_Feedback_Intake::file_report( $session_id, $args );

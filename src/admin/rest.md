@@ -201,8 +201,8 @@ Fresh mint uses a **mint proof** (shared HMAC formula); no Turnstile site key in
 | `GET` | `/feedback` | Status: `consented`, `hasToken`, `expiresAt`, `intakeBase` |
 | `POST` | `/feedback/site-tokens` | Fresh mint with mint proof → stores token; returns status |
 | `POST` | `/feedback/site-tokens/refresh` | Silent refresh (no mint proof) |
-| `POST` | `/feedback/draft` | `{ session_id, user_note?, page_context?, editor_snapshot?, observations? }` → `{ title, summary, hypothesis }` (LLM; does not file) |
-| `POST` | `/feedback/reports` | `{ session_id, title?, summary?, hypothesis?, user_note?, page_context?, editor_snapshot?, observations?, duplicate_of? }` → debug pack → intake (no LLM) |
+| `POST` | `/feedback/draft` | `{ session_id, kind?, user_note?, page_context?, editor_snapshot?, observations? }` → `{ title, summary, hypothesis, abilities }` (LLM; does not file). `kind: success` narrates a good run and omits page snapshot. |
+| `POST` | `/feedback/reports` | `{ session_id, kind?, title?, summary?, hypothesis?, abilities?, playbook_ids?, user_note?, page_context?, editor_snapshot?, observations?, duplicate_of? }` → intake (no LLM). Failure builds a debug pack; success omits it. |
 
 Intake may return `429` / `rate_limited` (including **1 new issue per client IP per minute**). Clients should surface that and prefer `duplicate_of` when search finds a match.
 
