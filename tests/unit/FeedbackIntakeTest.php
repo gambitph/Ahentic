@@ -628,4 +628,10 @@ class FeedbackIntakeTest extends PHPUnit\Framework\TestCase {
 		$empty = Ahentic_Feedback_Intake::draft_fields_from_prose( Ahentic_Feedback_Intake::KIND_SUCCESS, '   ' );
 		$this->assertInstanceOf( WP_Error::class, $empty );
 	}
+
+	public function test_submit_report_rejects_invalid_session() {
+		$result = Ahentic_Feedback_Intake::submit_report( 0, array( 'kind' => 'success' ) );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'ahentic_feedback_bad_session', $result->get_error_code() );
+	}
 }

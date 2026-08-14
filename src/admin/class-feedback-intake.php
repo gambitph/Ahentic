@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 	/**
-	 * Proxies mint / refresh / reports to Run feedback intake and builds debug packs.
+	 * Proxies mint / refresh / submit / reports to Run feedback intake and builds debug packs.
 	 */
 	class Ahentic_Feedback_Intake {
 		/**
@@ -955,7 +955,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		/**
 		 * Draft AI summary for a report. Fails visibly when AI is unavailable.
 		 *
-		 * Called from the draft REST route (sidebar), not from file_report.
+		 * Called from submit_report and the draft REST route, not from file_report.
 		 *
 		 * @param array  $diagnostics     Diagnostics bundle.
 		 * @param string $prompt_excerpt  Anonymized conversation list (user + Ahentic turns).
@@ -1256,20 +1256,12 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * Draft title/summary (and hypothesis on failure) for a session (LLM). Does not file.
+		 * Require a usable session id for draft / file / submit.
 		 *
-		 * @param int   $session_id Session ID.
-		 * @param array $args {
-		 *     Client snapshot.
-		 *     @type string $kind            success|failure (default failure).
-		 *     @type string $user_note
-		 *     @type array  $page_context
-		 *     @type array  $editor_snapshot
-		 *     @type array  $observations
-		 * }
-		 * @return array|\WP_Error { title, summary, hypothesis, abilities }
+		 * @param int $session_id Session ID.
+		 * @return int|\WP_Error Session id or error.
 		 */
-		public static function draft_report( $session_id, array $args = array() ) {
+		private static function require_session( $session_id ) {
 			$session_id = (int) $session_id;
 			if ( $session_id <= 0 || ! class_exists( 'Ahentic_Session_Repository' ) ) {
 				return new WP_Error(
@@ -1278,12 +1270,17 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 					array( 'status' => 400 )
 				);
 			}
+			return $session_id;
+		}
 
-			$diagnostics = Ahentic_Session_Repository::to_diagnostics( $session_id );
-			if ( is_wp_error( $diagnostics ) ) {
-				return $diagnostics;
-			}
-
+		/**
+		 * Client snapshot plus stored session page context for draft prompts.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $args       REST / submit args.
+		 * @return array
+		 */
+		private static function client_context_from_args( $session_id, array $args ) {
 			$client_context = array(
 				'page_context'    => isset( $args['page_context'] ) && is_array( $args['page_context'] )
 					? $args['page_context']
@@ -1300,6 +1297,53 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			if ( is_array( $stored ) && ! empty( $stored ) ) {
 				$client_context['session_page_context'] = $stored;
 			}
+			return $client_context;
+		}
+
+		/**
+		 * Site token, minting on first submit (Yes/No is consent).
+		 *
+		 * @return string|\WP_Error Site token or error.
+		 */
+		private static function ensure_enrolled_token() {
+			$token = self::ensure_valid_token();
+			if ( ! is_wp_error( $token ) ) {
+				return $token;
+			}
+			if ( 'ahentic_feedback_no_token' !== $token->get_error_code() ) {
+				return $token;
+			}
+			$minted = self::mint_site_token();
+			if ( is_wp_error( $minted ) ) {
+				return $minted;
+			}
+			return isset( $minted['site_token'] ) ? (string) $minted['site_token'] : '';
+		}
+
+		/**
+		 * Draft title/summary (and hypothesis on failure) for a session (LLM). Does not file.
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $args {
+		 *     Client snapshot.
+		 *     @type string $kind            success|failure (default failure).
+		 *     @type string $user_note
+		 *     @type array  $page_context
+		 *     @type array  $editor_snapshot
+		 *     @type array  $observations
+		 * }
+		 * @return array|\WP_Error { title, summary, hypothesis, abilities }
+		 */
+		public static function draft_report( $session_id, array $args = array() ) {
+			$session_id = self::require_session( $session_id );
+			if ( is_wp_error( $session_id ) ) {
+				return $session_id;
+			}
+
+			$diagnostics = Ahentic_Session_Repository::to_diagnostics( $session_id );
+			if ( is_wp_error( $diagnostics ) ) {
+				return $diagnostics;
+			}
 
 			$user_note = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
 			$kind      = self::normalize_report_kind( isset( $args['kind'] ) ? $args['kind'] : self::KIND_FAILURE );
@@ -1307,15 +1351,86 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				$diagnostics,
 				self::conversation_excerpt( $session_id ),
 				$user_note,
-				$client_context,
+				self::client_context_from_args( $session_id, $args ),
 				$kind
 			);
 		}
 
 		/**
+		 * Mint if needed, draft (fallback on LLM failure), then file.
+		 *
+		 * Sidebar Yes/No is consent. Draft vs file stay distinct internally (ADR-0008).
+		 *
+		 * @param int   $session_id Session ID.
+		 * @param array $args {
+		 *     Client snapshot.
+		 *     @type string $kind            success|failure (default failure).
+		 *     @type string $user_note
+		 *     @type array  $page_context
+		 *     @type array  $editor_snapshot
+		 *     @type array  $observations
+		 * }
+		 * @return array|\WP_Error Intake response { action, number, html_url }.
+		 */
+		public static function submit_report( $session_id, array $args = array() ) {
+			$session_id = self::require_session( $session_id );
+			if ( is_wp_error( $session_id ) ) {
+				return $session_id;
+			}
+
+			if ( function_exists( 'set_time_limit' ) ) {
+				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- draft + file in one request.
+				@set_time_limit( 180 );
+			}
+
+			$enrolled = self::ensure_enrolled_token();
+			if ( is_wp_error( $enrolled ) ) {
+				return $enrolled;
+			}
+
+			$diagnostics = Ahentic_Session_Repository::to_diagnostics( $session_id );
+			if ( is_wp_error( $diagnostics ) ) {
+				return $diagnostics;
+			}
+
+			$prompt_excerpt = self::conversation_excerpt( $session_id );
+			$kind           = self::normalize_report_kind( isset( $args['kind'] ) ? $args['kind'] : self::KIND_FAILURE );
+			$user_note      = isset( $args['user_note'] ) ? (string) $args['user_note'] : '';
+			$drafted        = self::draft_summary(
+				$diagnostics,
+				$prompt_excerpt,
+				$user_note,
+				self::client_context_from_args( $session_id, $args ),
+				$kind
+			);
+			if ( is_wp_error( $drafted ) ) {
+				$drafted              = self::fallback_draft_fields( $kind );
+				$drafted['abilities'] = array();
+			}
+
+			$file_args                   = $args;
+			$file_args['kind']           = $kind;
+			$file_args['prompt_excerpt'] = $prompt_excerpt;
+			if ( isset( $drafted['title'] ) && is_string( $drafted['title'] ) && '' !== trim( $drafted['title'] ) ) {
+				$file_args['title'] = $drafted['title'];
+			}
+			if ( isset( $drafted['summary'] ) && is_string( $drafted['summary'] ) && '' !== trim( $drafted['summary'] ) ) {
+				$file_args['summary'] = $drafted['summary'];
+			}
+			if ( isset( $drafted['hypothesis'] ) && is_string( $drafted['hypothesis'] ) && '' !== trim( $drafted['hypothesis'] ) ) {
+				$file_args['hypothesis'] = $drafted['hypothesis'];
+			}
+			if ( isset( $drafted['abilities'] ) && is_array( $drafted['abilities'] ) ) {
+				$file_args['abilities'] = $drafted['abilities'];
+			}
+
+			return self::file_loaded_report( $session_id, $diagnostics, $prompt_excerpt, $file_args );
+		}
+
+		/**
 		 * File a report for a session (builds pack, ensures token, POSTs).
 		 *
-		 * Does not call the model. The sidebar drafts title/summary/hypothesis first.
+		 * Does not call the model. submit_report drafts then calls this path.
 		 *
 		 * @param int   $session_id Session ID.
 		 * @param array $args {
@@ -1336,13 +1451,9 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		 * @return array|\WP_Error Intake response { action, number, html_url }.
 		 */
 		public static function file_report( $session_id, array $args = array() ) {
-			$session_id = (int) $session_id;
-			if ( $session_id <= 0 || ! class_exists( 'Ahentic_Session_Repository' ) ) {
-				return new WP_Error(
-					'ahentic_feedback_bad_session',
-					__( 'Invalid session for Run feedback.', 'ahentic' ),
-					array( 'status' => 400 )
-				);
+			$session_id = self::require_session( $session_id );
+			if ( is_wp_error( $session_id ) ) {
+				return $session_id;
 			}
 
 			$diagnostics = Ahentic_Session_Repository::to_diagnostics( $session_id );
@@ -1355,6 +1466,19 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 				$prompt_excerpt = self::conversation_excerpt( $session_id );
 			}
 
+			return self::file_loaded_report( $session_id, $diagnostics, $prompt_excerpt, $args );
+		}
+
+		/**
+		 * File using already-loaded diagnostics (no second session read, no LLM).
+		 *
+		 * @param int    $session_id     Session ID.
+		 * @param array  $diagnostics    From to_diagnostics().
+		 * @param string $prompt_excerpt Conversation list.
+		 * @param array  $args           File args (kind, title, snapshot, ...).
+		 * @return array|\WP_Error Intake response { action, number, html_url }.
+		 */
+		private static function file_loaded_report( $session_id, array $diagnostics, $prompt_excerpt, array $args ) {
 			$title      = isset( $args['title'] ) ? (string) $args['title'] : '';
 			$summary    = isset( $args['summary'] ) ? (string) $args['summary'] : '';
 			$hypothesis = isset( $args['hypothesis'] ) ? (string) $args['hypothesis'] : '';
@@ -1436,7 +1560,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 
 			$result = self::request( '/v1/reports', $body );
 			if ( is_wp_error( $result ) ) {
-				// Token expired mid-flight — try one silent refresh then retry once.
+				// Token expired mid-flight - try one silent refresh then retry once.
 				if ( 'invalid_token' === $result->get_error_code() ) {
 					$refreshed = self::refresh_site_token();
 					if ( ! is_wp_error( $refreshed ) ) {

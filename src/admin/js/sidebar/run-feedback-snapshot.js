@@ -1,5 +1,5 @@
 /**
- * Live page / editor snapshot collected on Run feedback No (before draft+file).
+ * Live page / editor snapshot collected on Run feedback No (before submit).
  */
 
 /* eslint-disable camelcase -- Feedback snapshot I/O matches PHP REST snake_case. */

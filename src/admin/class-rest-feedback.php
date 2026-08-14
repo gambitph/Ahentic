@@ -167,6 +167,43 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 					),
 				)
 			);
+			register_rest_route(
+				'ahentic/v1',
+				'/feedback/submit',
+				array(
+					'methods'             => 'POST',
+					'callback'            => array( __CLASS__, 'post_submit' ),
+					'permission_callback' => array( __CLASS__, 'can_manage' ),
+					'args'                => array(
+						'session_id'      => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+						'user_note'       => array(
+							'required' => false,
+							'type'     => 'string',
+						),
+						'page_context'    => array(
+							'required' => false,
+							'type'     => 'object',
+						),
+						'editor_snapshot' => array(
+							'required' => false,
+							'type'     => 'object',
+						),
+						'observations'    => array(
+							'required' => false,
+							'type'     => 'array',
+						),
+						'kind'            => array(
+							'required' => false,
+							'type'     => 'string',
+							'enum'     => array( 'success', 'failure' ),
+						),
+					),
+				)
+			);
 		}
 
 		/**
@@ -218,16 +255,7 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 				return $owned;
 			}
 
-			$args      = self::client_snapshot_args( $request );
-			$user_note = $request->get_param( 'user_note' );
-			if ( is_string( $user_note ) && '' !== trim( $user_note ) ) {
-				$args['user_note'] = $user_note;
-			}
-			$kind = $request->get_param( 'kind' );
-			if ( is_string( $kind ) && '' !== trim( $kind ) ) {
-				$args['kind'] = $kind;
-			}
-
+			$args   = self::kind_and_snapshot_args( $request );
 			$result = Ahentic_Feedback_Intake::draft_report( $session_id, $args );
 			if ( is_wp_error( $result ) ) {
 				return self::error_response( $result );
@@ -297,16 +325,24 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 			}
 
 			$result = Ahentic_Feedback_Intake::file_report( $session_id, $args );
-			if ( is_wp_error( $result ) ) {
-				return self::error_response( $result );
+			return self::filed_response( $result );
+		}
+
+		/**
+		 * POST /feedback/submit - mint if needed, draft, file (one round-trip).
+		 *
+		 * @param \WP_REST_Request $request Request.
+		 * @return \WP_REST_Response|\WP_Error
+		 */
+		public static function post_submit( $request ) {
+			$session_id = (int) $request->get_param( 'session_id' );
+			$owned      = self::require_owned_session( $session_id );
+			if ( is_wp_error( $owned ) ) {
+				return $owned;
 			}
 
-			return rest_ensure_response(
-				array(
-					'action'   => isset( $result['action'] ) ? $result['action'] : '',
-					'number'   => isset( $result['number'] ) ? (int) $result['number'] : 0,
-					'html_url' => isset( $result['html_url'] ) ? $result['html_url'] : '',
-				)
+			return self::filed_response(
+				Ahentic_Feedback_Intake::submit_report( $session_id, self::kind_and_snapshot_args( $request ) )
 			);
 		}
 
@@ -329,6 +365,44 @@ if ( ! class_exists( 'Ahentic_REST_Feedback' ) ) {
 				);
 			}
 			return true;
+		}
+
+		/**
+		 * Kind + optional note + client snapshot from a REST request.
+		 *
+		 * @param \WP_REST_Request $request Request.
+		 * @return array
+		 */
+		private static function kind_and_snapshot_args( $request ) {
+			$args      = self::client_snapshot_args( $request );
+			$user_note = $request->get_param( 'user_note' );
+			if ( is_string( $user_note ) && '' !== trim( $user_note ) ) {
+				$args['user_note'] = $user_note;
+			}
+			$kind = $request->get_param( 'kind' );
+			if ( is_string( $kind ) && '' !== trim( $kind ) ) {
+				$args['kind'] = $kind;
+			}
+			return $args;
+		}
+
+		/**
+		 * Map a file/submit result onto REST.
+		 *
+		 * @param array|\WP_Error $result Intake result.
+		 * @return \WP_REST_Response|\WP_Error
+		 */
+		private static function filed_response( $result ) {
+			if ( is_wp_error( $result ) ) {
+				return self::error_response( $result );
+			}
+			return rest_ensure_response(
+				array(
+					'action'   => isset( $result['action'] ) ? $result['action'] : '',
+					'number'   => isset( $result['number'] ) ? (int) $result['number'] : 0,
+					'html_url' => isset( $result['html_url'] ) ? $result['html_url'] : '',
+				)
+			);
 		}
 
 		/**
