@@ -1,14 +1,17 @@
 {
   "id": "web-image-fit",
   "title": "Web image fit",
-  "when_to_use": "Generating or placing images for posts/pages (featured, inline, hero) — pick aspect ratio and framing so images fit the web.",
+  "when_to_use": "Generating or placing images for posts/pages (featured, inline, hero). Pick aspect ratio, then inspect where the image actually lives before writing.",
   "triggers": [
     "generate image",
     "featured image",
     "add an image",
+    "change hero",
+    "replace cover",
     "hero image",
     "inline image",
     "cover image",
+    "banner image",
     "thumbnail",
     "too tall",
     "aspect ratio",
@@ -17,6 +20,8 @@
   "related_abilities": [
     "ahentic/generate-image",
     "ahentic/upload-media",
+    "ahentic-browser/get-blocks",
+    "ahentic-browser/update-block-attributes",
     "ahentic/set-featured-image",
     "ahentic-browser/set-featured-image",
     "ahentic-browser/insert-blocks"
@@ -24,24 +29,28 @@
   "principles": [
     "Default landscape: use aspect_ratio 16:9 for featured, inline, and hero/post images unless the user asks otherwise.",
     "Use 4:3 only when the user wants a less-wide / classic photo crop, or the scene needs a bit more vertical subject room without going portrait.",
-    "Tall (9:16 / 3:4) only when the user explicitly asks for tall, portrait, Story, or phone-tall — never because the subject is a standing person or vertical object.",
-    "Square (1:1) only for icons, avatars, logos, or product thumbs — or when the user says square. Never default a post image to 1:1.",
-    "Ambiguous “add an image”: landscape 16:9 inline (or top-of-body if there is no lead image). Set featured only when they say featured / thumbnail / cover / social card, or when a new-post brief includes a featured image.",
-    "Prompt craft: say framing in the prompt (“wide landscape composition”, “subject in upper two-thirds”, “generous margins”, “not a tall portrait”). Prefer editorial crops that read at ~1200×675; keep text-in-image minimal; always plan alt text.",
-    "Out of scope here: site logo/icon strategy, OG/social copy, accessibility alt audits, stock vs generate, theme thumbnail regeneration — use other abilities/playbooks for those."
+    "Tall (9:16 / 3:4) only when the user explicitly asks for tall, portrait, Story, or phone-tall - never because the subject is a standing person or vertical object.",
+    "Square (1:1) only for icons, avatars, logos, or product thumbs - or when the user says square. Never default a post image to 1:1.",
+    "Hero, banner, header image, and cover on an existing page are usually a block in the document (core/cover, core/image, core/media-text, or a third-party block with a media URL) - not featured_media.",
+    "Cover block is not the post thumbnail. Set featured only when they say featured / thumbnail / social card, or inspect shows the theme actually renders featured_media.",
+    "Change/replace an existing visual: inspect first (compact get-blocks when the editor is open). Generate/upload only if they need a new image, then patch that block's url/id/alt.",
+    "Ambiguous add an image: inspect first; if a lead visual already exists, ask or patch it rather than inserting a second copy. Insert a new core/image (index 0 / before the first block) only when they asked to add one and there is no existing visual to change.",
+    "Prompt craft: say framing in the prompt (wide landscape composition, subject in upper two-thirds, generous margins, not a tall portrait). Prefer editorial crops that read at ~1200x675; keep text-in-image minimal; always plan alt text.",
+    "Out of scope here: site logo/icon strategy, OG/social copy, accessibility alt audits, stock vs generate, theme thumbnail regeneration - use other abilities/playbooks for those."
   ],
   "steps": [
-    "Decide role: featured vs inline/hero vs intentional square chrome — pick one placement path only.",
+    "If the ask is change/replace (or they named hero/banner/cover on this page): compact get-blocks and identify the displayed visual. Note featured_media only if the template actually uses it.",
     "Pick aspect_ratio from the principles (default 16:9 for post images).",
-    "Call ahentic/generate-image with that aspect_ratio and framing baked into the prompt (once).",
-    "ahentic/upload-media with {\"from_memory\":\"<artifact_key>\"} (HITL) once.",
-    "Place once: if the user asked for featured / thumbnail / cover / social card (or a new-post brief includes featured), use ahentic-browser/set-featured-image when the block editor is open, else ahentic/set-featured-image — and do not also insert the same image into the body.",
-    "Otherwise insert a single core/image via ahentic-browser/insert-blocks with {id,url,alt} (index 0 or before_ref of the first block for a lead image). Call insert-blocks once only. Never from_memory on insert-blocks for image artifacts."
+    "Call ahentic/generate-image only when they need a new image, with that aspect_ratio and framing baked into the prompt (once).",
+    "ahentic/upload-media with {\"from_memory\":\"<artifact_key>\"} (HITL) once if it should enter the library.",
+    "Place once on the surface inspect found: update-block-attributes on the cover/image/media-text ref; set-featured-image only if that is the display surface; insert-blocks only when they asked to add an image and there was no existing visual. Never from_memory on insert-blocks for image artifacts."
   ],
   "anti_patterns": [
+    "Treating hero, banner, or cover as featured image without inspecting the canvas.",
     "Omitting aspect_ratio and relying on a square default for post/featured/hero images.",
     "Choosing 9:16 or 3:4 because the subject is a person, bottle, or phone UI without an explicit tall/portrait ask.",
-    "Defaulting every “add an image” request to featured image.",
+    "Defaulting every add-an-image request to featured image.",
+    "Inserting a new lead image when they asked to change the one already on the page.",
     "Inserting the same uploaded image twice (two insert-blocks calls, or featured + body insert) for one generate request.",
     "Putting critical detail at crop edges themes will cut off.",
     "Inserting huge portrait images that dominate the post scroll.",

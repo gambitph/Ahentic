@@ -7,7 +7,7 @@
     "use as featured image",
     "set as featured",
     "thumbnail",
-    "cover image",
+    "use as post cover",
     "move to excerpt",
     "use as excerpt",
     "out of the content",
@@ -27,7 +27,7 @@
   "principles": [
     "Leaving the content is NOT ahentic-browser/move-blocks. move-blocks only reorders/reparents inside the canvas.",
     "Pattern: (1) resolve the source block(s) and needed attrs (e.g. image id/url, text), (2) write the destination with the correct ability, (3) ahentic-browser/delete-blocks on the source unless the user asked to keep both.",
-    "Featured / thumbnail / cover while editor open → ahentic-browser/set-featured-image with attachment_id, then delete-blocks on the image block.",
+    "Featured / thumbnail / post cover (featured_media) while editor open → ahentic-browser/set-featured-image with attachment_id, then delete-blocks on the source image block. This is not the Cover block (core/cover) - see playbook web-image-fit to change a Cover already in the body.",
     "Excerpt / title / slug while editor open → ahentic-browser/update-post-document, then delete-blocks if the source was body content the user wants removed.",
     "When the block editor is NOT open for that post, use server twins (ahentic/set-featured-image, ahentic/update-post) instead of browser doc tools.",
     "Do not rewrite the whole document with set-blocks just to remove one block after promoting it.",
@@ -43,6 +43,7 @@
     "Using move-blocks to “move” something to featured image or excerpt.",
     "Full set-blocks rewrite solely to drop one promoted block.",
     "ahentic/update-post for title/excerpt/slug while the same post is open in the block editor.",
+    "Treating a Cover block (core/cover) change as set-featured-image - that playbook is web-image-fit.",
     "Leaving the source block in the body after the user clearly wanted it only as featured/excerpt."
   ]
 }

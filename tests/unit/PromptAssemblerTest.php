@@ -858,6 +858,23 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertStringContainsString( 'ahentic/generate-image', $guidance );
 		$this->assertStringContainsString( 'upload-media', $guidance );
 		$this->assertStringContainsString( 'set-featured-image', $guidance );
+		$this->assertStringContainsString( 'get-blocks', $guidance );
+		$this->assertStringContainsString( 'update-block-attributes', $guidance );
+		$this->assertStringNotContainsString( 'in ONE tools_planned so steps can run', $guidance );
+		$this->assertStringNotContainsString( 'use 0 as placeholder', $guidance );
+		$this->assertStringContainsString( 'do not default to set-featured-image', $guidance );
+		$this->assertStringContainsString( 'asked for alt', $guidance );
+	}
+
+	public function test_menus_pack_steers_read_before_replace() {
+		$guidance = Ahentic_Prompt_Assembler::tool_routing_guidance_for_packs(
+			array( 'core', 'menus' )
+		);
+		$this->assertStringContainsString( 'ahentic/get-menu', $guidance );
+		$this->assertStringContainsString( 'ahentic/update-menu', $guidance );
+		$this->assertStringContainsString( 'Read the tree first', $guidance );
+		$this->assertStringContainsString( 'classic-menus', $guidance );
+		$this->assertStringNotContainsString( 'create-or-replace the item tree', $guidance );
 	}
 
 	public function test_content_work_adds_editor_pack_off_editor_screen() {

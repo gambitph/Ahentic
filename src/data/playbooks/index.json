@@ -53,7 +53,7 @@
     {
       "id": "web-image-fit",
       "title": "Web image fit",
-      "when_to_use": "Generating or placing images for posts/pages (featured, inline, hero) — pick aspect ratio and framing so images fit the web.",
+      "when_to_use": "Generating or placing images for posts/pages (featured, inline, hero). Pick aspect ratio, then inspect where the image actually lives before writing.",
       "file": "web-image-fit.json"
     },
     {
@@ -61,6 +61,12 @@
       "title": "Post title vs body headings",
       "when_to_use": "Drafting or rewriting posts/pages/articles; choosing where the H1 goes; avoiding a duplicate title heading in the block tree.",
       "file": "post-title-headings.json"
+    },
+    {
+      "id": "classic-menus",
+      "title": "Classic menus",
+      "when_to_use": "Add, remove, reorder, or relabel items in Appearance → Menus (classic nav menus).",
+      "file": "classic-menus.json"
     }
   ]
 }

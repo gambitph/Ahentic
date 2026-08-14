@@ -117,16 +117,26 @@ if ( ! class_exists( 'Ahentic_Playbooks' ) ) {
 			$topic = isset( $input['topic'] ) ? trim( (string) $input['topic'] ) : '';
 			$query = isset( $input['query'] ) ? trim( (string) $input['query'] ) : '';
 
-			$index = self::load_index();
+			$index   = self::load_index();
 			$catalog = self::format_catalog( $index );
 
 			if ( '' === $topic && '' === $query ) {
+				$ids = array();
+				foreach ( $catalog as $row ) {
+					if ( ! empty( $row['id'] ) ) {
+						$ids[] = (string) $row['id'];
+					}
+				}
+				$hint = 'Pass topic (playbook id) or query to load full guidance.';
+				if ( ! empty( $ids ) ) {
+					$hint .= ' Ids: ' . implode( ', ', $ids ) . '.';
+				}
 				return array(
-					'ok'       => true,
-					'mode'     => 'catalog',
-					'catalog'  => $catalog,
-					'hint'     => 'Pass topic (playbook id) or query to load full guidance. Wave-1 ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, editor-leave-canvas, editor-wrap-blocks, web-image-fit, post-title-headings.',
-					'playbooks'=> array(),
+					'ok'        => true,
+					'mode'      => 'catalog',
+					'catalog'   => $catalog,
+					'hint'      => $hint,
+					'playbooks' => array(),
 				);
 			}
 

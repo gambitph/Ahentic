@@ -1,0 +1,39 @@
+{
+  "id": "classic-menus",
+  "title": "Classic menus",
+  "when_to_use": "Add, remove, reorder, or relabel items in Appearance → Menus (classic nav menus). Not block-theme wp_navigation.",
+  "triggers": [
+    "add a menu item",
+    "edit the menu",
+    "navigation menu",
+    "header menu",
+    "replace the menu",
+    "add contact to the menu",
+    "menu items",
+    "classic menu"
+  ],
+  "related_abilities": [
+    "ahentic/list-menus",
+    "ahentic/list-menu-items",
+    "ahentic/get-menu",
+    "ahentic/update-menu"
+  ],
+  "principles": [
+    "Read before write: list-menus to pick the menu, then get-menu (or list-menu-items) for the current tree.",
+    "ahentic/update-menu items is a full replacement of the item tree. Pass the patched tree (existing items plus the change). Do not invent a from-scratch menu unless they asked to replace or rebuild.",
+    "Omit items to leave the tree unchanged (locations-only updates). Omit locations to leave theme assignments unchanged.",
+    "Never ahentic/create-post on nav_menu_item. Block theme Navigation blocks / wp_navigation posts are out of scope here - use editor block tools when that document is open."
+  ],
+  "steps": [
+    "list-menus (and get-menu for the target) to copy the current nested tree.",
+    "Edit that tree in memory: add, remove, reorder, or retitle nodes.",
+    "update-menu with menu id plus the full patched items array (HITL). Include locations only if they asked to change theme locations.",
+    "Do not also create-post menu items."
+  ],
+  "anti_patterns": [
+    "Calling update-menu with a brand-new items list when they asked to add or rename one link.",
+    "Skipping get-menu / list-menu-items and guessing the current items.",
+    "create-post on nav_menu_item.",
+    "Treating a block-theme Navigation block as a classic menu."
+  ]
+}

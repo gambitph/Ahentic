@@ -355,14 +355,6 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				$user                    .= "\n\n" . $verify_note;
 			}
 
-			if ( class_exists( 'Ahentic_Finish_Gate' ) ) {
-				$finish_nudge = Ahentic_Finish_Gate::finish_block_nudge_for_prompt( $session_id );
-				if ( '' !== $finish_nudge ) {
-					$chars['plan_artifacts'] += strlen( $finish_nudge );
-					$user                    .= "\n\n" . $finish_nudge;
-				}
-			}
-
 			$pinned = self::pinned_run_context_for_prompt( $session_id );
 			if ( '' !== $pinned ) {
 				$chars['plan_artifacts'] += strlen( $pinned );
@@ -1067,8 +1059,8 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 				case 'core':
 					return 'Prefer ahentic/get-site-snapshot for site name/theme/plugins/admin_links; '
 						. 'ahentic/get-site-health for Site Health; ahentic/get-option for allowlisted options. '
-						. 'When unsure about WordPress practice (plugins vs code, SEO choice, cleanup, editor vs server), call ahentic/get-wordpress-guidance '
-						. '(topic ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, editor-leave-canvas, editor-wrap-blocks, web-image-fit, post-title-headings) '
+						. 'When unsure about WordPress practice (plugins vs code, SEO choice, cleanup, editor vs server, menus, image placement), call ahentic/get-wordpress-guidance '
+						. '(topic ids: plugin-hygiene, custom-code-snippets, pre-launch-gaps, seo-decisioning, safe-cleanup, editor-vs-server, editor-leave-canvas, editor-wrap-blocks, web-image-fit, post-title-headings, classic-menus) '
 						. 'or {"query":"…"}; omit both to list the catalog. '
 						. 'Prefer server ahentic/* when it fully does the job; ahentic-browser/* for the live tab / block editor / open admin forms. '
 						. 'Never simulate a server ability in the browser. '
@@ -1136,13 +1128,18 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. 'Headless Agents without a browser keep using server writes. ';
 
 				case 'media':
-					return 'Post images: put ahentic/generate-image, ahentic/upload-media (from_memory), and ONE place '
-						. '(ahentic/set-featured-image or ahentic-browser/set-featured-image with attachment_id — use 0 as placeholder after upload, or from_upload with the image artifact key; inline: ahentic-browser/insert-blocks) '
-						. 'in ONE tools_planned so steps can run without another full think between them — never both featured and inline. '
+					return 'Post images: ahentic/generate-image stages an artifact; ahentic/upload-media (from_memory) adds it to the library; '
+						. 'place with ahentic-browser/update-block-attributes (existing cover/image/media-text), '
+						. 'ahentic-browser/insert-blocks, or ahentic/set-featured-image / ahentic-browser/set-featured-image. '
+						. 'Changing a hero/banner/header/cover already on the page: compact get-blocks first; patch that block\'s url/id/alt '
+						. '- do not default to set-featured-image. Generate only when they need a new image. '
+						. 'Featured/thumbnail/social card only when they said those words or inspect shows the theme renders featured_media. '
+						. 'Insert a new core/image only when they asked to add one and inspect found no existing visual to change. '
+						. 'Never both featured and inline for one ask. Never from_memory on insert-blocks for image artifacts. '
 						. 'Also: ahentic/list-media / ahentic/get-media / ahentic/find-unused-media; ahentic/delete-media quarantines to trash; ahentic/restore-media untrashes (HITL). '
-						. 'To find trashed attachments for restore, ahentic/list-media with status=trash. '						. 'Call get-wordpress-guidance topic web-image-fit before post images; default 16:9 not tall/square. '
-						. 'Alt text: get-blocks compact media attrs → describe-image (attachment_id or url) → update-block-attributes with the block\'s alt key. '
-						. 'Never from_memory on insert-blocks for image artifacts. ';
+						. 'To find trashed attachments for restore, ahentic/list-media with status=trash. '
+						. 'Alt text only if they asked for alt help: get-blocks compact media attrs then ahentic/describe-image then update-block-attributes on the block\'s alt key. '
+						. 'Call get-wordpress-guidance topic web-image-fit when unsure about crop or where a page image lives; default 16:9 not tall/square. ';
 
 				case 'plugins':
 					return 'Prefer ahentic/list-plugins for installed active+inactive plugins; ahentic/search-plugins to search wordpress.org (pass query like "SEO"). '
@@ -1170,8 +1167,10 @@ if ( ! class_exists( 'Ahentic_Prompt_Assembler' ) ) {
 						. '(HITL non-preallowable every time; no self-edit; may assign editor/author/subscriber etc. but not manage_options roles; delete requires reassign_to). ';
 
 				case 'menus':
-					return 'Prefer ahentic/list-menus / ahentic/list-menu-items / ahentic/get-menu for classic Appearance → Menus; '
-						. 'ahentic/update-menu to create-or-replace the item tree and/or theme locations (HITL; never create-post on nav_menu_item). ';
+					return 'Prefer ahentic/list-menus / ahentic/list-menu-items / ahentic/get-menu for classic Appearance → Menus. '
+						. 'Read the tree first; patch items in that tree; ahentic/update-menu items is a full replace - pass the patched tree, '
+						. 'do not replace-all unless they asked to replace or rebuild. Never create-post on nav_menu_item. '
+						. 'get-wordpress-guidance topic classic-menus when unsure. ';
 
 				case 'http':
 					return 'Visitor-facing questions (what the public can see or find): ahentic/http-fetch the relevant public URL(s) first without as_user. '

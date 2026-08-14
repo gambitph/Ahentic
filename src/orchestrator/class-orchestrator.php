@@ -993,23 +993,6 @@ if ( ! class_exists( 'Ahentic_Orchestrator' ) ) {
 		 * @return bool True when the run should continue (another step); false when finished.
 		 */
 		private static function try_finish_with_reply( $session_id, array $result, $debug = array() ) {
-			$block_reasons = class_exists( 'Ahentic_Finish_Gate' )
-				? Ahentic_Finish_Gate::reasons_blocking_finish( $session_id )
-				: array();
-			if ( ! empty( $block_reasons ) ) {
-				Ahentic_Session_Repository::append_trace(
-					$session_id,
-					'finish_blocked_pending_work',
-					'Finish blocked — required work still unfinished',
-					array( 'reasons' => $block_reasons ),
-					(int) get_post_meta( $session_id, Ahentic_Session_Repository::META_STEP_COUNT, true )
-				);
-				Ahentic_Session_Repository::set_progress(
-					$session_id,
-					__( 'Continuing required edits…', 'ahentic' )
-				);
-				return true;
-			}
 			$decision = Ahentic_Finish_Gate::evaluate_reply( $session_id, $result, $debug );
 			if ( ! empty( $decision['continue'] ) ) {
 				return true;

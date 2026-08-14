@@ -419,7 +419,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				'---',
 				'Session artifacts (bodies omitted):',
 				'- Text drafts (blocks/html/markdown/post_content): apply with from_memory on set-blocks / create-post / update-post.',
-				'- Image artifacts: call ahentic/upload-media with {"from_memory":"<key>"} first (HITL), then ahentic-browser/insert-blocks with a core/image block using the returned attachment_id + url. Do NOT pass from_memory to insert-blocks for images.',
+				'- Image artifacts: call ahentic/upload-media with {"from_memory":"<key>"} first (HITL) if it should enter the Media Library. Placement is a separate decision (patch an existing cover/image via update-block-attributes, insert-blocks, or set-featured-image). Do NOT pass from_memory to insert-blocks for images.',
 			);
 			foreach ( $pointers as $p ) {
 				$parts = array(

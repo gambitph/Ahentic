@@ -456,7 +456,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				self::GENERATE_IMAGE,
 				array(
 					'label'               => __( 'Generate image', 'ahentic' ),
-					'description'         => __( 'Generates an image via AI and stages an image-kind session artifact (temp file pointer). Next: ahentic/upload-media with {"from_memory":"<artifact_key>"} to add it to the Media Library, then insert a core/image block (ahentic-browser/insert-blocks with index 0 for top of post) or set a featured image using the returned attachment_id/url. For post featured/inline/hero images prefer aspect_ratio 16:9 (or 4:3 if a less-wide crop is needed); use 9:16/3:4 only when the user explicitly wants tall/portrait; use 1:1 only for icons/avatars/logos/product thumbs. See playbook web-image-fit.', 'ahentic' ),
+					'description'         => __( 'Generates an image via AI and stages an image-kind session artifact (temp file pointer). Upload with ahentic/upload-media {"from_memory":"<artifact_key>"} if it should enter the Media Library. Placement is a separate decision (patch an existing cover/image via update-block-attributes, insert a block, or set featured). For post featured/inline/hero images prefer aspect_ratio 16:9 (or 4:3 if a less-wide crop is needed); use 9:16/3:4 only when the user explicitly wants tall/portrait; use 1:1 only for icons/avatars/logos/product thumbs. See playbook web-image-fit.', 'ahentic' ),
 					'category'            => 'ahentic-media',
 					'input_schema'        => array(
 						'type'       => 'object',
@@ -488,7 +488,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				self::UPLOAD_MEDIA,
 				array(
 					'label'               => __( 'Upload media', 'ahentic' ),
-					'description'         => __( 'Adds a file to the Media Library from a public URL or from a staged image artifact via from_memory (after generate-image). Returns attachment_id and url for insert-blocks / featured image. Requires human approval.', 'ahentic' ),
+					'description'         => __( 'Adds a file to the Media Library from a public URL or from a staged image artifact via from_memory (after generate-image). Returns attachment_id and url for placement (update-block-attributes, insert-blocks, or set-featured-image). Requires human approval.', 'ahentic' ),
 					'category'            => 'ahentic-media',
 					'input_schema'        => array(
 						'type'       => 'object',
