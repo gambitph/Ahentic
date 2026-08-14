@@ -23,6 +23,10 @@ import {
 	resolveAttributePatch,
 	isAttachmentId,
 	compiledStyleContainsUrls,
+	mediaKindFromEssentials,
+	looksLikeSmallOverlay,
+	isCanvasBackgroundSurface,
+	looksLikeImageUrl,
 } from './media-essentials'
 import { pickLinkEssentialAttrs } from './link-essentials'
 import { resolveMovePlacement } from './move-placement'
@@ -335,8 +339,9 @@ function serializeBlockTree( block, budget, opts = {} ) {
 		// Compact media identity/alt fields — alt-text and describe-image need
 		// url/id without a second include_attributes pass. Known core maps plus
 		// key/value heuristics for third-party image blocks.
+		const mediaPicked = pickMediaEssentialAttrs( rawAttrs, block.name )
 		const picked = {
-			...pickMediaEssentialAttrs( rawAttrs, block.name ),
+			...mediaPicked,
 			...pickLinkEssentialAttrs( rawAttrs ),
 		}
 		if ( Object.keys( picked ).length ) {
@@ -345,6 +350,10 @@ function serializeBlockTree( block, budget, opts = {} ) {
 				essentials[ key ] = capValue( picked[ key ] )
 			}
 			node.attributes = essentials
+			const mediaKind = mediaKindFromEssentials( mediaPicked, block.name )
+			if ( mediaKind ) {
+				node.media_kind = mediaKind
+			}
 		}
 	}
 	// Plain-text preview so the agent can match user phrases (e.g. "Get in touch").
@@ -963,6 +972,7 @@ export function enforceGetBlocksByteBudget( payload, maxChars ) {
 				name: only.name,
 				preview: only.preview,
 				content_attr: only.content_attr,
+				media_kind: only.media_kind,
 				attributes: only.attributes,
 			} ],
 			count: 1,
@@ -1008,7 +1018,7 @@ function slimAttributesDeep( node ) {
 			if ( typeof val === 'string' && val.length > 300 ) {
 				continue
 			}
-			if ( val !== null && typeof val === 'object' ) {
+			if ( val !== null && typeof val === 'object' && JSON.stringify( val ).length > 800 ) {
 				continue
 			}
 			slim[ key ] = val
@@ -1928,6 +1938,35 @@ function valueLanded( liveVal, expected ) {
 	return compiledStyleContainsUrls( liveVal, expected )
 }
 
+/**
+ * Closest ancestor whose compact media is a canvas background (container/cover).
+ *
+ * @param {Object} blockSelect Gutenberg block-editor select.
+ * @param {string} clientId    Starting block clientId.
+ * @return {Object|null} Parent block or null.
+ */
+function findClosestBackgroundAncestor( blockSelect, clientId ) {
+	const ids = blockSelect.getBlockParents?.( clientId ) || []
+	if ( ! ids.length ) {
+		return null
+	}
+	const blocks = ids.map( id => blockSelect.getBlock?.( id ) ).filter( Boolean )
+	const immediateIdx = blocks.findIndex( parent =>
+		( parent.innerBlocks || [] ).some( child => child.clientId === clientId )
+	)
+	const closestFirst = immediateIdx === 0
+		? blocks
+		: [ ...blocks ].reverse()
+	for ( const parent of closestFirst ) {
+		const attrs = parent.attributes && typeof parent.attributes === 'object' ? parent.attributes : {}
+		const essentials = pickMediaEssentialAttrs( attrs, parent.name )
+		if ( isCanvasBackgroundSurface( parent.name, essentials ) ) {
+			return parent
+		}
+	}
+	return null
+}
+
 export function updateBlockAttributes( input = {} ) {
 	const ctx = requireEditor()
 	if ( ! ctx.ok ) {
@@ -1966,6 +2005,7 @@ export function updateBlockAttributes( input = {} ) {
 	const echoed = {}
 	const remapped = {}
 	const ignored = []
+	const retargeted = []
 	let lastLiveMedia = {}
 	let lastBlockName = ''
 	for ( const clientId of clientIds ) {
@@ -1979,30 +2019,67 @@ export function updateBlockAttributes( input = {} ) {
 		const schemaKeys = type?.attributes && typeof type.attributes === 'object'
 			? Object.keys( type.attributes )
 			: []
-		const resolved = resolveAttributePatch( liveAttrs, attributes, {
+		const resolvedOnTarget = resolveAttributePatch( liveAttrs, attributes, {
 			blockName: block.name,
 			schemaKeys,
 		} )
+		let resolved = resolvedOnTarget
+		let writeClientId = clientId
+		let writeBlock = block
+		const wantsMediaUrl = Object.values( attributes ).some( val => looksLikeImageUrl( val ) )
+		if (
+			wantsMediaUrl &&
+			looksLikeSmallOverlay( liveAttrs ) &&
+			! isCanvasBackgroundSurface( block.name, pickMediaEssentialAttrs( liveAttrs, block.name ) )
+		) {
+			const ancestor = findClosestBackgroundAncestor( blockSelect, clientId )
+			const ancestorAttrs = ancestor?.attributes && typeof ancestor.attributes === 'object'
+				? ancestor.attributes
+				: {}
+			const ancestorType = ancestor ? ctx.wp?.blocks?.getBlockType?.( ancestor.name ) : null
+			const ancestorSchema = ancestorType?.attributes && typeof ancestorType.attributes === 'object'
+				? Object.keys( ancestorType.attributes )
+				: []
+			const ancestorResolved = ancestor
+				? resolveAttributePatch( ancestorAttrs, attributes, {
+					blockName: ancestor.name,
+					schemaKeys: ancestorSchema,
+				} )
+				: null
+			if ( ancestor && ancestorResolved && Object.keys( ancestorResolved.patch ).length ) {
+				resolved = ancestorResolved
+				writeClientId = ancestor.clientId
+				writeBlock = ancestor
+				retargeted.push( {
+					from: refForClientId( clientId ),
+					to: refForClientId( ancestor.clientId ),
+					reason: 'nested_overlay_ancestor_background',
+				} )
+			}
+		}
 		Object.assign( remapped, resolved.remapped )
 		for ( const key of resolved.ignored ) {
 			if ( ! ignored.includes( key ) ) {
 				ignored.push( key )
 			}
 		}
-		lastLiveMedia = pickMediaEssentialAttrs( liveAttrs, block.name )
-		lastBlockName = block.name
+		lastLiveMedia = pickMediaEssentialAttrs(
+			writeBlock.attributes && typeof writeBlock.attributes === 'object' ? writeBlock.attributes : {},
+			writeBlock.name
+		)
+		lastBlockName = writeBlock.name
 		if ( ! Object.keys( resolved.patch ).length ) {
 			continue
 		}
-		const normalized = normalizeAttributesForBlock( block.name, resolved.patch, ctx.wp )
-		dispatch.updateBlockAttributes( clientId, normalized )
-		const after = blockSelect.getBlock?.( clientId )
+		const normalized = normalizeAttributesForBlock( writeBlock.name, resolved.patch, ctx.wp )
+		dispatch.updateBlockAttributes( writeClientId, normalized )
+		const after = blockSelect.getBlock?.( writeClientId )
 		const afterAttrs = after?.attributes && typeof after.attributes === 'object' ? after.attributes : {}
 		if ( ! patchLanded( afterAttrs, resolved.patch ) ) {
-			lastLiveMedia = pickMediaEssentialAttrs( afterAttrs, block.name )
+			lastLiveMedia = pickMediaEssentialAttrs( afterAttrs, writeBlock.name )
 			continue
 		}
-		updated.push( clientId )
+		updated.push( writeClientId )
 		for ( const key of Object.keys( normalized ) ) {
 			echoed[ key ] = afterAttrs[ key ]
 		}
@@ -2033,6 +2110,7 @@ export function updateBlockAttributes( input = {} ) {
 		attributes: capValue( echoed ),
 		remapped: Object.keys( remapped ).length ? remapped : undefined,
 		ignored_keys: ignored.length ? ignored : undefined,
+		retargeted: retargeted.length ? retargeted : undefined,
 		...( missing.length
 			? {
 				message: __( 'One or more block refs were not found. Re-call get-blocks or get-selection and use the fresh refs.', 'ahentic' ),

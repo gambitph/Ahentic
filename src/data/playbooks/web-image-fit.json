@@ -31,19 +31,19 @@
     "Use 4:3 only when the user wants a less-wide / classic photo crop, or the scene needs a bit more vertical subject room without going portrait.",
     "Tall (9:16 / 3:4) only when the user explicitly asks for tall, portrait, Story, or phone-tall - never because the subject is a standing person or vertical object.",
     "Square (1:1) only for icons, avatars, logos, or product thumbs - or when the user says square. Never default a post image to 1:1.",
-    "Hero, banner, header image, and cover on an existing page are usually a block in the document (core/cover, core/image, core/media-text, or a third-party block with a media URL) - not featured_media.",
+    "Hero, banner, header image, and cover on an existing page are usually a block in the document: core/cover, or any library's container/box/group/hero with media_kind=background (nested background image attrs), or a full-size image block - not featured_media. Nested image blocks with a small width are overlays, not the hero.",
     "Cover block is not the post thumbnail. Set featured only when they say featured / thumbnail / social card, or inspect shows the theme actually renders featured_media.",
-    "Change/replace an existing visual: inspect first (compact get-blocks when the editor is open). Generate/upload only if they need a new image, then patch that block's url/id/alt.",
+    "Change/replace an existing visual: inspect first (compact get-blocks when the editor is open). Generate/upload only if they need a new image, then patch that block's url/id/alt (or background.image on a container/box).",
     "Ambiguous add an image: inspect first; if a lead visual already exists, ask or patch it rather than inserting a second copy. Insert a new core/image (index 0 / before the first block) only when they asked to add one and there is no existing visual to change.",
     "Prompt craft: say framing in the prompt (wide landscape composition, subject in upper two-thirds, generous margins, not a tall portrait). Prefer editorial crops that read at ~1200x675; keep text-in-image minimal; always plan alt text.",
     "Out of scope here: site logo/icon strategy, OG/social copy, accessibility alt audits, stock vs generate, theme thumbnail regeneration - use other abilities/playbooks for those."
   ],
   "steps": [
-    "If the ask is change/replace (or they named hero/banner/cover on this page): compact get-blocks and identify the displayed visual. Note featured_media only if the template actually uses it.",
+    "If the ask is change/replace (or they named hero/banner/cover on this page): compact get-blocks and identify the displayed visual. Prefer media_kind=background (any block library) over a small nested image overlay. Note featured_media only if the template actually uses it.",
     "Pick aspect_ratio from the principles (default 16:9 for post images).",
     "Call ahentic/generate-image only when they need a new image, with that aspect_ratio and framing baked into the prompt (once).",
     "ahentic/upload-media with {\"from_memory\":\"<artifact_key>\"} (HITL) once if it should enter the library.",
-    "Place once on the surface inspect found: update-block-attributes on the cover/image/media-text (or third-party media) ref - the tool remaps url/id/alt onto the live keys; set-featured-image only if that is the display surface; insert-blocks only when they asked to add an image and there was no existing visual. Never from_memory on insert-blocks for image artifacts."
+    "Place once on the surface inspect found: update-block-attributes on the cover/image/media-text/container (or third-party media) ref - the tool remaps url/id/alt onto the live keys including nested background.image; set-featured-image only if that is the display surface; insert-blocks only when they asked to add an image and there was no existing visual. Never from_memory on insert-blocks for image artifacts."
   ],
   "anti_patterns": [
     "Treating hero, banner, or cover as featured image without inspecting the canvas.",
@@ -51,6 +51,7 @@
     "Choosing 9:16 or 3:4 because the subject is a person, bottle, or phone UI without an explicit tall/portrait ask.",
     "Defaulting every add-an-image request to featured image.",
     "Inserting a new lead image when they asked to change the one already on the page.",
+    "Patching a small nested image overlay when compact get-blocks shows media_kind=background on a parent container/box/cover - that parent is the hero surface.",
     "Inserting the same uploaded image twice (two insert-blocks calls, or featured + body insert) for one generate request.",
     "Putting critical detail at crop edges themes will cut off.",
     "Inserting huge portrait images that dominate the post scroll.",

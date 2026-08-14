@@ -15,18 +15,25 @@ const BLOCK_MEDIA_KEYS = {
 	'core/media-text': [ 'mediaUrl', 'mediaAlt', 'mediaId' ],
 }
 
-const URL_KEY_RE = /^(url|src|mediaurl|imageurl|backgroundurl|bgimage|bgurl|featuredimage|poster|backgroundimage)$/i
+const URL_KEY_RE = /^(url|src|mediaurl|imageurl|backgroundurl|bgimage|bgimg|bgurl|featuredimage|poster|backgroundimage)$/i
 /** Keys that imply media even when the URL has no file extension. */
-const STRONG_MEDIA_URL_KEY_RE = /^(mediaurl|imageurl|backgroundurl|bgimage|bgurl|featuredimage|poster|backgroundimage)$/i
+const STRONG_MEDIA_URL_KEY_RE = /^(mediaurl|imageurl|backgroundurl|bgimage|bgimg|bgurl|featuredimage|poster|backgroundimage)$/i
 const ALT_KEY_RE = /^(alt|mediaalt|alttext|imagealt)$/i
-const ID_KEY_RE = /^(id|mediaid|attachmentid|imageid)$/i
-const STRONG_MEDIA_ID_KEY_RE = /^(mediaid|attachmentid|imageid)$/i
+const ID_KEY_RE = /^(id|mediaid|attachmentid|imageid|bgimgid|bgimageid)$/i
+const STRONG_MEDIA_ID_KEY_RE = /^(mediaid|attachmentid|imageid|bgimgid|bgimageid)$/i
 const SKIP_KEY_RE = /^(href|link|canonical|permalink|targeturl)$/i
 
 const IMAGE_URL_RE = /^(https?:\/\/|\/|data:image\/).+\.(jpe?g|png|gif|webp|avif|svg|heic)(\?|#|$)/i
 const UPLOADS_URL_RE = /^(https?:\/\/|\/).*\/wp-content\/uploads\//i
 const DATA_IMAGE_RE = /^data:image\//i
 const HTTP_URL_RE = /^https?:\/\//i
+/** Nested design objects that often hold a CSS/block background image. */
+const BACKGROUND_NEST_KEY_RE = /^(background|backgrounds|backgroundimage|blockbackground|overlay|style|bg)$/i
+/** Top-level keys whose media paints a box/cover, not an inline img. */
+const BACKGROUND_KIND_KEY_RE = /background|blockbackground|^(bg|bgimg|bgimage|bgurl|overlay)$/i
+/** Block names that are inline media, not a painted container/hero. */
+const INLINE_MEDIA_BLOCK_RE = /\/(image|img|video|audio|gallery|media-text)$/i
+const OVERLAY_PX_MAX = 400
 
 /**
  * @param {unknown} value Candidate string.
@@ -78,17 +85,63 @@ export function isAttachmentId( value ) {
 
 /**
  * @param {unknown} value Candidate object attr.
- * @return {boolean} Whether object has an image-looking url/src field.
+ * @return {boolean} Whether object has an image-looking url/src/image field.
  */
 function objectHasImageUrl( value ) {
-	if ( ! value || typeof value !== 'object' || Array.isArray( value ) ) {
-		return false
+	return Boolean( urlFromUnknown( value ) )
+}
+
+/**
+ * First image-looking URL in a string, URL array, or {url|src|mediaUrl|image} object.
+ *
+ * @param {unknown} value   Candidate.
+ * @param {number}  [depth] Recursion depth.
+ * @return {string} URL or empty.
+ */
+function urlFromUnknown( value, depth = 0 ) {
+	if ( depth > 4 ) {
+		return ''
 	}
-	const url = value.url ?? value.src ?? value.mediaUrl
-	if ( looksLikeImageUrl( url ) ) {
-		return true
+	if ( typeof value === 'string' ) {
+		const s = value.trim()
+		if ( looksLikeImageUrl( s ) ) {
+			return s
+		}
+		return ''
 	}
-	return typeof url === 'string' && HTTP_URL_RE.test( url.trim() )
+	if ( Array.isArray( value ) ) {
+		for ( let i = 0; i < value.length; i++ ) {
+			const found = urlFromUnknown( value[ i ], depth + 1 )
+			if ( found ) {
+				return found
+			}
+		}
+		return ''
+	}
+	if ( ! value || typeof value !== 'object' ) {
+		return ''
+	}
+	const direct = value.url ?? value.src ?? value.mediaUrl
+	if ( typeof direct === 'string' && direct.trim() ) {
+		const s = direct.trim()
+		if ( looksLikeImageUrl( s ) || HTTP_URL_RE.test( s ) ) {
+			return s
+		}
+	}
+	const fromImage = urlFromUnknown( value.image, depth + 1 )
+	if ( fromImage ) {
+		return fromImage
+	}
+	for ( const key of Object.keys( value ) ) {
+		if ( ! BACKGROUND_NEST_KEY_RE.test( key ) ) {
+			continue
+		}
+		const found = urlFromUnknown( value[ key ], depth + 1 )
+		if ( found ) {
+			return found
+		}
+	}
+	return ''
 }
 
 /**
@@ -146,7 +199,12 @@ export function pickMediaEssentialAttrs( rawAttrs, blockName = '' ) {
 	}
 
 	if ( ! bagHasMediaUrl( out ) ) {
-		for ( const key of Object.keys( attrs ) ) {
+		const keys = Object.keys( attrs )
+		const ordered = [
+			...keys.filter( key => BACKGROUND_KIND_KEY_RE.test( key ) ),
+			...keys.filter( key => ! BACKGROUND_KIND_KEY_RE.test( key ) ),
+		]
+		for ( const key of ordered ) {
 			if ( SKIP_KEY_RE.test( key ) || key in out ) {
 				continue
 			}
@@ -156,7 +214,7 @@ export function pickMediaEssentialAttrs( rawAttrs, blockName = '' ) {
 				break
 			}
 			if ( objectHasImageUrl( val ) ) {
-				out[ key ] = val
+				out[ key ] = compactMediaObject( val )
 				break
 			}
 		}
@@ -187,6 +245,58 @@ export function pickMediaEssentialAttrs( rawAttrs, blockName = '' ) {
 }
 
 /**
+ * Keep only the image URL payload from a nested design object.
+ *
+ * @param {Record<string, unknown>} val     Nested attr.
+ * @param {number}                  [depth] Recursion depth.
+ * @return {Record<string, unknown>} Compact object for essentials / remap.
+ */
+function compactMediaObject( val, depth = 0 ) {
+	if ( ! val || typeof val !== 'object' || Array.isArray( val ) || depth > 4 ) {
+		return val
+	}
+	if ( Array.isArray( val.image ) || typeof val.image === 'string' ) {
+		return { image: val.image }
+	}
+	if ( val.image && typeof val.image === 'object' ) {
+		const compacted = compactMediaObject( val.image, depth + 1 )
+		if ( objectHasImageUrl( compacted ) ) {
+			return { image: compacted }
+		}
+	}
+	const field = nestedUrlField( val )
+	if ( field ) {
+		const out = { [ field ]: val[ field ] }
+		if ( isAttachmentId( val.id ) ) {
+			out.id = val.id
+		} else if ( isAttachmentId( val.mediaId ) ) {
+			out.mediaId = val.mediaId
+		}
+		if ( typeof val.alt === 'string' ) {
+			out.alt = val.alt
+		}
+		return out
+	}
+	for ( const key of Object.keys( val ) ) {
+		if ( ! BACKGROUND_NEST_KEY_RE.test( key ) ) {
+			continue
+		}
+		const nested = val[ key ]
+		if ( looksLikeImageUrl( nested ) ) {
+			return { [ key ]: nested }
+		}
+		if ( objectHasImageUrl( nested ) ) {
+			return {
+				[ key ]: typeof nested === 'object' && nested && ! Array.isArray( nested )
+					? compactMediaObject( nested, depth + 1 )
+					: nested,
+			}
+		}
+	}
+	return val
+}
+
+/**
  * First image-looking URL in a media essentials bag (string or nested object).
  *
  * @param {Record<string, unknown>} bag Essentials or patch.
@@ -197,18 +307,90 @@ function firstMediaUrl( bag ) {
 		return ''
 	}
 	for ( const key of Object.keys( bag ) ) {
-		const val = bag[ key ]
-		if ( typeof val === 'string' && looksLikeImageUrl( val ) ) {
-			return val
-		}
-		if ( val && typeof val === 'object' && ! Array.isArray( val ) ) {
-			const url = val.url ?? val.src ?? val.mediaUrl
-			if ( typeof url === 'string' && url.trim() ) {
-				return url
-			}
+		const found = urlFromUnknown( bag[ key ] )
+		if ( found ) {
+			return found
 		}
 	}
 	return ''
+}
+
+/**
+ * Compact media kind for get-blocks: background vs inline image.
+ *
+ * @param {Record<string, unknown>} essentials  Picked media bag.
+ * @param {string}                  [blockName] Block name (cover is a canvas).
+ * @return {string} 'background', 'image', or empty.
+ */
+export function mediaKindFromEssentials( essentials, blockName = '' ) {
+	if ( ! essentials || typeof essentials !== 'object' ) {
+		return ''
+	}
+	if ( ! Object.keys( essentials ).length ) {
+		return ''
+	}
+	if ( /\/cover$/i.test( blockName ) ) {
+		return 'background'
+	}
+	for ( const key of Object.keys( essentials ) ) {
+		if ( BACKGROUND_KIND_KEY_RE.test( key ) ) {
+			return 'background'
+		}
+		if ( key === 'style' && objectHasImageUrl( essentials[ key ] ) ) {
+			return 'background'
+		}
+		if ( BACKGROUND_NEST_KEY_RE.test( key ) && objectHasImageUrl( essentials[ key ] ) ) {
+			return 'background'
+		}
+	}
+	if ( INLINE_MEDIA_BLOCK_RE.test( blockName ) ) {
+		return 'image'
+	}
+	return 'background'
+}
+
+/**
+ * Whether live attrs look like a small nested overlay, not a page hero.
+ *
+ * @param {Record<string, unknown>} attrs Live block attributes.
+ * @return {boolean} Whether this looks like a tiny overlay image.
+ */
+export function looksLikeSmallOverlay( attrs ) {
+	if ( ! attrs || typeof attrs !== 'object' ) {
+		return false
+	}
+	const orig = Number( attrs.originalWidth )
+	if ( Number.isFinite( orig ) && orig > 0 ) {
+		return orig < OVERLAY_PX_MAX
+	}
+	const unit = Array.isArray( attrs.widthUnit ) ? attrs.widthUnit[ 0 ] : attrs.widthUnit
+	if ( unit && unit !== 'px' ) {
+		return false
+	}
+	const custom = Array.isArray( attrs.customWidth )
+		? Number( attrs.customWidth[ 0 ] )
+		: Number( attrs.customWidth )
+	if ( Number.isFinite( custom ) && custom > 0 ) {
+		return custom < OVERLAY_PX_MAX
+	}
+	if ( typeof attrs.width === 'number' && attrs.width > 0 ) {
+		return attrs.width < OVERLAY_PX_MAX
+	}
+	return false
+}
+
+/**
+ * Cover blocks and any essentials bag whose media lives on a background field.
+ *
+ * @param {string}                  blockName  Block name.
+ * @param {Record<string, unknown>} essentials Picked media bag.
+ * @return {boolean} Whether this block is a canvas background surface.
+ */
+export function isCanvasBackgroundSurface( blockName, essentials ) {
+	if ( /\/cover$/i.test( blockName ) ) {
+		return true
+	}
+	return mediaKindFromEssentials( essentials, blockName ) === 'background'
 }
 
 /**
@@ -234,6 +416,82 @@ function nestedUrlField( obj ) {
 }
 
 /**
+ * Map a new URL onto a nested `{ image: url | url[] }` object.
+ *
+ * @param {unknown} val    Nested attr.
+ * @param {string}  reqVal Replacement URL.
+ * @return {Record<string, unknown>|null} Partial object or null.
+ */
+function mapUrlOntoImageField( val, reqVal ) {
+	if ( ! val || typeof val !== 'object' || Array.isArray( val ) ) {
+		return null
+	}
+	if ( typeof val.image === 'string' && urlFromUnknown( val.image ) ) {
+		return { image: reqVal }
+	}
+	if ( Array.isArray( val.image ) && urlFromUnknown( val.image ) ) {
+		let replaced = false
+		const next = val.image.map( item => {
+			if ( typeof item === 'string' && urlFromUnknown( item ) ) {
+				replaced = true
+				return reqVal
+			}
+			return item
+		} )
+		if ( ! replaced && next.length ) {
+			next[ 0 ] = reqVal
+		}
+		return { image: next }
+	}
+	return null
+}
+
+/**
+ * Map a new URL onto a nested media object (url field, image array, or background).
+ *
+ * @param {unknown} val     Nested attr.
+ * @param {string}  reqVal  Replacement URL.
+ * @param {string}  prefix  Path prefix for remapped notes.
+ * @param {number}  [depth] Recursion depth.
+ * @return {{ partial: unknown, path: string }|null} Mapped partial or null.
+ */
+function mapUrlOntoValue( val, reqVal, prefix, depth = 0 ) {
+	if ( depth > 4 ) {
+		return null
+	}
+	const field = nestedUrlField( val )
+	if ( field ) {
+		return {
+			partial: { [ field ]: reqVal },
+			path: `${ prefix }.${ field }`,
+		}
+	}
+	const imagePartial = mapUrlOntoImageField( val, reqVal )
+	if ( imagePartial ) {
+		return {
+			partial: imagePartial,
+			path: `${ prefix }.image`,
+		}
+	}
+	if ( ! val || typeof val !== 'object' || Array.isArray( val ) ) {
+		return null
+	}
+	for ( const nestedKey of Object.keys( val ) ) {
+		if ( ! BACKGROUND_NEST_KEY_RE.test( nestedKey ) && nestedKey !== 'image' ) {
+			continue
+		}
+		const inner = mapUrlOntoValue( val[ nestedKey ], reqVal, `${ prefix }.${ nestedKey }`, depth + 1 )
+		if ( inner ) {
+			return {
+				partial: { [ nestedKey ]: inner.partial },
+				path: inner.path,
+			}
+		}
+	}
+	return null
+}
+
+/**
  * Nested id/mediaId field name on an object attr.
  *
  * @param {Record<string, unknown>} obj Nested attr.
@@ -253,6 +511,41 @@ function nestedIdField( obj ) {
 		return 'attachmentId'
 	}
 	return ''
+}
+
+/**
+ * Map a new attachment id onto a nested media object.
+ *
+ * @param {unknown} val     Nested attr.
+ * @param {unknown} reqVal  Replacement id.
+ * @param {string}  prefix  Path prefix for remapped notes.
+ * @param {number}  [depth] Recursion depth.
+ * @return {{ partial: unknown, path: string }|null} Mapped partial or null.
+ */
+function mapIdOntoValue( val, reqVal, prefix, depth = 0 ) {
+	if ( depth > 4 || ! val || typeof val !== 'object' || Array.isArray( val ) ) {
+		return null
+	}
+	const field = nestedIdField( val )
+	if ( field ) {
+		return {
+			partial: { [ field ]: reqVal },
+			path: `${ prefix }.${ field }`,
+		}
+	}
+	for ( const nestedKey of Object.keys( val ) ) {
+		if ( ! BACKGROUND_NEST_KEY_RE.test( nestedKey ) && nestedKey !== 'image' ) {
+			continue
+		}
+		const inner = mapIdOntoValue( val[ nestedKey ], reqVal, `${ prefix }.${ nestedKey }`, depth + 1 )
+		if ( inner ) {
+			return {
+				partial: { [ nestedKey ]: inner.partial },
+				path: inner.path,
+			}
+		}
+	}
+	return null
 }
 
 /**
@@ -375,14 +668,31 @@ function mergeIntoPatch( patch, liveAttrs, key, value ) {
 		const prev = patch[ key ] && typeof patch[ key ] === 'object' && ! Array.isArray( patch[ key ] )
 			? patch[ key ]
 			: {}
-		patch[ key ] = {
-			...liveVal,
-			...prev,
-			...value,
-		}
+		patch[ key ] = deepMergeObjects( liveVal, deepMergeObjects( prev, value ) )
 		return
 	}
 	patch[ key ] = value
+}
+
+/**
+ * Deep-merge objects; arrays and primitives from `value` replace.
+ *
+ * @param {unknown} liveVal Live value.
+ * @param {unknown} value   Incoming value.
+ * @return {unknown} Merged value.
+ */
+function deepMergeObjects( liveVal, value ) {
+	if (
+		value && typeof value === 'object' && ! Array.isArray( value ) &&
+		liveVal && typeof liveVal === 'object' && ! Array.isArray( liveVal )
+	) {
+		const out = { ...liveVal }
+		for ( const nestedKey of Object.keys( value ) ) {
+			out[ nestedKey ] = deepMergeObjects( liveVal[ nestedKey ], value[ nestedKey ] )
+		}
+		return out
+	}
+	return value
 }
 
 /**
@@ -411,12 +721,12 @@ function mapMediaValueOntoEssentials( essentials, reqKey, reqVal ) {
 					path: key,
 				}
 			}
-			const field = nestedUrlField( val )
-			if ( field ) {
+			const nested = mapUrlOntoValue( val, reqVal, key )
+			if ( nested ) {
 				return {
 					key,
-					partial: { [ field ]: reqVal },
-					path: `${ key }.${ field }`,
+					partial: nested.partial,
+					path: nested.path,
 				}
 			}
 		}
@@ -439,6 +749,14 @@ function mapMediaValueOntoEssentials( essentials, reqKey, reqVal ) {
 					key,
 					partial: { [ idField ]: reqVal },
 					path: `${ key }.${ idField }`,
+				}
+			}
+			const nestedId = mapIdOntoValue( val, reqVal, key )
+			if ( nestedId ) {
+				return {
+					key,
+					partial: nestedId.partial,
+					path: nestedId.path,
 				}
 			}
 		}
@@ -488,6 +806,24 @@ function shouldRewriteUrlString( key, value, oldUrl ) {
 }
 
 /**
+ * @param {unknown[]} arr    Live array.
+ * @param {string}    oldUrl URL to replace.
+ * @param {string}    newUrl Replacement URL.
+ * @return {unknown[]|null} Rewritten array or null.
+ */
+function rewriteUrlInArray( arr, oldUrl, newUrl ) {
+	let changed = false
+	const next = arr.map( item => {
+		if ( typeof item === 'string' && item.includes( oldUrl ) ) {
+			changed = true
+			return item.split( oldUrl ).join( newUrl )
+		}
+		return item
+	} )
+	return changed ? next : null
+}
+
+/**
  * Rewrite oldUrl → newUrl in live string attrs (and one nested object level).
  *
  * @param {Record<string, unknown>} liveAttrs Live attrs.
@@ -510,7 +846,14 @@ function replaceOldUrlInStrings( liveAttrs, patch, oldUrl, newUrl ) {
 			}
 			continue
 		}
-		if ( ! current || typeof current !== 'object' || Array.isArray( current ) ) {
+		if ( Array.isArray( current ) ) {
+			const rewritten = rewriteUrlInArray( current, oldUrl, newUrl )
+			if ( rewritten ) {
+				patch[ key ] = rewritten
+			}
+			continue
+		}
+		if ( ! current || typeof current !== 'object' ) {
 			continue
 		}
 		const liveObj = liveAttrs[ key ] && typeof liveAttrs[ key ] === 'object' ? liveAttrs[ key ] : {}
@@ -520,6 +863,14 @@ function replaceOldUrlInStrings( liveAttrs, patch, oldUrl, newUrl ) {
 			if ( shouldRewriteUrlString( nestedKey, next[ nestedKey ], oldUrl ) ) {
 				next[ nestedKey ] = next[ nestedKey ].split( oldUrl ).join( newUrl )
 				changed = true
+				continue
+			}
+			if ( Array.isArray( next[ nestedKey ] ) ) {
+				const rewritten = rewriteUrlInArray( next[ nestedKey ], oldUrl, newUrl )
+				if ( rewritten ) {
+					next[ nestedKey ] = rewritten
+					changed = true
+				}
 			}
 		}
 		if ( changed ) {

@@ -2,7 +2,13 @@
  * @jest-environment node
  */
 
-import { pickMediaEssentialAttrs, resolveAttributePatch } from './media-essentials'
+import {
+	pickMediaEssentialAttrs,
+	resolveAttributePatch,
+	looksLikeSmallOverlay,
+	mediaKindFromEssentials,
+	isCanvasBackgroundSurface,
+} from './media-essentials'
 
 describe( 'pickMediaEssentialAttrs', () => {
 	it( 'returns core/image url, alt, and id from the known map', () => {
@@ -122,6 +128,212 @@ describe( 'pickMediaEssentialAttrs', () => {
 			imageUrl: 'https://images.example.com/photo?w=800',
 			imageAlt: 'Sky',
 		} )
+	} )
+
+	it( 'compacts Greenshift container background.image arrays without size/repeat', () => {
+		expect(
+			pickMediaEssentialAttrs(
+				{
+					background: {
+						image: [ 'https://example.com/uploads/home-hero.webp', null ],
+						size: [ 'cover' ],
+						repeat: [ 'no-repeat' ],
+						positionImage: [ { x: '0.50', y: '0.63' } ],
+					},
+					id: 'gsbp-hero',
+					width: [ 100 ],
+				},
+				'greenshift-blocks/container'
+			)
+		).toEqual( {
+			background: {
+				image: [ 'https://example.com/uploads/home-hero.webp', null ],
+			},
+		} )
+	} )
+
+	it( 'picks core/group style.background.backgroundImage without other style keys', () => {
+		expect(
+			pickMediaEssentialAttrs(
+				{
+					style: {
+						color: { background: '#111111' },
+						background: {
+							backgroundImage: {
+								url: 'https://example.com/wp-content/uploads/hero.jpg',
+							},
+						},
+					},
+					layout: { type: 'constrained' },
+				},
+				'core/group'
+			)
+		).toEqual( {
+			style: {
+				background: {
+					backgroundImage: {
+						url: 'https://example.com/wp-content/uploads/hero.jpg',
+					},
+				},
+			},
+		} )
+	} )
+
+	it( 'picks a Stackable-style blockBackground image object', () => {
+		expect(
+			pickMediaEssentialAttrs(
+				{
+					blockBackground: {
+						image: { url: 'https://example.com/wp-content/uploads/banner.webp' },
+					},
+					uniqueId: 'abc',
+				},
+				'stackable/hero'
+			)
+		).toEqual( {
+			blockBackground: {
+				image: { url: 'https://example.com/wp-content/uploads/banner.webp' },
+			},
+		} )
+	} )
+
+	it( 'picks a Kadence-style bgImg URL string', () => {
+		expect(
+			pickMediaEssentialAttrs(
+				{
+					bgImg: 'https://example.com/wp-content/uploads/row.jpg',
+					bgImgID: 44,
+					uniqueID: 'kad-1',
+				},
+				'kadence/rowlayout'
+			)
+		).toEqual( {
+			bgImg: 'https://example.com/wp-content/uploads/row.jpg',
+			bgImgID: 44,
+		} )
+	} )
+
+	it( 'picks a GenerateBlocks-style bgImage nested url', () => {
+		expect(
+			pickMediaEssentialAttrs(
+				{
+					bgImage: {
+						image: {
+							url: 'https://example.com/wp-content/uploads/gb-hero.webp',
+							id: 21,
+						},
+					},
+					uniqueId: 'gb1',
+				},
+				'generateblocks/container'
+			)
+		).toEqual( {
+			bgImage: {
+				image: {
+					url: 'https://example.com/wp-content/uploads/gb-hero.webp',
+					id: 21,
+				},
+			},
+		} )
+	} )
+} )
+
+describe( 'looksLikeSmallOverlay', () => {
+	it( 'treats a 120px Greenshift image as an overlay', () => {
+		expect( looksLikeSmallOverlay( {
+			originalWidth: 120,
+			customWidth: [ 60 ],
+			widthUnit: [ 'px' ],
+		} ) ).toBe( true )
+	} )
+
+	it( 'does not treat percent-width containers as overlays', () => {
+		expect( looksLikeSmallOverlay( { width: [ 100 ], widthUnit: [ '%' ] } ) ).toBe( false )
+	} )
+
+	it( 'treats a numeric width under 400px as an overlay on any library', () => {
+		expect( looksLikeSmallOverlay( { width: 120 } ) ).toBe( true )
+	} )
+} )
+
+describe( 'mediaKindFromEssentials', () => {
+	it( 'marks core/cover url/alt/id as a background canvas, not an inline image', () => {
+		expect(
+			mediaKindFromEssentials(
+				{
+					url: 'https://example.com/hero.jpg',
+					alt: 'Hero',
+					id: 12,
+				},
+				'core/cover'
+			)
+		).toBe( 'background' )
+	} )
+
+	it( 'marks core/image url/alt/id as an inline image', () => {
+		expect(
+			mediaKindFromEssentials(
+				{
+					url: 'https://example.com/hero.jpg',
+					alt: 'Hero',
+					id: 12,
+				},
+				'core/image'
+			)
+		).toBe( 'image' )
+	} )
+
+	it( 'marks a non-image block with a URL as a background canvas', () => {
+		expect(
+			mediaKindFromEssentials(
+				{ imageUrl: 'https://example.com/hero.jpg' },
+				'acme/banner'
+			)
+		).toBe( 'background' )
+		expect(
+			isCanvasBackgroundSurface(
+				'acme/banner',
+				{ imageUrl: 'https://example.com/hero.jpg' }
+			)
+		).toBe( true )
+	} )
+
+	it( 'treats an empty cover as a canvas surface for retargeting', () => {
+		expect( isCanvasBackgroundSurface( 'core/cover', {} ) ).toBe( true )
+		expect( mediaKindFromEssentials( {}, 'core/cover' ) ).toBe( '' )
+	} )
+
+	it( 'marks nested background objects as canvas regardless of namespace', () => {
+		expect(
+			mediaKindFromEssentials(
+				{ style: { background: { backgroundImage: { url: 'https://example.com/a.jpg' } } } },
+				'core/group'
+			)
+		).toBe( 'background' )
+		expect(
+			mediaKindFromEssentials(
+				{ blockBackground: { image: { url: 'https://example.com/a.jpg' } } },
+				'stackable/hero'
+			)
+		).toBe( 'background' )
+		expect(
+			mediaKindFromEssentials(
+				{ bgImg: 'https://example.com/a.jpg' },
+				'kadence/rowlayout'
+			)
+		).toBe( 'background' )
+		expect(
+			mediaKindFromEssentials(
+				{ bgImage: { image: { url: 'https://example.com/a.jpg' } } },
+				'generateblocks/container'
+			)
+		).toBe( 'background' )
+		expect(
+			mediaKindFromEssentials(
+				{ background: { image: [ 'https://example.com/a.jpg' ] } },
+				'acme/banner'
+			)
+		).toBe( 'background' )
 	} )
 } )
 
@@ -426,5 +638,138 @@ describe( 'resolveAttributePatch', () => {
 			alt: 'Outdoor farm',
 			width: 1600,
 		} )
+	} )
+
+	it( 'maps guessed mediaurl onto Greenshift background.image and keeps size/repeat', () => {
+		const oldUrl = 'https://example.com/uploads/home-hero.webp'
+		const newUrl = 'https://example.com/uploads/farm.png'
+		const resolved = resolveAttributePatch(
+			{
+				background: {
+					image: [ oldUrl, null ],
+					size: [ 'cover' ],
+					repeat: [ 'no-repeat' ],
+					positionImage: [ { x: '0.50', y: '0.63' } ],
+				},
+				id: 'gsbp-hero',
+			},
+			{
+				mediaurl: newUrl,
+				mediaid: 1295,
+				alt: 'Outdoor farm',
+			},
+			{ blockName: 'greenshift-blocks/container' }
+		)
+
+		expect( resolved.patch.background ).toEqual( {
+			image: [ newUrl, null ],
+			size: [ 'cover' ],
+			repeat: [ 'no-repeat' ],
+			positionImage: [ { x: '0.50', y: '0.63' } ],
+		} )
+		expect( resolved.patch.mediaurl ).toBeUndefined()
+		expect( resolved.remapped.mediaurl ).toBe( 'background.image' )
+		expect( resolved.ignored ).toEqual( [ 'mediaid', 'alt' ] )
+	} )
+
+	it( 'rewrites the old URL inside a nested background.image array when CSS also holds it', () => {
+		const oldUrl = 'https://example.com/uploads/home-hero.webp'
+		const newUrl = 'https://example.com/uploads/farm.png'
+		const resolved = resolveAttributePatch(
+			{
+				background: {
+					image: [ oldUrl ],
+					size: [ 'cover' ],
+				},
+				inlineCssStyles: `.hero{background-image:url(${ oldUrl })}`,
+			},
+			{ mediaurl: newUrl },
+			{ blockName: 'greenshift-blocks/container' }
+		)
+
+		expect( resolved.patch.background.image ).toEqual( [ newUrl ] )
+		expect( resolved.patch.inlineCssStyles ).toBe( `.hero{background-image:url(${ newUrl })}` )
+	} )
+
+	it( 'maps guessed mediaurl onto core/group style.background.backgroundImage and keeps sibling style', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/hero.jpg'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const resolved = resolveAttributePatch(
+			{
+				style: {
+					color: { background: '#111111' },
+					background: {
+						backgroundImage: { url: oldUrl },
+					},
+				},
+			},
+			{ mediaurl: newUrl },
+			{ blockName: 'core/group' }
+		)
+
+		expect( resolved.patch.style ).toEqual( {
+			color: { background: '#111111' },
+			background: {
+				backgroundImage: { url: newUrl },
+			},
+		} )
+		expect( resolved.remapped.mediaurl ).toBe( 'style.background.backgroundImage.url' )
+	} )
+
+	it( 'maps guessed mediaurl onto a Kadence-style bgImg string', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/row.jpg'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const resolved = resolveAttributePatch(
+			{
+				bgImg: oldUrl,
+				bgImgID: 44,
+			},
+			{ mediaurl: newUrl, mediaid: 90 },
+			{ blockName: 'kadence/rowlayout' }
+		)
+
+		expect( resolved.patch.bgImg ).toBe( newUrl )
+		expect( resolved.patch.bgImgID ).toBe( 90 )
+		expect( resolved.remapped.mediaurl ).toBe( 'bgImg' )
+		expect( resolved.remapped.mediaid ).toBe( 'bgImgID' )
+	} )
+
+	it( 'maps guessed mediaurl onto a GenerateBlocks-style bgImage nested url', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/gb-hero.webp'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const resolved = resolveAttributePatch(
+			{
+				bgImage: {
+					image: { url: oldUrl, id: 21 },
+				},
+			},
+			{ mediaurl: newUrl, mediaid: 99 },
+			{ blockName: 'generateblocks/container' }
+		)
+
+		expect( resolved.patch.bgImage ).toEqual( {
+			image: { url: newUrl, id: 99 },
+		} )
+		expect( resolved.remapped.mediaurl ).toBe( 'bgImage.image.url' )
+		expect( resolved.remapped.mediaid ).toBe( 'bgImage.image.id' )
+	} )
+
+	it( 'maps guessed mediaurl onto a Stackable-style blockBackground image url', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/banner.webp'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const resolved = resolveAttributePatch(
+			{
+				blockBackground: {
+					image: { url: oldUrl },
+					color: '#111111',
+				},
+			},
+			{ mediaurl: newUrl },
+			{ blockName: 'stackable/hero' }
+		)
+
+		expect( resolved.patch.blockBackground.image ).toEqual( { url: newUrl } )
+		expect( resolved.patch.blockBackground.color ).toBe( '#111111' )
+		expect( resolved.remapped.mediaurl ).toBe( 'blockBackground.image.url' )
 	} )
 } )

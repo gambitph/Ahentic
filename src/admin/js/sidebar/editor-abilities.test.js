@@ -317,9 +317,15 @@ describe( 'updateBlockAttributes live media remap', () => {
 	 */
 	function mockLiveEditor( blocksById, opts = {} ) {
 		const apply = opts.apply || 'merge'
-		const root = Object.values( blocksById )
+		const root = opts.root || Object.values( blocksById )
 		syncFromBlocks( root, 1 )
 		let dispatched = null
+		const parentOf = {}
+		Object.values( blocksById ).forEach( block => {
+			( block.innerBlocks || [] ).forEach( child => {
+				parentOf[ child.clientId ] = block.clientId
+			} )
+		} )
 		global.window.wp = {
 			data: {
 				select: store => {
@@ -327,6 +333,15 @@ describe( 'updateBlockAttributes live media remap', () => {
 						return {
 							getBlocks: () => root,
 							getBlock: id => blocksById[ id ] || null,
+							getBlockParents: id => {
+								const closestFirst = []
+								let cur = parentOf[ id ]
+								while ( cur ) {
+									closestFirst.push( cur )
+									cur = parentOf[ cur ]
+								}
+								return [ ...closestFirst ].reverse()
+							},
 							getSelectedBlockClientIds: () => [],
 						}
 					}
@@ -500,6 +515,273 @@ describe( 'updateBlockAttributes live media remap', () => {
 			`.hero{background-image:url(${ newUrl })}`
 		)
 		expect( editor.getBlock( 'cid_hero' ).attributes.mediaurl ).toBeUndefined()
+	} )
+
+	it( 'deep-merges Greenshift background.image arrays and keeps size/repeat', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/home-hero.webp'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const blocksById = {
+			cid_hero: {
+				clientId: 'cid_hero',
+				name: 'greenshift-blocks/container',
+				attributes: {
+					background: {
+						image: [ oldUrl, null ],
+						size: [ 'cover' ],
+						repeat: [ 'no-repeat' ],
+					},
+					id: 'gsbp-hero',
+				},
+				innerBlocks: [],
+			},
+		}
+		const editor = mockLiveEditor( blocksById )
+
+		const result = updateBlockAttributes( {
+			ref: 'b1',
+			attributes: {
+				mediaurl: newUrl,
+				mediaid: 1295,
+			},
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( editor.getBlock( 'cid_hero' ).attributes.background ).toEqual( {
+			image: [ newUrl, null ],
+			size: [ 'cover' ],
+			repeat: [ 'no-repeat' ],
+		} )
+		expect( editor.getBlock( 'cid_hero' ).attributes.mediaurl ).toBeUndefined()
+		expect( result.remapped.mediaurl ).toBe( 'background.image' )
+	} )
+
+	it( 'retargets a small nested image write onto the ancestor background', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/home-hero.webp'
+		const overlayUrl = 'https://example.com/wp-content/uploads/home-hero-1.webp'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const imageBlock = {
+			clientId: 'cid_img',
+			name: 'greenshift-blocks/image',
+			attributes: {
+				mediaurl: overlayUrl,
+				mediaid: 80,
+				alt: '',
+				originalWidth: 120,
+				customWidth: [ 60 ],
+				widthUnit: [ 'px' ],
+				background: {},
+			},
+			innerBlocks: [],
+		}
+		const heroBlock = {
+			clientId: 'cid_hero',
+			name: 'greenshift-blocks/container',
+			attributes: {
+				background: {
+					image: [ oldUrl ],
+					size: [ 'cover' ],
+					repeat: [ 'no-repeat' ],
+				},
+				id: 'gsbp-hero',
+			},
+			innerBlocks: [ imageBlock ],
+		}
+		const editor = mockLiveEditor( {
+			cid_hero: heroBlock,
+			cid_img: imageBlock,
+		}, { root: [ heroBlock ] } )
+
+		const result = updateBlockAttributes( {
+			ref: 'b2',
+			attributes: {
+				mediaurl: newUrl,
+				mediaid: 1295,
+			},
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( result.updated_refs ).toEqual( [ 'b1' ] )
+		expect( result.retargeted ).toEqual( [ {
+			from: 'b2',
+			to: 'b1',
+			reason: 'nested_overlay_ancestor_background',
+		} ] )
+		expect( editor.getBlock( 'cid_hero' ).attributes.background ).toEqual( {
+			image: [ newUrl ],
+			size: [ 'cover' ],
+			repeat: [ 'no-repeat' ],
+		} )
+		expect( editor.getBlock( 'cid_img' ).attributes.mediaurl ).toBe( overlayUrl )
+		expect( editor.getDispatched().clientId ).toBe( 'cid_hero' )
+	} )
+
+	it( 'does not retarget a large nested image onto a parent background', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/home-hero.webp'
+		const photoUrl = 'https://example.com/wp-content/uploads/photo.webp'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const imageBlock = {
+			clientId: 'cid_img',
+			name: 'core/image',
+			attributes: {
+				url: photoUrl,
+				alt: '',
+				id: 80,
+				width: 1200,
+			},
+			innerBlocks: [],
+		}
+		const heroBlock = {
+			clientId: 'cid_hero',
+			name: 'core/group',
+			attributes: {
+				style: {
+					background: {
+						backgroundImage: { url: oldUrl },
+					},
+				},
+			},
+			innerBlocks: [ imageBlock ],
+		}
+		const editor = mockLiveEditor( {
+			cid_hero: heroBlock,
+			cid_img: imageBlock,
+		}, { root: [ heroBlock ] } )
+
+		const result = updateBlockAttributes( {
+			ref: 'b2',
+			attributes: { url: newUrl },
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( result.retargeted ).toBeUndefined()
+		expect( editor.getBlock( 'cid_img' ).attributes.url ).toBe( newUrl )
+		expect( editor.getBlock( 'cid_hero' ).attributes.style.background.backgroundImage.url ).toBe( oldUrl )
+	} )
+
+	it( 'retargets a small nested image onto a core/cover ancestor', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/cover.webp'
+		const overlayUrl = 'https://example.com/wp-content/uploads/badge.webp'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const imageBlock = {
+			clientId: 'cid_img',
+			name: 'core/image',
+			attributes: {
+				url: overlayUrl,
+				alt: '',
+				id: 80,
+				width: 120,
+			},
+			innerBlocks: [],
+		}
+		const heroBlock = {
+			clientId: 'cid_hero',
+			name: 'core/cover',
+			attributes: {
+				url: oldUrl,
+				alt: 'Hero',
+				id: 12,
+			},
+			innerBlocks: [ imageBlock ],
+		}
+		const editor = mockLiveEditor( {
+			cid_hero: heroBlock,
+			cid_img: imageBlock,
+		}, { root: [ heroBlock ] } )
+
+		const result = updateBlockAttributes( {
+			ref: 'b2',
+			attributes: { url: newUrl, id: 99 },
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( result.updated_refs ).toEqual( [ 'b1' ] )
+		expect( result.retargeted[ 0 ] ).toEqual( {
+			from: 'b2',
+			to: 'b1',
+			reason: 'nested_overlay_ancestor_background',
+		} )
+		expect( editor.getBlock( 'cid_hero' ).attributes.url ).toBe( newUrl )
+		expect( editor.getBlock( 'cid_img' ).attributes.url ).toBe( overlayUrl )
+	} )
+
+	it( 'retargets a small nested image onto a Stackable hero background', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/banner.webp'
+		const overlayUrl = 'https://example.com/wp-content/uploads/icon.webp'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const imageBlock = {
+			clientId: 'cid_img',
+			name: 'stackable/image',
+			attributes: {
+				url: overlayUrl,
+				alt: '',
+				width: 80,
+			},
+			innerBlocks: [],
+		}
+		const heroBlock = {
+			clientId: 'cid_hero',
+			name: 'stackable/hero',
+			attributes: {
+				blockBackground: {
+					image: { url: oldUrl },
+					color: '#111111',
+				},
+			},
+			innerBlocks: [ imageBlock ],
+		}
+		const editor = mockLiveEditor( {
+			cid_hero: heroBlock,
+			cid_img: imageBlock,
+		}, { root: [ heroBlock ] } )
+
+		const result = updateBlockAttributes( {
+			ref: 'b2',
+			attributes: { mediaurl: newUrl },
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( result.updated_refs ).toEqual( [ 'b1' ] )
+		expect( editor.getBlock( 'cid_hero' ).attributes.blockBackground.image.url ).toBe( newUrl )
+		expect( editor.getBlock( 'cid_hero' ).attributes.blockBackground.color ).toBe( '#111111' )
+		expect( editor.getBlock( 'cid_img' ).attributes.url ).toBe( overlayUrl )
+	} )
+
+	it( 'retargets a small nested image onto an unknown-library banner URL', () => {
+		const oldUrl = 'https://example.com/wp-content/uploads/banner.webp'
+		const overlayUrl = 'https://example.com/wp-content/uploads/icon.webp'
+		const newUrl = 'https://example.com/wp-content/uploads/farm.png'
+		const imageBlock = {
+			clientId: 'cid_img',
+			name: 'core/image',
+			attributes: {
+				url: overlayUrl,
+				alt: '',
+				width: 80,
+			},
+			innerBlocks: [],
+		}
+		const heroBlock = {
+			clientId: 'cid_hero',
+			name: 'acme/banner',
+			attributes: {
+				imageUrl: oldUrl,
+			},
+			innerBlocks: [ imageBlock ],
+		}
+		const editor = mockLiveEditor( {
+			cid_hero: heroBlock,
+			cid_img: imageBlock,
+		}, { root: [ heroBlock ] } )
+
+		const result = updateBlockAttributes( {
+			ref: 'b2',
+			attributes: { mediaurl: newUrl },
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( result.updated_refs ).toEqual( [ 'b1' ] )
+		expect( editor.getBlock( 'cid_hero' ).attributes.imageUrl ).toBe( newUrl )
+		expect( editor.getBlock( 'cid_img' ).attributes.url ).toBe( overlayUrl )
 	} )
 
 	it( 'treats equal array attribute values as landed', () => {
@@ -731,6 +1013,167 @@ describe( 'getBlocks scoped refs', () => {
 		expect( result.blocks[ 0 ].attributes.backBackgroundColor ).toBeUndefined()
 	} )
 
+	it( 'includes compact background.image on Greenshift container blocks', () => {
+		const heroUrl = 'http://ai.local/wp-content/uploads/2025/08/home-hero-image-1.webp'
+		const blocksById = {
+			cid_box: {
+				clientId: 'cid_box',
+				name: 'greenshift-blocks/container',
+				attributes: {
+					background: {
+						image: [ heroUrl ],
+						size: [ 'cover' ],
+						repeat: [ 'no-repeat' ],
+						positionImage: [ { x: '0.50', y: '0.63' } ],
+					},
+					id: 'gsbp-hero',
+					width: [ 100 ],
+				},
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_box ]
+		syncFromBlocks( root, 1 )
+
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: () => ( {} ),
+			},
+		}
+
+		const result = getBlocks( {} )
+		expect( result.ok ).toBe( true )
+		expect( result.blocks[ 0 ].attributes.background ).toEqual( {
+			image: [ heroUrl ],
+		} )
+		expect( result.blocks[ 0 ].attributes.background.size ).toBeUndefined()
+		expect( result.blocks[ 0 ].attributes.width ).toBeUndefined()
+		expect( result.blocks[ 0 ].media_kind ).toBe( 'background' )
+	} )
+
+	it( 'marks core/cover compact media as a background canvas', () => {
+		const heroUrl = 'http://ai.local/wp-content/uploads/2025/08/cover-hero.webp'
+		const blocksById = {
+			cid_cover: {
+				clientId: 'cid_cover',
+				name: 'core/cover',
+				attributes: {
+					url: heroUrl,
+					alt: 'Cover hero',
+					id: 88,
+					dimRatio: 50,
+				},
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_cover ]
+		syncFromBlocks( root, 1 )
+
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: () => ( {} ),
+			},
+		}
+
+		const result = getBlocks( {} )
+		expect( result.ok ).toBe( true )
+		expect( result.blocks[ 0 ].media_kind ).toBe( 'background' )
+		expect( result.blocks[ 0 ].attributes.url ).toBe( heroUrl )
+	} )
+
+	it( 'includes compact background media on core/group and Stackable heroes', () => {
+		const groupUrl = 'http://ai.local/wp-content/uploads/2025/08/group-hero.webp'
+		const stackUrl = 'http://ai.local/wp-content/uploads/2025/08/stack-hero.webp'
+		const blocksById = {
+			cid_group: {
+				clientId: 'cid_group',
+				name: 'core/group',
+				attributes: {
+					style: {
+						color: { background: '#111111' },
+						background: {
+							backgroundImage: { url: groupUrl },
+						},
+					},
+					layout: { type: 'constrained' },
+				},
+				innerBlocks: [],
+			},
+			cid_stack: {
+				clientId: 'cid_stack',
+				name: 'stackable/hero',
+				attributes: {
+					blockBackground: {
+						image: { url: stackUrl },
+						color: '#000000',
+					},
+					uniqueId: 'hero-1',
+				},
+				innerBlocks: [],
+			},
+		}
+		const root = [ blocksById.cid_group, blocksById.cid_stack ]
+		syncFromBlocks( root, 1 )
+
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: () => ( {} ),
+			},
+		}
+
+		const result = getBlocks( {} )
+		expect( result.ok ).toBe( true )
+		expect( result.blocks[ 0 ].media_kind ).toBe( 'background' )
+		expect( result.blocks[ 0 ].attributes.style ).toEqual( {
+			background: {
+				backgroundImage: { url: groupUrl },
+			},
+		} )
+		expect( result.blocks[ 1 ].media_kind ).toBe( 'background' )
+		expect( result.blocks[ 1 ].attributes.blockBackground ).toEqual( {
+			image: { url: stackUrl },
+		} )
+	} )
+
 	it( 'enforces a compact byte budget without mid-JSON clipping', () => {
 		const fatKeys = {}
 		for ( let i = 0; i < 40; i++ ) {
@@ -810,6 +1253,31 @@ describe( 'getBlocks scoped refs', () => {
 		expect( fitted.truncated ).toBe( true )
 		expect( fitted.blocks[ 0 ].ref ).toBe( 'b1' )
 		expect( () => JSON.parse( JSON.stringify( fitted ) ) ).not.toThrow()
+	} )
+
+	it( 'enforceGetBlocksByteBudget keeps compact background media and media_kind', () => {
+		const huge = {
+			ok: true,
+			count: 1,
+			truncated: false,
+			blocks: [ {
+				ref: 'b1',
+				name: 'acme/banner',
+				media_kind: 'background',
+				content_attr: 'content',
+				preview: 'Hero',
+				attribute_keys: Array.from( { length: 40 }, ( _, i ) => `k${ i }_${ 'y'.repeat( 80 ) }` ),
+				attributes: {
+					background: { image: [ 'https://example.com/hero.jpg' ] },
+					content: 'z'.repeat( 2000 ),
+				},
+			} ],
+		}
+		const fitted = enforceGetBlocksByteBudget( huge, 800 )
+		expect( fitted.blocks[ 0 ].media_kind ).toBe( 'background' )
+		expect( fitted.blocks[ 0 ].attributes.background ).toEqual( {
+			image: [ 'https://example.com/hero.jpg' ],
+		} )
 	} )
 
 	it( 'errors when scoped refs are missing', () => {
