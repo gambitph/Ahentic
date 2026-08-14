@@ -581,11 +581,18 @@ test.describe( 'audit-accessibility ↔ update-media alt loop', () => {
 		expect( ( mid.issues || [] ).filter( i => i.type === 'missing_alt' ).length ).toBeGreaterThan( 0 )
 
 		// Agent closes the canvas gap the same way prompts recommend after describe-image.
-		const patched = await page.evaluate( ( { ref, alt } ) => window.__ahenticE2E.updateBlockAttributes( {
+		const patched = await page.evaluate( ( {
+			ref, alt, url,
+		} ) => window.__ahenticE2E.updateBlockAttributes( {
 			ref,
-			attributes: { alt },
-		} ), { ref: missingBefore[ 0 ].ref, alt: altText } )
+			attributes: { mediaurl: url, alt },
+		} ), {
+			ref: missingBefore[ 0 ].ref, alt: altText, url,
+		} )
 		expect( patched.ok, JSON.stringify( patched ) ).toBe( true )
+		expect( patched.attributes.alt ).toBe( altText )
+		expect( patched.attributes.url ).toBe( url )
+		expect( patched.attributes.mediaurl ).toBeUndefined()
 
 		const after = await page.evaluate( () => window.__ahenticE2E.auditAccessibility() )
 		expect( after.ok, JSON.stringify( after ) ).toBe( true )

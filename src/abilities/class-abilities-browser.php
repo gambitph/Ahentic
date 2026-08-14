@@ -621,7 +621,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Browser' ) ) {
 				array(
 					'name'        => self::UPDATE_BLOCK_ATTRIBUTES,
 					'label'       => __( 'Update block attributes', 'ahentic' ),
-					'description' => __( 'Patches attributes on one or more blocks by ref. Prefer over full replace for text/light edits. Use get-block-type first for unknown/third-party blocks. Pass refs from get-blocks/get-selection. Runs in the browser.', 'ahentic' ),
+					'description' => __( 'Patches attributes on one or more blocks by ref. Prefer over full replace for text/light edits. Guessed media keys (url/id/alt, mediaurl, …) are remapped onto the live block\'s keys, including nested image objects and compiled CSS strings that still contain the old URL. Returns ok:false (attributes_not_applied) with live_media if the value did not land. Do not treat a dispatch as success. Use get-block-type first for unknown/third-party blocks when remap is not enough. Pass refs from get-blocks/get-selection. Runs in the browser.', 'ahentic' ),
 					'meta'        => $mutate_meta,
 					'input'       => array(
 						'type'       => 'object',

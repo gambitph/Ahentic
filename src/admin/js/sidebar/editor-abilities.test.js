@@ -301,6 +301,281 @@ describe( 'updateBlockAttributes placeholder guard', () => {
 	} )
 } )
 
+describe( 'updateBlockAttributes live media remap', () => {
+	beforeEach( () => {
+		resetBlockRefs()
+		global.window = global.window || {}
+	} )
+
+	afterEach( () => {
+		delete global.window.wp
+	} )
+
+	/**
+	 * @param {Record<string, Object>}                       blocksById
+	 * @param {{ apply?: 'merge' | 'noop' | 'reformatCss' }} [opts]
+	 */
+	function mockLiveEditor( blocksById, opts = {} ) {
+		const apply = opts.apply || 'merge'
+		const root = Object.values( blocksById )
+		syncFromBlocks( root, 1 )
+		let dispatched = null
+		global.window.wp = {
+			data: {
+				select: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							getBlocks: () => root,
+							getBlock: id => blocksById[ id ] || null,
+							getSelectedBlockClientIds: () => [],
+						}
+					}
+					if ( store === 'core/editor' ) {
+						return { getCurrentPostId: () => 1 }
+					}
+					return {}
+				},
+				dispatch: store => {
+					if ( store === 'core/block-editor' ) {
+						return {
+							updateBlockAttributes: ( clientId, attributes ) => {
+								dispatched = { clientId, attributes }
+								if ( apply === 'noop' ) {
+									return
+								}
+								const block = blocksById[ clientId ]
+								if ( ! block ) {
+									return
+								}
+								const next = { ...attributes }
+								if ( apply === 'reformatCss' && typeof next.inlineCssStyles === 'string' ) {
+									next.inlineCssStyles = next.inlineCssStyles.replace(
+										/url\(([^)]+)\)/,
+										'url( $1 )'
+									)
+								}
+								block.attributes = { ...block.attributes, ...next }
+							},
+						}
+					}
+					return {}
+				},
+			},
+			blocks: {
+				getBlockType: () => null,
+			},
+		}
+		return {
+			getDispatched: () => dispatched,
+			getBlock: id => blocksById[ id ],
+		}
+	}
+
+	it( 'writes remapped live keys and echoes them after a successful media patch', () => {
+		const blocksById = {
+			cid_img: {
+				clientId: 'cid_img',
+				name: 'greenshift-blocks/image',
+				attributes: {
+					mediaUrl: 'https://example.com/old.jpg',
+					mediaId: 10,
+					alt: 'Old field',
+				},
+				innerBlocks: [],
+			},
+		}
+		const editor = mockLiveEditor( blocksById )
+
+		const result = updateBlockAttributes( {
+			ref: 'b1',
+			attributes: {
+				mediaurl: 'https://example.com/farm.png',
+				mediaid: 1291,
+				alt: 'Outdoor farm',
+			},
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( result.attributes ).toEqual( {
+			mediaUrl: 'https://example.com/farm.png',
+			mediaId: 1291,
+			alt: 'Outdoor farm',
+		} )
+		expect( editor.getBlock( 'cid_img' ).attributes.mediaUrl ).toBe( 'https://example.com/farm.png' )
+		expect( editor.getBlock( 'cid_img' ).attributes.mediaurl ).toBeUndefined()
+		expect( editor.getDispatched().attributes.mediaurl ).toBeUndefined()
+	} )
+
+	it( 'returns attributes_not_applied when guessed media keys match nothing live', () => {
+		const blocksById = {
+			cid_p: {
+				clientId: 'cid_p',
+				name: 'core/paragraph',
+				attributes: { content: 'Hello there friend.' },
+				innerBlocks: [],
+			},
+		}
+		const editor = mockLiveEditor( blocksById )
+
+		const result = updateBlockAttributes( {
+			ref: 'b1',
+			attributes: {
+				mediaurl: 'https://example.com/farm.png',
+				mediaid: 1291,
+				alt: 'Outdoor farm',
+			},
+		} )
+
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'attributes_not_applied' )
+		expect( result.ignored_keys ).toEqual( [ 'mediaurl', 'mediaid', 'alt' ] )
+		expect( result.live_media ).toEqual( {} )
+		expect( result.hint ).toBeTruthy()
+		expect( editor.getDispatched() ).toBeNull()
+		expect( editor.getBlock( 'cid_p' ).attributes.mediaurl ).toBeUndefined()
+	} )
+
+	it( 'still patches core/image url/alt/id when keys already match', () => {
+		const blocksById = {
+			cid_img: {
+				clientId: 'cid_img',
+				name: 'core/image',
+				attributes: {
+					url: 'https://example.com/old.jpg',
+					alt: '',
+					id: 5,
+				},
+				innerBlocks: [],
+			},
+		}
+		mockLiveEditor( blocksById )
+
+		const result = updateBlockAttributes( {
+			ref: 'b1',
+			attributes: {
+				url: 'https://example.com/farm.png',
+				alt: 'Outdoor farm',
+				id: 1291,
+			},
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( result.attributes.url ).toBe( 'https://example.com/farm.png' )
+		expect( result.attributes.alt ).toBe( 'Outdoor farm' )
+		expect( result.attributes.id ).toBe( 1291 )
+	} )
+
+	it( 'deep-merges nested media objects and rewrites compiled CSS on the live block', () => {
+		const oldUrl = 'https://example.com/old.jpg'
+		const newUrl = 'https://example.com/farm.png'
+		const blocksById = {
+			cid_hero: {
+				clientId: 'cid_hero',
+				name: 'greenshift-blocks/container',
+				attributes: {
+					backgroundImage: {
+						url: oldUrl, id: 10, alt: 'Old field', width: 1600,
+					},
+					inlineCssStyles: `.hero{background-image:url(${ oldUrl })}`,
+				},
+				innerBlocks: [],
+			},
+		}
+		const editor = mockLiveEditor( blocksById )
+
+		const result = updateBlockAttributes( {
+			ref: 'b1',
+			attributes: {
+				mediaurl: newUrl,
+				mediaid: 1291,
+				alt: 'Outdoor farm',
+			},
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( editor.getBlock( 'cid_hero' ).attributes.backgroundImage ).toEqual( {
+			url: newUrl, id: 1291, alt: 'Outdoor farm', width: 1600,
+		} )
+		expect( editor.getBlock( 'cid_hero' ).attributes.inlineCssStyles ).toBe(
+			`.hero{background-image:url(${ newUrl })}`
+		)
+		expect( editor.getBlock( 'cid_hero' ).attributes.mediaurl ).toBeUndefined()
+	} )
+
+	it( 'treats equal array attribute values as landed', () => {
+		const blocksById = {
+			cid_g: {
+				clientId: 'cid_g',
+				name: 'core/gallery',
+				attributes: { ids: [ 1, 2 ] },
+				innerBlocks: [],
+			},
+		}
+		mockLiveEditor( blocksById )
+
+		const result = updateBlockAttributes( {
+			ref: 'b1',
+			attributes: { ids: [ 3, 4 ] },
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( result.attributes.ids ).toEqual( [ 3, 4 ] )
+	} )
+
+	it( 'accepts compiled CSS that still contains the new URL after store reformatting', () => {
+		const oldUrl = 'https://example.com/old.jpg'
+		const newUrl = 'https://example.com/farm.png'
+		const blocksById = {
+			cid_hero: {
+				clientId: 'cid_hero',
+				name: 'greenshift-blocks/container',
+				attributes: {
+					backgroundImage: {
+						url: oldUrl, id: 10, width: 1600,
+					},
+					inlineCssStyles: `.hero{background-image:url(${ oldUrl })}`,
+				},
+				innerBlocks: [],
+			},
+		}
+		mockLiveEditor( blocksById, { apply: 'reformatCss' } )
+
+		const result = updateBlockAttributes( {
+			ref: 'b1',
+			attributes: { mediaurl: newUrl, mediaid: 1291 },
+		} )
+
+		expect( result.ok ).toBe( true )
+		expect( blocksById.cid_hero.attributes.inlineCssStyles ).toContain( newUrl )
+		expect( blocksById.cid_hero.attributes.backgroundImage.url ).toBe( newUrl )
+	} )
+
+	it( 'returns attributes_not_applied when the editor store does not keep the patch', () => {
+		const blocksById = {
+			cid_img: {
+				clientId: 'cid_img',
+				name: 'core/image',
+				attributes: {
+					url: 'https://example.com/old.jpg',
+					alt: '',
+					id: 5,
+				},
+				innerBlocks: [],
+			},
+		}
+		mockLiveEditor( blocksById, { apply: 'noop' } )
+
+		const result = updateBlockAttributes( {
+			ref: 'b1',
+			attributes: { url: 'https://example.com/farm.png' },
+		} )
+
+		expect( result.ok ).toBe( false )
+		expect( result.error ).toBe( 'attributes_not_applied' )
+		expect( blocksById.cid_img.attributes.url ).toBe( 'https://example.com/old.jpg' )
+	} )
+} )
+
 describe( 'getBlocks scoped refs', () => {
 	beforeEach( () => {
 		resetBlockRefs()

@@ -863,6 +863,7 @@ class PromptAssemblerTest extends TestCase {
 		$this->assertStringNotContainsString( 'in ONE tools_planned so steps can run', $guidance );
 		$this->assertStringNotContainsString( 'use 0 as placeholder', $guidance );
 		$this->assertStringContainsString( 'do not default to set-featured-image', $guidance );
+		$this->assertStringContainsString( 'remaps guessed keys onto the live block', $guidance );
 		$this->assertStringContainsString( 'asked for alt', $guidance );
 	}
 

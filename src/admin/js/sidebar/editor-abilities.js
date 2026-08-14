@@ -18,7 +18,12 @@ import {
 	collectLiveClientIds,
 	wipeEditorRefs,
 } from './block-ref-registry'
-import { pickMediaEssentialAttrs } from './media-essentials'
+import {
+	pickMediaEssentialAttrs,
+	resolveAttributePatch,
+	isAttachmentId,
+	compiledStyleContainsUrls,
+} from './media-essentials'
 import { pickLinkEssentialAttrs } from './link-essentials'
 import { resolveMovePlacement } from './move-placement'
 import { planPostDocumentEdits } from './post-document-edits'
@@ -1869,6 +1874,60 @@ export function focusBlock( input = {} ) {
 	}
 }
 
+/**
+ * Whether live attributes contain every value from a dispatched patch.
+ *
+ * Nested objects match on the patched fields (live may have extra keys).
+ *
+ * @param {Record<string, unknown>} liveAttrs Live attrs after dispatch.
+ * @param {Record<string, unknown>} patch     Dispatched patch.
+ * @return {boolean}
+ */
+function patchLanded( liveAttrs, patch ) {
+	if ( ! patch || typeof patch !== 'object' ) {
+		return true
+	}
+	const live = liveAttrs && typeof liveAttrs === 'object' ? liveAttrs : {}
+	for ( const key of Object.keys( patch ) ) {
+		if ( ! valueLanded( live[ key ], patch[ key ] ) ) {
+			return false
+		}
+	}
+	return true
+}
+
+/**
+ * @param {unknown} liveVal
+ * @param {unknown} expected
+ * @return {boolean}
+ */
+function valueLanded( liveVal, expected ) {
+	if ( isRichTextValue( liveVal ) || isRichTextValue( expected ) ) {
+		const liveHtml = isRichTextValue( liveVal ) ? richTextToHtml( liveVal ) : String( liveVal ?? '' )
+		const expectedHtml = isRichTextValue( expected ) ? richTextToHtml( expected ) : String( expected ?? '' )
+		return liveHtml === expectedHtml
+	}
+	if ( Array.isArray( expected ) ) {
+		if ( ! Array.isArray( liveVal ) || liveVal.length !== expected.length ) {
+			return false
+		}
+		return expected.every( ( item, i ) => valueLanded( liveVal[ i ], item ) )
+	}
+	if ( expected && typeof expected === 'object' ) {
+		if ( ! liveVal || typeof liveVal !== 'object' || Array.isArray( liveVal ) ) {
+			return false
+		}
+		return Object.keys( expected ).every( key => valueLanded( liveVal[ key ], expected[ key ] ) )
+	}
+	if ( liveVal === expected ) {
+		return true
+	}
+	if ( isAttachmentId( liveVal ) && isAttachmentId( expected ) ) {
+		return Number( liveVal ) === Number( expected )
+	}
+	return compiledStyleContainsUrls( liveVal, expected )
+}
+
 export function updateBlockAttributes( input = {} ) {
 	const ctx = requireEditor()
 	if ( ! ctx.ok ) {
@@ -1904,21 +1963,76 @@ export function updateBlockAttributes( input = {} ) {
 	const dispatch = ctx.dispatch( 'core/block-editor' )
 	const updated = []
 	const missing = [ ...missingTokens ]
+	const echoed = {}
+	const remapped = {}
+	const ignored = []
+	let lastLiveMedia = {}
+	let lastBlockName = ''
 	for ( const clientId of clientIds ) {
 		const block = blockSelect.getBlock?.( clientId )
 		if ( ! block ) {
 			missing.push( refForClientId( clientId ) || clientId )
 			continue
 		}
-		const normalized = normalizeAttributesForBlock( block.name, attributes, ctx.wp )
+		const liveAttrs = block.attributes && typeof block.attributes === 'object' ? block.attributes : {}
+		const type = ctx.wp?.blocks?.getBlockType?.( block.name )
+		const schemaKeys = type?.attributes && typeof type.attributes === 'object'
+			? Object.keys( type.attributes )
+			: []
+		const resolved = resolveAttributePatch( liveAttrs, attributes, {
+			blockName: block.name,
+			schemaKeys,
+		} )
+		Object.assign( remapped, resolved.remapped )
+		for ( const key of resolved.ignored ) {
+			if ( ! ignored.includes( key ) ) {
+				ignored.push( key )
+			}
+		}
+		lastLiveMedia = pickMediaEssentialAttrs( liveAttrs, block.name )
+		lastBlockName = block.name
+		if ( ! Object.keys( resolved.patch ).length ) {
+			continue
+		}
+		const normalized = normalizeAttributesForBlock( block.name, resolved.patch, ctx.wp )
 		dispatch.updateBlockAttributes( clientId, normalized )
+		const after = blockSelect.getBlock?.( clientId )
+		const afterAttrs = after?.attributes && typeof after.attributes === 'object' ? after.attributes : {}
+		if ( ! patchLanded( afterAttrs, resolved.patch ) ) {
+			lastLiveMedia = pickMediaEssentialAttrs( afterAttrs, block.name )
+			continue
+		}
 		updated.push( clientId )
+		for ( const key of Object.keys( normalized ) ) {
+			echoed[ key ] = afterAttrs[ key ]
+		}
+	}
+	if ( ! updated.length ) {
+		return {
+			ok: false,
+			error: missing.length && missing.length === clientIds.length
+				? 'block_not_found'
+				: 'attributes_not_applied',
+			updated_refs: [],
+			missing: missing.length ? missing : undefined,
+			ignored_keys: ignored.length ? ignored : undefined,
+			remapped: Object.keys( remapped ).length ? remapped : undefined,
+			live_media: capValue( lastLiveMedia ),
+			message: missing.length && missing.length === clientIds.length
+				? __( 'One or more block refs were not found. Re-call get-blocks or get-selection and use the fresh refs.', 'ahentic' )
+				: __( 'The block did not receive these attribute values. Guessed keys were not written.', 'ahentic' ),
+			hint: lastBlockName
+				? __( 'Use the live_media keys from this result (or get-blocks on this ref) and retry update-block-attributes.', 'ahentic' )
+				: undefined,
+		}
 	}
 	return {
-		ok: updated.length > 0,
+		ok: true,
 		updated_refs: refsForClientIds( updated ),
 		missing: missing.length ? missing : undefined,
-		attributes: capValue( attributes ),
+		attributes: capValue( echoed ),
+		remapped: Object.keys( remapped ).length ? remapped : undefined,
+		ignored_keys: ignored.length ? ignored : undefined,
 		...( missing.length
 			? {
 				message: __( 'One or more block refs were not found. Re-call get-blocks or get-selection and use the fresh refs.', 'ahentic' ),
