@@ -3,3 +3,6 @@ vendor/
 build/
 dist/
 *.min.css
+
+# Nested Spruce/Sass docs site. Plugin lint-style is WordPress CSS for src/.
+docs-site
