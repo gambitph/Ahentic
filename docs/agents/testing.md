@@ -54,7 +54,7 @@ default seams for Ahentic:
   (`execute_*` / permission). HITL, browser pause, `from_memory`, and assess
   live in `Ahentic_Tool_Runner`, not here. Module e2e specs hit `execute` via
   the harness; pipeline characterization uses `orchestrator-pipeline.spec.js`.
-- `Ahentic_AI::complete_chat()` — the orchestrator's one LLM call site.
+- `Ahentic_AI::complete_chat()` - Think/Debug's one LLM call site (`run_think` → `run_llm_phase`).
   Dispatch logic (Core vs. SDK vs. unavailable) is a wp-mocked PHPUnit seam;
   the `pre_ahentic_ai_complete_chat` filter it exposes is the e2e mocking seam.
 - `Ahentic_Session_Repository` HITL/session state (preallow lists, snapshot

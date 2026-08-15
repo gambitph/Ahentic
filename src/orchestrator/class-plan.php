@@ -5,7 +5,8 @@
  * Deep module: may this Session show / advance a plan card?
  * Primary interface: sync_after_think(), ensure_after_think(), advance_after_tool(),
  * complete_on_finish(), pause_for_user(), cancel_on_stop(), reopen_cancelled_steps().
- * The Orchestrator must call these — do not reimplement plan FSM at call sites.
+ * The Orchestrator and Think/Debug must call these. Do not reimplement plan FSM at call sites.
+ * Think/Debug owns sync_after_think / ensure_after_think (including plan-missing LLM retry).
  */
 
 // Exit if accessed directly.
@@ -553,7 +554,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 * Whether this think requires a persisted plan (Agent + ≥2 tools or any write).
 		 *
 		 * @param string $mode    agent|ask.
-		 * @param array  $planned Normalized tools_planned (from Orchestrator::normalize_tool_calls).
+		 * @param array  $planned Normalized tools_planned (from Think_Debug::normalize_tool_calls).
 		 * @return bool
 		 */
 		public static function requires_for_think( $mode, array $planned ) {
@@ -577,7 +578,7 @@ if ( ! class_exists( 'Ahentic_Plan' ) ) {
 		 *
 		 * @param int   $session_id Session ID.
 		 * @param array $debug      Parsed debug block.
-		 * @param array $planned    Normalized tools_planned (from Orchestrator::normalize_tool_calls).
+		 * @param array $planned    Normalized tools_planned (from Think_Debug::normalize_tool_calls).
 		 */
 		private static function ensure_synthetic( $session_id, $debug, array $planned = array() ) {
 			if ( Ahentic_Session_Repository::get_plan( $session_id ) ) {

@@ -3,7 +3,7 @@
  * Prompt / chat-payload assembler for the agent think phase.
  *
  * Owns system prompt text, history compaction, and user-turn shaping.
- * The Orchestrator calls for_llm() — do not reimplement prompt assembly at call sites.
+ * Think/Debug calls for_llm() for each LLM phase. Do not reimplement prompt assembly at call sites.
  */
 
 // Exit if accessed directly.
