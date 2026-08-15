@@ -1557,7 +1557,7 @@ export default function Sidebar() {
 						placeholder={
 							activeStatus === 'awaiting_human' && activePendingTool
 								? __( 'Send to change direction (skips this approval)…', 'ahentic' )
-								: __( 'Plan, Build, / for skills, @ for context', 'ahentic' )
+								: __( 'Plan, Build…', 'ahentic' )
 						}
 						disabled={ ! canGenerate }
 						inputDisabled={

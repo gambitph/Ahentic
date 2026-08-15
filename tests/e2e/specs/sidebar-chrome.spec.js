@@ -80,7 +80,7 @@ test.describe( 'Sidebar chrome', () => {
 		await expect( ahenticSidebar.composer ).toBeVisible()
 		await expect( ahenticSidebar.composer ).toHaveAttribute( 'aria-label', 'Ask Ahentic' )
 		await expect(
-			ahenticSidebar.sidebar.getByPlaceholder( 'Plan, Build, / for skills, @ for context' )
+			ahenticSidebar.sidebar.getByPlaceholder( 'Plan, Build…' )
 		).toBeVisible()
 		await expect( ahenticSidebar.sidebar.getByRole( 'button', { name: 'Select mode' } ) ).toContainText( 'Agent' )
 		await expect( ahenticSidebar.tabs.first() ).toContainText( 'New Agent' )

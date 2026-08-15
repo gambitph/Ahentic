@@ -5,6 +5,9 @@
  * attach = free v3 (pro__premium_only/docs/future-prompt-file-attachments.md);
  * voice = Premium v3 (pro__premium_only/docs/future-prompt-voice-input.md). Grill before wiring.
  *
+ * Placeholder omits "/ for skills" and "@ for context" until those composer
+ * affordances exist. Restore them when slash skills and @ mentions ship.
+ *
  * Right-most control: Send (idle) or Stop (active run) — never both (Cursor-style).
  */
 
@@ -66,7 +69,7 @@ export default function Composer( {
 	disabledHint = '',
 	connectorsUrl = '',
 	blockedCtaLabel = '',
-	placeholder = __( 'Plan, Build, / for skills, @ for context', 'ahentic' ),
+	placeholder = __( 'Plan, Build…', 'ahentic' ),
 	error = '',
 	errorCode = '',
 	settingsUrl = '',
