@@ -287,7 +287,31 @@ export function refreshFeedbackSiteToken() {
 }
 
 /**
+ * Submit Run feedback: mint if needed, draft, and file in one request.
+ *
+ * Sidebar Yes/No is consent. Pass `kind: 'success'` or `'failure'` plus an
+ * optional failure snapshot (`user_note`, `page_context`, `editor_snapshot`,
+ * `observations`).
+ *
+ * @param {number|string} id
+ * @param {Object}        [body] kind, user_note, page_context, editor_snapshot, observations.
+ * @return {Promise<{ action: string, number: number, html_url: string }>} Intake result.
+ */
+export function submitRunFeedbackReport( id, body = {} ) {
+	return apiRequest( '/feedback/submit', {
+		method: 'POST',
+		body: JSON.stringify( {
+			/* eslint-disable-next-line camelcase -- session_id matches PHP REST args. */
+			session_id: Number( id ),
+			...body,
+		} ),
+	} )
+}
+
+/**
  * Draft title/summary (and hypothesis on failure) for a session via the PHP AI path.
+ *
+ * Prefer submitRunFeedbackReport from the sidebar. Kept for the two-phase REST seam.
  *
  * @param {number|string} id
  * @param {Object}        [body] kind, user_note, page_context, editor_snapshot, observations.

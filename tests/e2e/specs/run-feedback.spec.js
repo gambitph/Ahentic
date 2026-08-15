@@ -220,4 +220,112 @@ test.describe( 'Run feedback intake proxy (REST)', () => {
 			hypothesis: 'get-site-snapshot succeeded but the follow-up write never ran.',
 		} )
 	} )
+
+	test( 'POST /feedback/submit mints, drafts, and files in one call', async ( {
+		requestUtils,
+	} ) => {
+		const { sessionId } = await startRun( requestUtils, {
+			aiReplies: [
+				mockUseTools(
+					'Looking at recent posts…',
+					[ { name: 'ahentic/get-site-snapshot', input: {} } ],
+					{ plan: ARTICLE_PLAN }
+				),
+				mockAiError(),
+			],
+			content: 'write a long article based on my previous posts',
+		} )
+
+		await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'idle' && Boolean( s.jobResumable )
+		)
+
+		await seedAiResponses( requestUtils, [
+			JSON.stringify( {
+				title: 'E2E submit good run',
+				summary: 'Goal was a long article. Ahentic gathered posts then stalled. User marked the run good.',
+				abilities: [ 'ahentic/get-site-snapshot' ],
+			} ),
+		] )
+
+		const filed = await requestUtils.rest( {
+			path: '/ahentic/v1/feedback/submit',
+			method: 'POST',
+			data: {
+				session_id: Number( sessionId ),
+				kind: 'success',
+			},
+		} )
+
+		expect( filed ).toMatchObject( {
+			action: 'created',
+			number: 4242,
+			html_url: expect.stringContaining( 'github.com/gambitph/Ahentic/issues/4242' ),
+		} )
+
+		const last = await requestUtils.rest( {
+			path: '/ahentic-e2e/v1/last-intake-report',
+		} )
+		expect( last.kind ).toBe( 'success' )
+		expect( last.title ).toBe( 'E2E submit good run' )
+		expect( last ).not.toHaveProperty( 'debug_pack' )
+		expect( last.abilities_mentioned ).toEqual( [ 'ahentic/get-site-snapshot' ] )
+	} )
+
+	test( 'POST /feedback/submit failure includes a debug pack', async ( {
+		requestUtils,
+	} ) => {
+		const { sessionId } = await startRun( requestUtils, {
+			aiReplies: [
+				mockUseTools(
+					'Looking at recent posts…',
+					[ { name: 'ahentic/get-site-snapshot', input: {} } ],
+					{ plan: ARTICLE_PLAN }
+				),
+				mockAiError(),
+			],
+			content: 'write a long article based on my previous posts',
+		} )
+
+		await waitForSession(
+			requestUtils,
+			sessionId,
+			s => s.status === 'idle' && Boolean( s.jobResumable )
+		)
+
+		await seedAiResponses( requestUtils, [
+			JSON.stringify( {
+				title: 'E2E submit failure',
+				summary: 'The run stalled after gathering posts.',
+				hypothesis: 'The follow-up write never ran.',
+			} ),
+		] )
+
+		const filed = await requestUtils.rest( {
+			path: '/ahentic/v1/feedback/submit',
+			method: 'POST',
+			data: {
+				session_id: Number( sessionId ),
+				kind: 'failure',
+				user_note: 'It edited the wrong page.',
+			},
+		} )
+
+		expect( filed ).toMatchObject( {
+			action: 'created',
+			number: 4242,
+			html_url: expect.stringContaining( 'github.com/gambitph/Ahentic/issues/4242' ),
+		} )
+
+		const last = await requestUtils.rest( {
+			path: '/ahentic-e2e/v1/last-intake-report',
+		} )
+		expect( last.kind ).toBe( 'failure' )
+		expect( last.title ).toBe( 'E2E submit failure' )
+		expect( last.debug_pack ).toEqual( expect.any( String ) )
+		expect( last.debug_pack.length ).toBeGreaterThan( 0 )
+		expect( last.summary ).toContain( 'It edited the wrong page.' )
+	} )
 } )

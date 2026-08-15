@@ -1,6 +1,6 @@
 <?php
 /**
- * Think/debug pure helpers: usable next, missing-ability signals, ability name normalize, progress labels.
+ * Think/debug pure helpers: usable next, missing-ability signals, ability name normalize, progress labels, tools_planned shape.
  *
  * Session-backed retry / queue / publish stay in e2e (orchestrator-pipeline).
  *
@@ -346,5 +346,58 @@ class ThinkDebugTest extends TestCase {
 		$this->assertTrue( Ahentic_Think_Debug::should_use_slim_debug_retry( 2 ) );
 		$this->assertTrue( Ahentic_Think_Debug::should_use_slim_debug_retry( 3 ) );
 		$this->assertFalse( Ahentic_Think_Debug::should_use_slim_debug_retry( 0 ) );
+	}
+
+	/**
+	 * tools_planned becomes [{name, input}, …]; aliases and list-array input are coerced.
+	 */
+	public function test_normalize_tool_calls_accepts_strings_and_aliases() {
+		$this->assertSame( array(), Ahentic_Think_Debug::normalize_tool_calls( null ) );
+		$this->assertSame( array(), Ahentic_Think_Debug::normalize_tool_calls( 'search' ) );
+		$this->assertSame( array(), Ahentic_Think_Debug::normalize_tool_calls( array( array( 'input' => array( 'k' => 'v' ) ) ) ) );
+
+		$this->assertSame(
+			array(
+				array(
+					'name'  => 'ahentic/search-content',
+					'input' => array(),
+				),
+			),
+			Ahentic_Think_Debug::normalize_tool_calls( array( 'ahentic/search-content' ) )
+		);
+
+		$this->assertSame(
+			array(
+				array(
+					'name'  => 'ahentic/update-option',
+					'input' => array(
+						'key'   => 'blogname',
+						'value' => 'X',
+					),
+				),
+			),
+			Ahentic_Think_Debug::normalize_tool_calls(
+				array(
+					array(
+						'ability' => 'ahentic/update-option',
+						'args'    => array(
+							'key'   => 'blogname',
+							'value' => 'X',
+						),
+					),
+				)
+			)
+		);
+
+		$from_id = Ahentic_Think_Debug::normalize_tool_calls(
+			array(
+				array(
+					'id'    => 'ahentic/search-content',
+					'input' => array( 'ignored-list-item' ),
+				),
+			)
+		);
+		$this->assertSame( 'ahentic/search-content', $from_id[0]['name'] );
+		$this->assertSame( array(), $from_id[0]['input'] );
 	}
 }

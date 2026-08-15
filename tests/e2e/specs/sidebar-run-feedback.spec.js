@@ -109,8 +109,8 @@ test.describe( 'Sidebar run feedback', () => {
 		} )
 		await expect( ahenticSidebar.runFeedback ).toBeVisible( { timeout: 15_000 } )
 
-		// Draft for /feedback/draft — seed after the chat turn so the orchestrator
-		// cannot consume it as a second model reply.
+		// Draft consumed by POST /feedback/submit — seed after the chat turn so the
+		// orchestrator cannot consume it as a second model reply.
 		await ahenticSidebar.seedAiResponses( [
 			JSON.stringify( {
 				title: 'E2E run feedback',

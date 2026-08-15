@@ -6,12 +6,7 @@
 
 import { useCallback, useState } from '@wordpress/element'
 import { __ } from '@wordpress/i18n'
-import {
-	draftRunFeedbackReport,
-	fileRunFeedbackReport,
-	getFeedbackStatus,
-	mintFeedbackSiteToken,
-} from './api'
+import { submitRunFeedbackReport } from './api'
 import { collectRunFeedbackSnapshot } from './run-feedback-snapshot'
 
 /**
@@ -37,24 +32,11 @@ export function shouldShowRunFeedback( session, dismissed = false ) {
 	return messages.some( message => message?.role === 'user' )
 }
 
-/**
- * Ensure the site has a stored intake token (mint with mint proof if needed).
- *
- * @return {Promise<Object>} Feedback status.
- */
-export async function ensureFeedbackOptIn() {
-	const status = await getFeedbackStatus()
-	if ( status.hasToken ) {
-		return status
-	}
-	return mintFeedbackSiteToken()
-}
-
 /** Max length for optional user_note — keep in sync with Ahentic_Feedback_Intake::USER_NOTE_MAX_LENGTH. */
 export const RUN_FEEDBACK_USER_NOTE_MAX = 1000
 
 /**
- * Map a file/draft error to rate-limit copy when intake returns 429.
+ * Map a submit error to rate-limit copy when intake returns 429.
  *
  * @param {Object} err
  * @return {string} User-facing error copy.
@@ -68,27 +50,6 @@ function fileErrorMessage( err ) {
 		)
 	}
 	return err?.message || __( 'Could not file Run feedback.', 'ahentic' )
-}
-
-/**
- * Merge a draft response onto a file payload.
- *
- * @param {Object} payload
- * @param {Object} drafted
- */
-function applyDraftedFields( payload, drafted ) {
-	if ( drafted?.title ) {
-		payload.title = drafted.title
-	}
-	if ( drafted?.summary ) {
-		payload.summary = drafted.summary
-	}
-	if ( drafted?.hypothesis ) {
-		payload.hypothesis = drafted.hypothesis
-	}
-	if ( Array.isArray( drafted?.abilities ) && drafted.abilities.length ) {
-		payload.abilities = drafted.abilities
-	}
 }
 
 /**
@@ -116,15 +77,7 @@ export default function RunFeedbackBar( {
 		setFilingKind( 'success' )
 		setPhase( 'working' )
 		try {
-			await ensureFeedbackOptIn()
-			const payload = { kind: 'success' }
-			try {
-				const drafted = await draftRunFeedbackReport( sessionId, { kind: 'success' } )
-				applyDraftedFields( payload, drafted )
-			} catch {
-				// File still succeeds with a static good-run title.
-			}
-			const filed = await fileRunFeedbackReport( sessionId, payload )
+			const filed = await submitRunFeedbackReport( sessionId, { kind: 'success' } )
 			setResultUrl( filed?.html_url || '' )
 			setPhase( 'done' )
 		} catch ( err ) {
@@ -163,23 +116,15 @@ export default function RunFeedbackBar( {
 		setFilingKind( 'failure' )
 		setPhase( 'working' )
 		try {
-			await ensureFeedbackOptIn()
 			const note = String( userNote || '' ).trim()
-			const snapshot = collectRunFeedbackSnapshot()
 			const payload = {
 				kind: 'failure',
-				...snapshot,
+				...collectRunFeedbackSnapshot(),
 			}
 			if ( note ) {
 				payload.user_note = note
 			}
-			try {
-				const drafted = await draftRunFeedbackReport( sessionId, payload )
-				applyDraftedFields( payload, drafted )
-			} catch {
-				// File still succeeds with a static title; snapshot stays on the pack.
-			}
-			const filed = await fileRunFeedbackReport( sessionId, payload )
+			const filed = await submitRunFeedbackReport( sessionId, payload )
 			setResultUrl( filed?.html_url || '' )
 			setPhase( 'done' )
 		} catch ( err ) {
