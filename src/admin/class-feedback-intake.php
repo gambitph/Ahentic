@@ -258,7 +258,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		}
 
 		/**
-		 * POST JSON to intake. Filter `pre_ahentic_feedback_intake_request` may short-circuit.
+		 * POST JSON to intake. Filter `ahentic_pre_feedback_intake_request` may short-circuit.
 		 *
 		 * @param string $path Relative path (e.g. /v1/reports).
 		 * @param array  $body Request body.
@@ -275,7 +275,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			 * @param array                $body JSON body.
 			 * @param string               $url  Absolute URL.
 			 */
-			$pre = apply_filters( 'pre_ahentic_feedback_intake_request', null, $path, $body, $url );
+			$pre = apply_filters( 'ahentic_pre_feedback_intake_request', null, $path, $body, $url );
 			if ( null !== $pre ) {
 				return $pre;
 			}
@@ -682,11 +682,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		public static function append_user_note_to_summary( $summary, $user_note ) {
 			$summary = (string) $summary;
 			$note    = (string) $user_note;
-			if ( function_exists( 'wp_strip_all_tags' ) ) {
-				$note = wp_strip_all_tags( $note );
-			} else {
-				$note = strip_tags( $note );
-			}
+			$note = wp_strip_all_tags( $note );
 			$note = trim( $note );
 			if ( '' === $note ) {
 				return $summary;
@@ -713,11 +709,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		public static function append_hypothesis_to_summary( $summary, $hypothesis ) {
 			$summary    = (string) $summary;
 			$hypothesis = (string) $hypothesis;
-			if ( function_exists( 'wp_strip_all_tags' ) ) {
-				$hypothesis = wp_strip_all_tags( $hypothesis );
-			} else {
-				$hypothesis = strip_tags( $hypothesis );
-			}
+			$hypothesis = wp_strip_all_tags( $hypothesis );
 			$hypothesis = trim( $hypothesis );
 			if ( '' === $hypothesis ) {
 				return $summary;
@@ -768,11 +760,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 		public static function draft_fields_from_prose( $kind, $text ) {
 			$kind    = self::normalize_report_kind( $kind );
 			$summary = (string) $text;
-			if ( function_exists( 'wp_strip_all_tags' ) ) {
-				$summary = wp_strip_all_tags( $summary );
-			} else {
-				$summary = strip_tags( $summary );
-			}
+			$summary = wp_strip_all_tags( $summary );
 			$summary = trim( self::scrub_text( $summary ) );
 			if ( '' === $summary ) {
 				return new WP_Error(
@@ -1021,11 +1009,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			$work       = self::work_excerpt_from_trace( $trace );
 
 			$note = (string) $user_note;
-			if ( function_exists( 'wp_strip_all_tags' ) ) {
-				$note = wp_strip_all_tags( $note );
-			} else {
-				$note = strip_tags( $note );
-			}
+			$note = wp_strip_all_tags( $note );
 			$note = trim( self::scrub_text( $note ) );
 			if ( strlen( $note ) > self::USER_NOTE_MAX_LENGTH ) {
 				$note = substr( $note, 0, self::USER_NOTE_MAX_LENGTH );
@@ -1214,7 +1198,7 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			 * @param mixed  $pre   Null to continue.
 			 * @param string $query Search query string.
 			 */
-			$pre = apply_filters( 'pre_ahentic_feedback_duplicate_search', null, $q );
+			$pre = apply_filters( 'ahentic_pre_feedback_duplicate_search', null, $q );
 			if ( null !== $pre ) {
 				return is_int( $pre ) ? $pre : null;
 			}
@@ -1376,11 +1360,6 @@ if ( ! class_exists( 'Ahentic_Feedback_Intake' ) ) {
 			$session_id = self::require_session( $session_id );
 			if ( is_wp_error( $session_id ) ) {
 				return $session_id;
-			}
-
-			if ( function_exists( 'set_time_limit' ) ) {
-				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- draft + file in one request.
-				@set_time_limit( 180 );
 			}
 
 			$enrolled = self::ensure_enrolled_token();

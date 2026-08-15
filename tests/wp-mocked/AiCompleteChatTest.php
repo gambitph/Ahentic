@@ -12,7 +12,7 @@ use Brain\Monkey\Functions;
 require_once __DIR__ . '/WP_Mocked_TestCase.php';
 
 /**
- * Covers the `pre_ahentic_ai_complete_chat` mocking seam (what the e2e
+ * Covers the `ahentic_pre_ai_complete_chat` mocking seam (what the e2e
  * suite's AI-mock queue relies on, see
  * tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php) and the "no provider
  * configured" branch — both previously uncovered by the pure-PHP suite
@@ -32,7 +32,7 @@ class AiCompleteChatTest extends WP_Mocked_TestCase {
 	}
 
 	/**
-	 * A non-null `pre_ahentic_ai_complete_chat` result short-circuits
+	 * A non-null `ahentic_pre_ai_complete_chat` result short-circuits
 	 * complete_chat() before it ever reaches a real provider. If the
 	 * short-circuit didn't happen, execution would fall through to
 	 * function_exists()/class_exists() checks against AI client symbols that
@@ -45,7 +45,7 @@ class AiCompleteChatTest extends WP_Mocked_TestCase {
 			'model' => 'ahentic-e2e-mock',
 		);
 
-		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )
+		Filters\expectApplied( 'ahentic_pre_ai_complete_chat' )
 			->once()
 			->andReturn( $canned );
 
@@ -58,7 +58,7 @@ class AiCompleteChatTest extends WP_Mocked_TestCase {
 	 * Core path: a successful generate_text_result() becomes complete_chat() text.
 	 */
 	public function test_core_complete_chat_returns_generated_text() {
-		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
+		Filters\expectApplied( 'ahentic_pre_ai_complete_chat' )->once()->andReturn( null );
 
 		$result = Ahentic_AI::complete_chat( 'system prompt', array(), 'hello' );
 
@@ -71,7 +71,7 @@ class AiCompleteChatTest extends WP_Mocked_TestCase {
 	 * Chat generate uses the same 120s RequestOptions ceiling as image generation.
 	 */
 	public function test_core_complete_chat_sets_request_timeout() {
-		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
+		Filters\expectApplied( 'ahentic_pre_ai_complete_chat' )->once()->andReturn( null );
 
 		Ahentic_AI::complete_chat( 'system prompt', array(), 'hello' );
 
@@ -92,7 +92,7 @@ class AiCompleteChatTest extends WP_Mocked_TestCase {
 				return true;
 			}
 		);
-		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
+		Filters\expectApplied( 'ahentic_pre_ai_complete_chat' )->once()->andReturn( null );
 
 		Ahentic_AI::complete_chat( 'system prompt', array(), 'hello' );
 
@@ -105,7 +105,7 @@ class AiCompleteChatTest extends WP_Mocked_TestCase {
 	 * generate once - do not pay a second generate_text_result().
 	 */
 	public function test_core_complete_chat_drops_max_tokens_when_unsupported_and_generates_once() {
-		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
+		Filters\expectApplied( 'ahentic_pre_ai_complete_chat' )->once()->andReturn( null );
 		Ahentic_Test_Prompt_Builder::$supported_with_max_tokens = false;
 
 		$result = Ahentic_AI::complete_chat( 'system prompt', array(), 'hello' );
@@ -120,7 +120,7 @@ class AiCompleteChatTest extends WP_Mocked_TestCase {
 	 * Provider/builder WP_Error is returned as-is (fail soft, no fatal).
 	 */
 	public function test_core_complete_chat_returns_generate_wp_error() {
-		Filters\expectApplied( 'pre_ahentic_ai_complete_chat' )->once()->andReturn( null );
+		Filters\expectApplied( 'ahentic_pre_ai_complete_chat' )->once()->andReturn( null );
 		Ahentic_Test_Prompt_Builder::$generate_result = new WP_Error(
 			'prompt_invalid_argument',
 			'No models found that support text_generation for this prompt.'

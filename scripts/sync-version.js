@@ -85,6 +85,12 @@ function compareWordPressVersions( a, b ) {
 	return 0
 }
 
+// Helper: Remove sub-version after x.y, e.g., '6.5.2' => '6.5'
+function stripWpPatchVersion( version ) {
+	const parts = version.split( '.' )
+	return parts.length >= 2 ? `${ parts[ 0 ] }.${ parts[ 1 ] }` : version
+}
+
 async function syncVersions() {
 	try {
 		const ahenticPhp = fs.readFileSync( 'ahentic.php', 'utf8' )
@@ -126,8 +132,11 @@ async function syncVersions() {
 		// eslint-disable-next-line no-console
 		console.log( '🌐 Fetching available WordPress versions...' )
 		const availableVersions = await getAvailableWordPressVersions()
-		const latestWordPressVersion = availableVersions[ 0 ]
-		const minWordPressVersion = calculateMinVersion( latestWordPressVersion, availableVersions )
+		const latestWordPressVersionRaw = availableVersions[ 0 ]
+		const minWordPressVersion = calculateMinVersion( latestWordPressVersionRaw, availableVersions )
+
+		// Remove patch (z) version for fields in readme.txt
+		const latestWordPressVersion = stripWpPatchVersion( latestWordPressVersionRaw )
 
 		// eslint-disable-next-line no-console
 		console.log( `📊 Latest WordPress version: ${ latestWordPressVersion }` )
@@ -166,6 +175,7 @@ async function syncVersions() {
 		const testedUpToMatch = readmeTxt.match( /^Tested up to:\s*([^\r\n]+)/m )
 		if ( testedUpToMatch ) {
 			const currentTestedUpTo = testedUpToMatch[ 1 ].trim()
+			// Compare using original (unstripped) version, but update with stripped version.
 			const readmeIsAhead = compareWordPressVersions( currentTestedUpTo, latestWordPressVersion ) > 0
 
 			if ( readmeIsAhead ) {

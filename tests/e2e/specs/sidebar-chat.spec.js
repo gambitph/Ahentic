@@ -5,7 +5,7 @@
  * that the ability-dispatch seam works in isolation (see
  * content-and-plugins.spec.js for that REST-direct tier).
  *
- * `pre_ahentic_ai_status` is force-"ready" by the e2e mu-plugin (see
+ * `ahentic_pre_ai_status` is force-"ready" by the e2e mu-plugin (see
  * tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php) so the composer isn't
  * disabled for lack of a real AI plugin/connector — only the response text
  * is mocked, not the run itself.

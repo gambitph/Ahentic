@@ -548,7 +548,7 @@ if ( ! class_exists( 'Ahentic_Finish_Gate' ) ) {
 			if ( '' === trim( $preview ) ) {
 				return false;
 			}
-			$stripped = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $preview ) : strip_tags( $preview );
+			$stripped = wp_strip_all_tags( $preview );
 			return (bool) preg_match(
 				'/^\s*(lorem ipsum|placeholder|\[full article\]|todo:?\s*write|coming soon)/i',
 				$stripped

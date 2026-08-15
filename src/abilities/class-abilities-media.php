@@ -1281,6 +1281,8 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 		 * @return array|\WP_Error
 		 */
 		public static function execute_replace_media_file( $input = array() ) {
+			global $wp_filesystem;
+
 			$input = is_array( $input ) ? $input : array();
 
 			if ( ! empty( $input['from_memory'] ) && empty( $input['source_path'] ) && class_exists( 'Ahentic_Session_Artifacts' ) ) {
@@ -1327,8 +1329,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 
 			if ( ! empty( $sideloaded['error'] ) ) {
 				if ( $tmp_to_clean && file_exists( $tmp_to_clean ) ) {
-					// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-					@unlink( $tmp_to_clean );
+					wp_delete_file( $tmp_to_clean );
 				}
 				return new WP_Error(
 					'ahentic_replace_sideload_failed',
@@ -1359,8 +1360,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 					}
 					$thumb = trailingslashit( $dir ) . $size['file'];
 					if ( file_exists( $thumb ) && $thumb !== $new_file ) {
-						// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-						@unlink( $thumb );
+						wp_delete_file( $thumb );
 					}
 				}
 			}
@@ -1370,19 +1370,20 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				$dir    = dirname( $dest );
 				$target = $dest; // Always rewrite the existing attached path (stable URL).
 				if ( $new_file !== $target ) {
-					// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-					$moved = @rename( $new_file, $target );
+					// Initialize the WP_Filesystem if not already available
+					if ( empty( $wp_filesystem ) ) {
+						WP_Filesystem();
+					}
+					$moved = $wp_filesystem->move( $new_file, $target, true );
 					if ( ! $moved ) {
 						// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 						$moved = @copy( $new_file, $target );
 						if ( $moved ) {
-							// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-							@unlink( $new_file );
+							wp_delete_file( $new_file );
 						}
 					}
 					if ( ! $moved ) {
-						// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-						@unlink( $new_file );
+						wp_delete_file( $new_file );
 						return new WP_Error( 'ahentic_replace_move_failed', __( 'Could not move the new file into the uploads directory.', 'ahentic' ) );
 					}
 					$new_file = $target;
@@ -1799,8 +1800,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 				)
 			);
 			if ( is_wp_error( $staged ) ) {
-				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-				@unlink( $path );
+				wp_delete_file( $path );
 				return $staged;
 			}
 
@@ -1871,8 +1871,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Media' ) ) {
 			// media_handle_sideload moves/unlinks tmp_name on success; clean only on failure.
 			if ( is_wp_error( $attachment_id ) ) {
 				if ( $tmp_to_clean && file_exists( $tmp_to_clean ) ) {
-					// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-					@unlink( $tmp_to_clean );
+					wp_delete_file( $tmp_to_clean );
 				}
 				return new WP_Error(
 					'ahentic_upload_sideload_failed',

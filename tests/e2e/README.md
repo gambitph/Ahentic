@@ -80,13 +80,13 @@ const result = await runAbility( requestUtils, 'ahentic/list-content', { post_ty
 
 Real chat turns need a real LLM response — driving one for every spec would
 be slow, costly, and non-deterministic. Instead, `Ahentic_AI::complete_chat()`
-(`src/orchestrator/class-ai.php`) has a `pre_ahentic_ai_complete_chat` filter
+(`src/orchestrator/class-ai.php`) has a `ahentic_pre_ai_complete_chat` filter
 that, in production, nothing hooks (a no-op). The e2e mu-plugin hooks it and
 pops from a REST-seeded queue instead of calling a real provider — the
 orchestrator + Tool runner pipeline (HITL / browser / execute / assess) still
 runs end-to-end; only the model call is faked. `src/admin/class-rest.php`'s
 `build_status_payload()`
-has an equivalent `pre_ahentic_ai_status` filter so the sidebar composer isn't
+has an equivalent `ahentic_pre_ai_status` filter so the sidebar composer isn't
 disabled for lack of a real AI plugin/connector. Specs that need a
 localize-time false negative use `seedAiStatusFlake( requestUtils, n )`
 (`POST /ahentic-e2e/v1/seed-ai-status-flake`) — see
@@ -172,7 +172,7 @@ One spec file per subsystem / module, not one per ability — see
   `utils/access-client.js` sets Playground's logout/auto-login guard cookies so
   specs can assert a real logged-out front end.
 - **A browser-driven spec times out with the composer stuck disabled** —
-  confirm `pre_ahentic_ai_status` is still hooked in
+  confirm `ahentic_pre_ai_status` is still hooked in
   `tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php` and that the mu-plugin
   actually mounted (hit `ahentic-e2e/v1/health` and check `abilities_loaded`).
 - **A browser-driven spec renders a real "No AI provider configured" error

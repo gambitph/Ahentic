@@ -1,8 +1,8 @@
 === Ahentic - AI Workspace ===
 Contributors: bfintal, gambitph
 Tags: ai, agent, chatgpt, claude, mcp
-Requires at least: 7.0.3
-Tested up to: 7.0.3
+Requires at least: 7.0.4
+Tested up to: 7.0
 Requires PHP: 7.4
 Stable tag: 0.1.0
 License: GPLv2 or later

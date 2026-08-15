@@ -53,7 +53,7 @@ class AiPluginStatusConnectorTest extends WP_Mocked_TestCase {
 	 * @return void
 	 */
 	private function stub_status_wordpress_bits( $cached_text_gen = false ) {
-		Filters\expectApplied( 'pre_ahentic_ai_status' )->andReturn( null );
+		Filters\expectApplied( 'ahentic_pre_ai_status' )->andReturn( null );
 		Functions\when( 'wp_has_ability' )->justReturn( true );
 		Functions\when( 'get_plugins' )->justReturn( array( 'ai/ai.php' => array() ) );
 		Functions\when( 'is_plugin_active' )->justReturn( true );

@@ -338,12 +338,12 @@ public static function resolve_text_generation() {
 			 * (tests/e2e/mu-plugins/ahentic-e2e-ability-runner.php, never shipped
 			 * with the plugin) does, forcing the sidebar composer "ready" so specs
 			 * can drive real chat turns against a mocked
-			 * `Ahentic_AI::complete_chat()` (see pre_ahentic_ai_complete_chat)
+			 * `Ahentic_AI::complete_chat()` (see ahentic_pre_ai_complete_chat)
 			 * without installing/configuring a real AI provider.
 			 *
 			 * @param array|null $override Non-null to short-circuit with this exact payload; null (default) computes the real status.
 			 */
-			$override = apply_filters( 'pre_ahentic_ai_status', null );
+			$override = apply_filters( 'ahentic_pre_ai_status', null );
 			if ( null !== $override ) {
 				return $override;
 			}

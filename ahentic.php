@@ -50,14 +50,14 @@ add_action( 'plugins_loaded', 'ahentic_maybe_load_composer', 100 );
 /**
  * Load plugin translations.
  */
-function ahentic_load_textdomain() {
-	load_plugin_textdomain(
-		'ahentic',
-		false,
-		dirname( plugin_basename( AHENTIC_FILE ) ) . '/languages'
-	);
-}
-add_action( 'init', 'ahentic_load_textdomain' );
+// function ahentic_load_textdomain() {
+// 	load_plugin_textdomain(
+// 		'ahentic',
+// 		false,
+// 		dirname( plugin_basename( AHENTIC_FILE ) ) . '/languages'
+// 	);
+// }
+// add_action( 'init', 'ahentic_load_textdomain' );
 
 require_once __DIR__ . '/src/session/class-cpt.php';
 require_once __DIR__ . '/src/session/class-repository.php';

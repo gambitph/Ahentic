@@ -14,7 +14,7 @@
  *   same dispatch the orchestrator itself uses — without driving a real LLM
  *   through the sidebar chat loop (`run-ability`).
  * - A queue of canned AI responses that `Ahentic_AI::complete_chat()` pops
- *   from via the `pre_ahentic_ai_complete_chat` filter instead of calling a
+ *   from via the `ahentic_pre_ai_complete_chat` filter instead of calling a
  *   real provider, so sidebar/chat-driven specs are deterministic
  *   (`seed-ai-responses`, `reset`).
  * - A way to seed WordPress fixture data without a slow UI walk-through
@@ -434,7 +434,7 @@ function ahentic_e2e_seed_ai_status_flake( WP_REST_Request $request ) {
 }
 
 /**
- * Push canned AI responses onto the queue `pre_ahentic_ai_complete_chat`
+ * Push canned AI responses onto the queue `ahentic_pre_ai_complete_chat`
  * (below) pops from. Order is preserved: first seeded, first consumed.
  *
  * @param WP_REST_Request $request Incoming request; `responses` is an array
@@ -488,7 +488,7 @@ function ahentic_e2e_reset() {
  * spec seeded, so `Ahentic_AI::complete_chat()` callers never see a missing
  * key regardless of how minimal the spec's fixture was.
  *
- * `Ahentic_AI::complete_chat()` returns a `pre_ahentic_ai_complete_chat`
+ * `Ahentic_AI::complete_chat()` returns a `ahentic_pre_ai_complete_chat`
  * override verbatim (see src/orchestrator/class-ai.php) — it does NOT run
  * `extract_debug_block()` on it the way the real provider paths do. A seeded
  * `text` containing a raw `<<<AHENTIC_DEBUG … AHENTIC_DEBUG>>>` block (see
@@ -536,7 +536,7 @@ function ahentic_e2e_normalize_ai_result( $partial ) {
 }
 
 /**
- * `pre_ahentic_ai_complete_chat` handler: pop the next queued response.
+ * `ahentic_pre_ai_complete_chat` handler: pop the next queued response.
  *
  * Registered unconditionally by this mu-plugin, so the filter is only ever
  * hooked inside the e2e WordPress instance — production Ahentic never loads
@@ -582,7 +582,7 @@ function ahentic_e2e_ai_override( $override ) {
 
 	return ahentic_e2e_normalize_ai_result( $next );
 }
-add_filter( 'pre_ahentic_ai_complete_chat', 'ahentic_e2e_ai_override' );
+add_filter( 'ahentic_pre_ai_complete_chat', 'ahentic_e2e_ai_override' );
 
 /**
  * Always mock vision in the e2e Playground (no real provider).
@@ -602,7 +602,7 @@ function ahentic_e2e_describe_image_override( $override, $file_or_url = '', $mim
 		'alt_text_suggestion' => 'Blue square',
 	);
 }
-add_filter( 'pre_ahentic_ai_describe_image', 'ahentic_e2e_describe_image_override', 10, 3 );
+add_filter( 'ahentic_pre_ai_describe_image', 'ahentic_e2e_describe_image_override', 10, 3 );
 
 /**
  * Always mock image generation in the e2e Playground (1×1 PNG).
@@ -628,10 +628,10 @@ function ahentic_e2e_generate_image_override( $override, $prompt = '', $aspect_r
 		'height'    => 1,
 	);
 }
-add_filter( 'pre_ahentic_ai_generate_image', 'ahentic_e2e_generate_image_override', 10, 3 );
+add_filter( 'ahentic_pre_ai_generate_image', 'ahentic_e2e_generate_image_override', 10, 3 );
 
 /**
- * `pre_ahentic_ai_status` handler: always report the sidebar as ready to
+ * `ahentic_pre_ai_status` handler: always report the sidebar as ready to
  * generate, so the composer isn't disabled and browser-driven specs can send
  * real chat turns against the mocked `complete_chat()` above without an
  * actual AI plugin/connector installed. See src/admin/class-rest.php.
@@ -680,7 +680,7 @@ function ahentic_e2e_ai_status_override( $override ) {
 		'connectorsUrl'   => admin_url( 'options-connectors.php' ),
 	);
 }
-add_filter( 'pre_ahentic_ai_status', 'ahentic_e2e_ai_status_override' );
+add_filter( 'ahentic_pre_ai_status', 'ahentic_e2e_ai_status_override' );
 
 /**
  * Seed WordPress fixture data (posts/users/options/attachments) so a spec doesn't need a
@@ -1069,14 +1069,14 @@ add_action(
  * E2E: mock Run feedback intake (no live Cloudflare Worker).
  */
 add_filter(
-	'pre_ahentic_feedback_duplicate_search',
+	'ahentic_pre_feedback_duplicate_search',
 	static function () {
 		return null;
 	}
 );
 
 add_filter(
-	'pre_ahentic_feedback_intake_request',
+	'ahentic_pre_feedback_intake_request',
 	static function ( $pre, $path, $body = array() ) {
 		if ( null !== $pre ) {
 			return $pre;

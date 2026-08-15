@@ -78,7 +78,7 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			 * @param string     $user     Latest user message.
 			 * @param array      $options  Options passed to complete_chat().
 			 */
-			$override = apply_filters( 'pre_ahentic_ai_complete_chat', null, $system, $history, $user, $options );
+			$override = apply_filters( 'ahentic_pre_ai_complete_chat', null, $system, $history, $user, $options );
 			if ( null !== $override ) {
 				return $override;
 			}
@@ -124,7 +124,7 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			 * @param string     $file_or_url File path or URL.
 			 * @param string     $mime_type MIME.
 			 */
-			$override = apply_filters( 'pre_ahentic_ai_describe_image', null, $file_or_url, $mime_type );
+			$override = apply_filters( 'ahentic_pre_ai_describe_image', null, $file_or_url, $mime_type );
 			if ( null !== $override ) {
 				return $override;
 			}
@@ -436,7 +436,7 @@ if ( ! class_exists( 'Ahentic_AI' ) ) {
 			 * @param string     $prompt Prompt.
 			 * @param string     $aspect_ratio Aspect ratio.
 			 */
-			$override = apply_filters( 'pre_ahentic_ai_generate_image', null, $prompt, $aspect_ratio );
+			$override = apply_filters( 'ahentic_pre_ai_generate_image', null, $prompt, $aspect_ratio );
 			if ( null !== $override ) {
 				return $override;
 			}

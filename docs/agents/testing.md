@@ -56,7 +56,7 @@ default seams for Ahentic:
   the harness; pipeline characterization uses `orchestrator-pipeline.spec.js`.
 - `Ahentic_AI::complete_chat()` - Think/Debug's one LLM call site (`run_think` → `run_llm_phase`).
   Dispatch logic (Core vs. SDK vs. unavailable) is a wp-mocked PHPUnit seam;
-  the `pre_ahentic_ai_complete_chat` filter it exposes is the e2e mocking seam.
+  the `ahentic_pre_ai_complete_chat` filter it exposes is the e2e mocking seam.
 - `Ahentic_Session_Repository` HITL/session state (preallow lists, snapshot
   store, once ADR-0007 lands).
 - `Ahentic_Orchestrator::handle_approval()` and other REST/Abilities API

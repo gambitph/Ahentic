@@ -767,8 +767,7 @@ if ( ! class_exists( 'Ahentic_Session_Artifacts' ) ) {
 				return;
 			}
 			if ( is_file( $real_path ) ) {
-				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- best-effort cleanup
-				@unlink( $real_path );
+				wp_delete_file( $real_path );
 			}
 		}
 

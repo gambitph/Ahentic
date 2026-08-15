@@ -1005,7 +1005,7 @@ if ( ! class_exists( 'Ahentic_Abilities_Site' ) ) {
 			$body = (string) $body;
 			$body = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', ' ', $body );
 			$body = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', ' ', $body );
-			$text = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $body ) : strip_tags( $body );
+			$text = wp_strip_all_tags( $body );
 			$text = preg_replace( '/\s+/', ' ', (string) $text );
 			return trim( (string) $text );
 		}
